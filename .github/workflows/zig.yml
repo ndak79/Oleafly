@@ -1,0 +1,216 @@
+name: Zig T0.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "build.zig"
+      - "build.zig.zon"
+      - "native/zig/**"
+      - "tools/zig/**"
+      - ".github/workflows/zig.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "build.zig"
+      - "build.zig.zon"
+      - "native/zig/**"
+      - "tools/zig/**"
+      - ".github/workflows/zig.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zig-t0.1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zig-windows:
+    name: Zig T0.1 (Windows x64)
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Bootstrap verified Zig 0.16.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $manifest = Get-Content -LiteralPath "tools/zig/toolchain.json" -Raw | ConvertFrom-Json
+          if ($manifest.schema_version -ne 1 -or $manifest.zig_version -ne "0.16.0") { throw "unsupported Zig manifest" }
+          if (@($manifest.allowed_targets) -notcontains "x86_64-windows-msvc") { throw "Windows target is not allowlisted" }
+          $artifact = $manifest.artifacts.windows_x86_64
+          $uri = [Uri]$artifact.url
+          if ($uri.Scheme -ne "https" -or $uri.Host -ne "ziglang.org") { throw "untrusted Zig archive host" }
+          if ($artifact.archive_format -ne "zip") { throw "unexpected Windows archive format" }
+          if ($artifact.root_directory -ne "zig-x86_64-windows-0.16.0") { throw "unexpected Windows archive root" }
+          if ($uri.AbsolutePath -ne "/download/0.16.0/zig-x86_64-windows-0.16.0.zip") { throw "unexpected Windows archive path" }
+          $archive = Join-Path $env:RUNNER_TEMP "zig-x86_64-windows-0.16.0.zip"
+          Invoke-WebRequest -Uri $artifact.url -OutFile $archive
+          $item = Get-Item -LiteralPath $archive
+          if ([int64]$item.Length -ne [int64]$artifact.archive_size_bytes) { throw "Zig archive size mismatch" }
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if ($actual -ne $artifact.sha256.ToLowerInvariant()) { throw "Zig archive SHA-256 mismatch" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $zigRoot = Join-Path $env:RUNNER_TEMP $artifact.root_directory
+          $zigExe = Join-Path $zigRoot "zig.exe"
+          if (-not (Test-Path -LiteralPath $zigExe -PathType Leaf)) { throw "verified Zig executable missing" }
+          $version = (& $zigExe version).Trim()
+          if ($version -ne $manifest.zig_version) { throw "Zig version mismatch: $version" }
+          (Split-Path -Parent $zigExe) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "ZIG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify dependency graph, formatting, and C layout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          zig build --fetch=all
+          zig fmt --check build.zig build.zig.zon native/zig
+          $translated = Join-Path $env:RUNNER_TEMP "oleafly-abi-translated.zig"
+          zig translate-c -I native/zig/include native/zig/include/oleafly_abi.h | Out-File -FilePath $translated -Encoding utf8
+          if (-not (Select-String -LiteralPath $translated -Pattern "oleafly_abi_get_version" -Quiet)) { throw "translated header omitted oleafly_abi_get_version" }
+          if (-not (Select-String -LiteralPath $translated -Pattern "oleafly_abi_version_t" -Quiet)) { throw "translated header omitted oleafly_abi_version_t" }
+          zig cc -target x86_64-windows-msvc -std=c11 -I native/zig/include -c native/zig/fixtures/abi_layout.c -o (Join-Path $env:RUNNER_TEMP "oleafly-abi-layout.obj")
+
+      - name: Run Debug and ReleaseSafe tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          zig build -Doptimize=Debug test --summary all
+          zig build --release=safe test --summary all
+
+      - name: Build ABI, miscompile, and SIMD comparison modes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          zig build -Dtarget=x86_64-windows-msvc --release=safe abi --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast abi --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe miscompile-corpus --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast miscompile-corpus --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe simd-corpus --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast simd-corpus --summary all
+
+      - name: Build and run the Windows executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          zig build -Dtarget=x86_64-windows-msvc --release=safe --summary all
+          $output = (& .\zig-out\bin\oleafly-t0.1.exe 2>&1 | Out-String).Trim()
+          if ($output -ne "oleafly-t0.1 toolchain ok") { throw "unexpected smoke output: $output" }
+
+      - name: Prove two clean ReleaseSafe hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $outA = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-out-a"
+          $outB = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-out-b"
+          $cacheA = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-cache-a"
+          $cacheB = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-cache-b"
+          $globalA = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-global-a"
+          $globalB = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-global-b"
+          zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outA --cache-dir $cacheA --global-cache-dir $globalA --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outB --cache-dir $cacheB --global-cache-dir $globalB --summary all
+          $hashA = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outA "bin\oleafly-t0.1.exe")).Hash.ToLowerInvariant()
+          $hashB = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outB "bin\oleafly-t0.1.exe")).Hash.ToLowerInvariant()
+          if ($hashA -ne $hashB) { throw "ReleaseSafe build is not reproducible: $hashA != $hashB" }
+          Write-Output "ReleaseSafe SHA-256: $hashA"
+
+  zig-linux:
+    name: Zig T0.1 (Linux x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Bootstrap verified Zig 0.16.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.zig_version' tools/zig/toolchain.json)"
+          format="$(jq -r '.artifacts.linux_x86_64.archive_format' tools/zig/toolchain.json)"
+          root="$(jq -r '.artifacts.linux_x86_64.root_directory' tools/zig/toolchain.json)"
+          target="$(jq -r '.allowed_targets[]' tools/zig/toolchain.json | grep -Fx 'x86_64-linux-gnu')"
+          url="$(jq -r '.artifacts.linux_x86_64.url' tools/zig/toolchain.json)"
+          sha="$(jq -r '.artifacts.linux_x86_64.sha256' tools/zig/toolchain.json)"
+          size="$(jq -r '.artifacts.linux_x86_64.archive_size_bytes' tools/zig/toolchain.json)"
+          test "$version" = "0.16.0"
+          test "$target" = "x86_64-linux-gnu"
+          test "$format" = "tar.xz"
+          test "$root" = "zig-x86_64-linux-0.16.0"
+          test "$url" = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+          case "$url" in https://ziglang.org/*) ;; *) echo "untrusted Zig archive host" >&2; exit 1 ;; esac
+          archive="$RUNNER_TEMP/zig-x86_64-linux-0.16.0.tar.xz"
+          curl --fail --location --retry 3 --output "$archive" "$url"
+          test "$(stat -c '%s' "$archive")" = "$size"
+          printf '%s  %s\n' "$sha" "$archive" | sha256sum --check --strict
+          tar -xJf "$archive" -C "$RUNNER_TEMP"
+          test -x "$RUNNER_TEMP/$root/zig"
+          test "$($RUNNER_TEMP/$root/zig version)" = "$version"
+          echo "$RUNNER_TEMP/$root" >> "$GITHUB_PATH"
+          echo "ZIG_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Verify dependency graph, formatting, and C layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build --fetch=all
+          zig fmt --check build.zig build.zig.zon native/zig
+          translated="$RUNNER_TEMP/oleafly-abi-translated.zig"
+          zig translate-c -I native/zig/include native/zig/include/oleafly_abi.h > "$translated"
+          grep -q "oleafly_abi_get_version" "$translated"
+          grep -q "oleafly_abi_version_t" "$translated"
+          zig cc -target x86_64-linux-gnu -std=c11 -I native/zig/include -c native/zig/fixtures/abi_layout.c -o "$RUNNER_TEMP/oleafly-abi-layout.o"
+
+      - name: Run Debug and ReleaseSafe tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug test --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe test --summary all
+
+      - name: Build ABI, miscompile, and SIMD comparison modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build -Dtarget=x86_64-linux-gnu --release=safe abi --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=fast abi --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe miscompile-corpus --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=fast miscompile-corpus --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe simd-corpus --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=fast simd-corpus --summary all
+
+      - name: Build and run the Linux executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build -Dtarget=x86_64-linux-gnu --release=safe --summary all
+          test "$(./zig-out/bin/oleafly-t0.1 2>&1)" = "oleafly-t0.1 toolchain ok"
+
+      - name: Prove two clean ReleaseSafe hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          out_a="$RUNNER_TEMP/oleafly-t0.1-out-a"
+          out_b="$RUNNER_TEMP/oleafly-t0.1-out-b"
+          cache_a="$RUNNER_TEMP/oleafly-t0.1-cache-a"
+          cache_b="$RUNNER_TEMP/oleafly-t0.1-cache-b"
+          global_a="$RUNNER_TEMP/oleafly-t0.1-global-a"
+          global_b="$RUNNER_TEMP/oleafly-t0.1-global-b"
+          zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_a" --cache-dir "$cache_a" --global-cache-dir "$global_a" --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_b" --cache-dir "$cache_b" --global-cache-dir "$global_b" --summary all
+          hash_a="$(sha256sum "$out_a/bin/oleafly-t0.1" | cut -d' ' -f1)"
+          hash_b="$(sha256sum "$out_b/bin/oleafly-t0.1" | cut -d' ' -f1)"
+          test "$hash_a" = "$hash_b"
+          echo "ReleaseSafe SHA-256: $hash_a"
