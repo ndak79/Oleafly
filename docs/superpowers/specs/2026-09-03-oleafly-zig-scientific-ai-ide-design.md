@@ -1,9 +1,10 @@
-# Oleafly Zig Scientific AI IDE Design
+# TExFlow Zig Scientific AI IDE Design
 
 | Field | Decision |
 | --- | --- |
-| Status | Approved system design; T0.1 complete; T0.2 plan under adversarial review; T0.2 implementation has not started |
+| Status | Previously approved system design reopened for the latest isolation, identity, Unicode, search, and licensing corrections; T0.1 complete; T0.2 plan under adversarial review; T0.2 implementation has not started |
 | Decision date | 2026-09-03 |
+| Product identity | `TExFlow`; repository lineage remains `github.com/ndak79/Oleafly` only as source history |
 | Original repository baseline | `2b389eaf7379531e661fabbce22918b123c805ea` |
 | Current implementation baseline | T0.1 evidence commit `4898f33c88ca93e95295d2da5c4ffa367b90a8d6` |
 | Target | Windows-first native desktop application |
@@ -13,25 +14,75 @@
 | Architecture label | C+ event-driven native instrument |
 
 This document records the four approved design checkpoints for rewriting
-Oleafly. It is a design contract, not a claim that the rewrite already exists.
+TExFlow. It is a design contract, not a claim that the rewrite already exists.
 The legacy React, TypeScript, Tauri, and Rust application remains the behavioral
 comparison oracle until a verified Zig slice replaces each journey. It is not
 normative: this specification, explicit acceptance criteria, and user intent
 override legacy bugs, accidental behavior, and removed scope.
 
 `C+` is only the name of the selected architecture option. It does not mean
-that Oleafly will be implemented in C++. Oleafly-owned executable logic is Zig.
+that TExFlow will be implemented in C++. TExFlow-owned executable logic is Zig.
 Reviewed C or C++ libraries may be linked as native dependencies, and reviewed
 external tools may run out of process.
 
-![C+ Evidence Instrument direction](../../assets/zig-evidence-instrument-direction.png)
+The canonical product/display name and publisher-facing executable stem are
+exactly `TExFlow`. Shipping PE files are `TExFlow.exe`,
+`TExFlow.PdfWorker.exe`, and `TExFlow.ScienceWorker.exe`; later role images use
+the same `TExFlow.<Role>Worker.exe` grammar. Machine-facing protocol/hash/ETW
+and plain-folder metadata namespaces use lowercase ASCII `texflow` (including
+`.texflow/`) so case folding is deterministic. `Oleafly` may appear only in the
+historical repository URL, frozen unshipped legacy-oracle sources/documents,
+explicitly inventoried migration identifiers, legally required source-lineage
+attribution/notice text, and pre-rename audit paths; it is never a
+new window title, binary, package identity, data root, telemetry provider,
+protocol domain, or user-facing product string. The legacy tree remains a
+read-only comparison input during staged replacement and is excluded from every
+TExFlow install/package inventory. T0.2c retires the installed
+`oleafly-t0.1` console artifact, preserves its toolchain-smoke intent as a
+test-only Zig gate under the lowercase `texflow` test namespace, and renames the
+internal T0.1 ABI/header/symbol namespace to `texflow`; no legacy-named PE or
+compatibility alias is installed or shipped because T0.1 has no external ABI
+consumer.
+
+Windows identity is equally exact. The main window title and `ProductName` are
+`TExFlow`. PE `OriginalFilename` values match the three filenames above;
+`InternalName` values are `TExFlow`, `TExFlow.PdfWorker`, and
+`TExFlow.ScienceWorker`; worker `FileDescription` values are `TExFlow PDF
+Worker` and `TExFlow Science Worker`. The UI description is `TExFlow`. The
+machine-facing main-window class is `texflow.main.v1`. T0.2 embeds no invented
+legal `CompanyName`, copyright owner, signer, or MSIX publisher; those remain a
+T5.2 owner-supplied release input. The two LPAC profile monikers are exactly
+`texflow.pdfworker.v1` and `texflow.scienceworker.v1`; they must derive distinct
+expected package SIDs. Changing a moniker/version is a security-boundary change
+that requires an ACL/profile migration review, not an automatic rename.
+
+T0.2 PE metadata is explicitly non-release identity, not an empty or misleading
+version. All three feasibility images use numeric `FILEVERSION` and
+`PRODUCTVERSION` `0,0,2,0`, strings `FileVersion=0.0.2.0` and
+`ProductVersion=0.0.2-feasibility`, `VS_FF_PRERELEASE | VS_FF_PRIVATEBUILD`,
+`VOS_NT_WINDOWS32`, `VFT_APP`, `PrivateBuild=T0.2 architecture feasibility;
+not release-qualified`, and Unicode English translation `040904B0`. T5.2
+replaces this whole version tuple only from an owner-approved release contract;
+it cannot silently retain the feasibility flags or infer a legal publisher.
+
+The legacy green-leaf Oleafly icon does not ship under the new identity.
+TExFlow uses a compact source-to-evidence flow mark: an open paper/bracket form,
+one continuous teal flow stroke, and one evidence node on deep graphite/paper
+surfaces, with no wordmark or ornamental gradient inside the icon. A reviewed
+master and multi-resolution Windows ICO must remain recognizable at 16, 24, 32,
+48, and 256 pixels, preserve alpha/padding, and be checked in Explorer, the
+system title bar, Alt-Tab, and the taskbar across light/dark/high-contrast
+contexts. Only the UI PE carries this icon; headless workers carry role metadata
+without duplicating UI art.
+
+![TExFlow C+ Evidence Instrument direction](../../assets/texflow-evidence-instrument-direction.png)
 
 _Visual direction, not a runtime screenshot. Section 4 contains the
 authoritative performance gates._
 
 ## 1. Executive decision
 
-Oleafly will become a focused Scientific AI IDE for research writing rather
+TExFlow will become a focused Scientific AI IDE for research writing rather
 than a general publishing suite. The application will be a native Windows
 desktop program built in Zig with direct Win32, D3D11, DXGI, Direct2D,
 DirectWrite, DWM, UI Automation, and Windows process APIs. It will not ship a
@@ -82,8 +133,9 @@ These rules are invariant across every implementation slice.
    core into a general-purpose book or layout application.
 9. Accessibility, low-end hardware, RDP, high contrast, and device-loss paths
    are release contracts rather than later polish.
-10. A slice is complete only after two consecutive closed-coverage QA passes
-    contain no open or newly discovered medium-or-higher finding.
+10. A slice is complete only after one full closed-coverage QA pass, run after
+    the last medium-or-higher repair, contains no open or newly discovered
+    medium-or-higher finding.
 11. Network, account-backed, paid, or credentialed capabilities start disabled.
     Enabling one requires an explicit provider configuration and a disclosure
     decision; local functionality never depends on that decision.
@@ -176,13 +228,15 @@ solid, WARP, and non-Mica fallbacks. Because ordinary Windows 10 support ended
 on 2025-10-14, it is a release-supported security lane only on an edition and
 device receiving Microsoft Extended Security Updates. The primary supported
 lane is the latest generally available, servicing-supported x64 Windows 11
-release frozen by T0.1; as of this decision it is Windows 11 25H2. An older OS
-may remain technically compatible, but Oleafly does not label an unserviced OS
+release frozen by T0.2 before its first native campaign; as of this decision it
+is Windows 11 25H2. An older OS
+may remain technically compatible, but TExFlow does not label an unserviced OS
 as secure or supported.
 
 APIs are resolved by capability rather than an obsolete Windows-version check.
-T0.1 records the exact minimum build and servicing evidence used for each
-package, and every release refreshes that evidence before signing. macOS,
+T0.2 records the exact minimum build and servicing evidence used by the native
+feasibility candidate; T5.2 freezes the package support matrix and every release
+refreshes that evidence before signing. macOS,
 Linux, native ARM64, and Windows on ARM performance are outside this rewrite;
 adding any of them requires a separate design and benchmark decision.
 
@@ -225,6 +279,12 @@ reported, not silently compared with a local-display threshold.
 | Empty-shell idle private commit | <= 55 MiB |
 | Aggregate private working set with a 30-page PDF open | <= 100 MiB |
 | Private commit with a 30-page PDF open | <= 120 MiB |
+| Aggregate private working set/private commit during the frozen 10,000-entity search workload | <= 110 MiB / <= 135 MiB |
+| First-use lexical search over an existing generation, p95 | <= 400 ms from command activation with no science-worker process or open search connection to the first `min(8, H)` broker-proven identity/title rows, or the terminal honest empty state when `H=0` |
+| Warm lexical query, p95 | <= 75 ms from submission with a ready worker/open database and no cached result for that query to the first `min(8, H)` broker-proven identity/title rows, or the terminal honest empty state when `H=0` |
+| Broker-validated search snippets, p95 | <= 200 ms for the first `min(8, H)` representative snippets and <= 750 ms for the explicit four-MiB adversarial entity; with no UI-thread slice above 4 ms |
+| Obsolete search-query or rebuild cancellation acknowledgement | <= 50 ms on the non-faulting corpus, with zero stale row/snippet attached to the new query and no cancelled staging generation activated |
+| Disposable search storage over the frozen 128-MiB canonical corpus | Quiescent active generation <= 192 MiB logical and allocated bytes; empty-root rebuild peak <= 224 MiB; at most one active plus one staging generation and <= 400 MiB for the complete derived root; complete rebuild p95 <= 30 s and never blocks the UI STA |
 | App-owned committed GPU bytes | <= `3P + T + 16 MiB`, where `P` is one RGBA viewport and `T` is the active PDF tile limit or zero |
 | Cached editor input to source-mutation acknowledgement p95 | <= 4 ms |
 | Dirty shell/PDF state to app frame submission p95 | <= 4 ms |
@@ -236,9 +296,25 @@ reported, not silently compared with a local-display threshold.
 | Superseded compiler grace before cancellation | 75 ms |
 | Visible stale artifact presented as current | zero |
 
+For each frozen search query, `H = min(100, expected_match_count)` comes from
+the independent canonical-corpus oracle, never from the worker reply. A missing,
+extra, duplicated, or misordered expected result fails correctness and its
+latency sample; returning fewer rows cannot create a fast pass. The 0/1/10/100/
+greater-than-100-hit, 64-term, and four-MiB adversarial classes are evaluated
+separately rather than pooled. Warm search permits the already open SQLite/OS
+caches but clears TExFlow result and presentation caches for the selected query;
+first-use search starts with the UI already interactive, no science-worker
+process, and no open search connection. The quiescent storage endpoint follows
+a committed rebuild, FTS integrity check, successful truncating WAL checkpoint,
+statement finalization, and clean connection close, with no staging generation.
+It recursively counts both logical file length and allocated bytes for every
+database, WAL, SHM, journal, manifest, pointer, temporary, and residue file;
+compression, sparse allocation, or an omitted sidecar cannot manufacture a
+pass.
+
 The former idea of an 8 ms input-to-screen gate is rejected. A 60 Hz display
 has a 16.67 ms refresh period, so that number would be physically dishonest.
-Oleafly measures input QPC, state mutation, layout, frame submission, present,
+TExFlow measures input QPC, state mutation, layout, frame submission, present,
 display, and photon-oriented latency separately. The Scintilla child HWND and
 the app-owned DXGI swap chain are separate measurement lanes; a fast shell
 present cannot hide a stale editor glyph. TraceLogging and ETW provide
@@ -253,14 +329,85 @@ lanes. Where a presentation mode cannot be correlated reliably, the release
 matrix uses WPR/DWM evidence plus a calibrated high-speed-camera or latency
 instrument run rather than borrowing the DXGI result.
 
-Release measurements use the signed, packaged `ReleaseSafe` binary and a
-versioned fixture set. ETW process start is time zero. "Interactive" means the
+Cross-process QA correlation has one non-authoritative input:
+`--trace-trial=<32 lowercase hexadecimal digits>`. It changes only local ETW/log
+correlation IDs, never fixtures, security policy, timing behavior, or acceptance
+logic. The UI rejects duplicate/malformed values before opening a window; when
+the option is absent it generates 128 random bits with the Windows CSPRNG. A
+worker receives the same 16 bytes only inside its authenticated bootstrap and
+echoes them in its first event. The harness must match nonce, PID/creation time,
+role, and the exact 32-byte build identity defined below. Knowing or choosing
+the nonce grants no test mode or authority. For an admitted campaign, all
+TExFlow role images embed the same
+32-byte build identity:
+
+`SHA-256("texflow:build:v1\0" || source_set_sha256[32] || dependency_lock_sha256[32])`.
+
+`source_set_sha256` is SHA-256 over domain
+`texflow:source-set:v2\0`, `entry_count_u64_le`, then every staged tracked entry
+except `docs/superpowers/evidence/**`, sorted by canonical UTF-8 slash path and
+encoded as `path_length_u32_le || path_bytes || mode_ascii[6] ||
+content_length_u64_le || blob_sha256[32]`. `blob_sha256` hashes the exact raw Git
+blob payload bytes, without the Git object header; the outer identity therefore
+does not inherit the collision strength of this repository's SHA-1 object name.
+The verifier consumes NUL-delimited index records, requires Git object format
+`sha1`, stage zero, modes exactly `100644` or `100755`, valid nonempty UTF-8
+relative paths using `/`, and no Windows-reserved, ADS, dot-segment,
+case-insensitive, or NFC-colliding path. It exports raw blob bytes without
+checkout line-ending conversion, revalidates every Git blob ID, byte length,
+and raw-content SHA-256; symlink, submodule, sparse-placeholder, unmerged,
+duplicate, or missing records fail.
+The Zig controller resolves one canonical absolute Git executable and records
+its version and SHA-256. With system/global configuration, repository discovery,
+replace objects, lazy fetch, alternates, filters, text conversion, pagers,
+tracing, and ambient Git path variables disabled, it acquires the repository's
+conventional index lock, captures exact full-OID `ls-files --cached --stage
+--full-name -z` output, exports only those full object IDs through raw
+`cat-file --batch`, and captures the index listing again. Both listings must be
+byte-identical. Zig independently recomputes each current-format Git blob OID
+over `"blob " || decimal_length || NUL || raw_bytes` as well as the v2
+raw-content SHA-256 and length before releasing the lock. Post-push proof uses
+the exact full commit with recursive NUL-delimited `ls-tree --full-tree`, not a
+mutable index or checkout, and must produce the identical v2 entry stream.
+`dependency_lock_sha256` is SHA-256 over the raw repository bytes of
+`tools/zig/native-deps.json` in that source set. That lock includes the exact
+admitted target triple, baseline CPU model/features, `ReleaseSafe` optimization,
+installed-image strip/subsystem policy, role feature switches, Zig/toolchain
+identity, and native dependency closure; host-native CPU selection is forbidden.
+A Zig-owned pre-build verifier
+exports exactly that source set to a clean temporary root and rejects malformed
+entries, an exported-input mismatch, a build/packaging/QA dependency on the
+excluded evidence namespace, a mutated dependency lock, or unequal embedded
+identities before launch. This permits evidence to be written after the required
+pre-commit QA without inventing a future commit or changing measured build
+inputs. After push, evidence recomputes the source-set digest from the resulting
+commit; a mismatch reopens the candidate. The role remains a separate
+authenticated field so a shared build identity cannot authorize role
+substitution.
+
+The common build identity is a source/configuration identity, not a digest of
+the resulting executable. Before an admitted T0.2 campaign, the Zig
+reproducibility controller must produce two byte-identical complete install
+payloads and one canonical `path/type/size/SHA-256` manifest. Its digest, every
+role PE digest, and the common build identity form a generated candidate
+receipt. The campaign uses one of those exact read-only payloads, rehashes the
+complete root before every named cell, and matches each process image/file ID
+and loaded-module receipt after launch. Any replacement, extra/missing file,
+receipt disagreement, or same-build-identity/different-binary case invalidates
+the cell. The receipt is generated output retained with evidence; it never
+changes product bytes, source-set membership, fixtures, thresholds, or verdict
+logic.
+
+T0.2 measurements use this explicitly unsigned, prerelease `ReleaseSafe`
+feasibility candidate; they are not mislabeled as signed-package evidence.
+Later release qualification uses the signed, packaged `ReleaseSafe` binary and
+a versioned fixture set. ETW process start is time zero. "Interactive" means the
 first non-placeholder shell and editor frame has been displayed and a harness
 keystroke can mutate the source model; a splash, empty swap chain, or merely
 created HWND does not qualify. A warm trial starts after one unmeasured priming
 launch, full process termination, and five seconds of quiescence while OS caches
 remain intact. Each cold trial follows an independent clean boot with no prior
-Oleafly launch. Cold and warm distributions each contain 30 trials per reference
+TExFlow launch. Cold and warm distributions each contain 30 trials per reference
 machine. OS build, power plan, battery state, Defender state, driver versions,
 DPI, display mode, and signer are recorded.
 
@@ -273,7 +420,7 @@ and usable.
 
 Memory is sampled after five minutes of an unchanged visible shell and again
 over a ten-minute window. Gates aggregate private working set and private commit
-across the entire Oleafly-owned process tree, so moving work into a worker cannot
+across the entire TExFlow-owned process tree, so moving work into a worker cannot
 hide it; shared pages and GPU allocations are reported separately. The harness
 also records peak commit, handles, threads, and worker processes. Explicit
 working-set trimming or preloading is forbidden. Installer size is not allowed
@@ -303,10 +450,10 @@ the trace so the ratio cannot be improved by silently discarding samples.
 - Minimized or fully occluded windows do not wake for fixed rendering,
   animation, indexing, status polling, or editor-child work. The timer inventory
   includes Scintilla's caret, dwell, scroll, widen, and idle-styling tickers, not
-  only timers created by Oleafly.
+  only timers created by TExFlow.
 - A visible, focused Scintilla caret may use the current Windows system blink
   period; that expected wake is recorded separately and is not mislabeled as
-  application polling. On minimized or fully occluded transition, Oleafly
+  application polling. On minimized or fully occluded transition, TExFlow
   disables caret blink, dwell, and idle styling and cancels or boundedly drains
   pending scroll/widen/idle work. It restores the exact visible-state settings
   without losing focus, selection, IME composition, or pending edits. After the
@@ -321,10 +468,10 @@ the trace so the ratio cannot be improved by silently discarding samples.
 
 ### 5.1 What "all Zig" means
 
-All new Oleafly-owned runtime logic, worker logic, CLI behavior, migrations,
+All new TExFlow-owned runtime logic, worker logic, CLI behavior, migrations,
 protocol adapters, parsers written by the project, benchmark harnesses, and
 native UI automation harnesses are Zig. After cutover, the shipped application
-contains no Oleafly-owned TypeScript, JavaScript, Rust, C#, or C++ executable
+contains no TExFlow-owned TypeScript, JavaScript, Rust, C#, or C++ executable
 logic.
 
 No embedded general-purpose scripting runtime is part of the core. External
@@ -348,7 +495,7 @@ decoding code. The evidence manifest names every approved exception.
 
 | Capability | Candidate | Boundary |
 | --- | --- | --- |
-| Source editor | Scintilla 5.6.6 plus an Oleafly-owned Zig LaTeX/BibTeX container lexer | Native C++ editing core through the upstream status-returning direct interface; styling through bounded Zig `SCN_STYLENEEDED` handling; Lexilla 5.5.3 is test-only comparison evidence and is not shipped |
+| Source editor | Scintilla 5.6.6 plus a TExFlow-owned Zig LaTeX/BibTeX container lexer | UI-image-only native C++ editing core through the upstream status-returning direct interface; styling through bounded Zig `SCN_STYLENEEDED` handling; Scintilla is absent from every worker image, and Lexilla 5.5.3 is test-only comparison evidence that is not shipped |
 | PDF | PDFium 154.0.8035.0 (`chromium/8035`) feasibility pin | Public C ABI, no V8/XFA, isolated single-engine-thread worker |
 | Database and full-text search | SQLite 3.53.4 or newer reviewed patch release | Pinned amalgamation, FTS5 enabled |
 | Graphics | D3D11, DXGI, Direct2D, DirectWrite, DWM | Windows system APIs |
@@ -363,7 +510,7 @@ verified hash or signature.
 The PDF candidate changed after approval because source-level review found a
 hard all-Zig boundary violation in the original MuPDF proposal. MuPDF's serious
 operations require its `fz_try`/`fz_catch` macros, whose `setjmp`/`longjmp`
-control flow cannot safely cross Zig stack frames without an Oleafly-owned C
+control flow cannot safely cross Zig stack frames without a TExFlow-owned C
 bridge. Process isolation contains a crash but cannot make an unguarded call a
 valid error boundary. PDFium is the replacement candidate because its upstream
 public C ABI exposes the required render, text, search, character geometry,
@@ -376,22 +523,23 @@ resource, and performance oracles. The community binary is reference evidence on
 worker may load it after reconstruction. Runtime/security probes use the sealed
 reconstructed artifact and record its digest. That artifact is still not
 release-qualified; the shipping DLL requires a later protected
-Oleafly-controlled build, repeat equivalence/security evidence, and Authenticode
+TExFlow-controlled build, repeat equivalence/security evidence, and Authenticode
 signing. This paragraph is the 2026-09-04 PDF-engine ADR and supersedes the
 original candidate wherever historical review evidence names MuPDF.
 
 No PDFium DLL executes during acquisition, source reconstruction, or static ABI
-audit. T0.2 first launches a Zig-only dummy role and proves the zero-capability
-AppContainer, Job, peer identity, handle allowlist, sealed runtime, and negative
-access probes. Only then may a fresh worker load the sealed source-reconstructed
-artifact. The community reference DLL is never executed; runtime correctness is
-judged against independently generated semantic/pixel oracles and the exact
-upstream API contract.
+audit. T0.2 first launches a Zig-only dummy role and proves an imperatively
+created Less Privileged AppContainer (LPAC) with zero named capabilities, the
+`ALL APPLICATION PACKAGES` opt-out, Job, peer identity, handle allowlist,
+sealed runtime, and negative access probes. Only then may a fresh LPAC worker
+load the sealed source-reconstructed artifact. The community reference DLL is
+never executed; runtime correctness is judged against independently generated
+semantic/pixel oracles and the exact upstream API contract.
 
 The Scintilla boundary uses its documented C-compatible
 `SCI_GETDIRECTSTATUSFUNCTION` and fixed-width public types, not C++ object
 ownership. Scintilla's upstream Win32 message entry catches its own exceptions
-and the direct-status function returns that error status; Oleafly declares and
+and the direct-status function returns that error status; TExFlow declares and
 calls the function in Zig and adds no C/C++ bridge. C++ exceptions, allocators,
 RTTI objects, and standard-library types never cross into Zig. T0 builds the
 upstream source with the reviewed compiler/runtime policy used for packaging and
@@ -399,7 +547,7 @@ runs independent ABI probes in both `ReleaseSafe` and `ReleaseFast`.
 
 Scintilla's text storage, layout, input, and paint path is the one deliberate
 native C++ component inside the UI trust boundary; the threat model names it
-rather than claiming every parser is sandboxed. Oleafly does not attach Lexilla
+rather than claiming every parser is sandboxed. TExFlow does not attach Lexilla
 to the production document. It selects container styling with
 `SCI_SETILEXER(NULL)` and handles `SCN_STYLENEEDED` through a bounded,
 revision-stamped Zig lexical scanner for LaTeX and BibTeX. Line-state
@@ -414,7 +562,7 @@ is never linked into or loaded by the shipped app.
 ### 5.3 External tool packs
 
 Tectonic, TexLab, Pandoc, and an optional portable Git distribution may be
-downloaded as explicit packs. Every in-app download requires an Oleafly-signed
+downloaded as explicit packs. Every in-app download requires a TExFlow-signed
 manifest rooted in an embedded, rotatable trust key plus the exact payload hash;
 an upstream signature is also verified when one exists. A bare hash fetched
 from the same untrusted location as its payload is not authentication. An
@@ -435,31 +583,33 @@ capability fingerprint expire before the next execution.
 ## 6. Runtime architecture
 
 ```text
-oleafly.exe
+TExFlow.exe
 |
 +-- UI process
 |   +-- Win32/DWM shell
 |   +-- D3D11/DXGI/Direct2D/DirectWrite compositor
-|   +-- Scintilla host and Oleafly UIA provider
+|   +-- Scintilla host and TExFlow UIA provider
 |   +-- immutable application snapshots
-|   +-- trusted ledger broker on a dedicated database thread
+|   +-- trusted ledger broker boundary
+|   |   +-- dedicated SQLite writer thread
+|   |   `-- serial read-only presentation lane
 |   +-- typed worker clients
 |
-+-- oleafly.exe --worker=pdf
++-- TExFlow.PdfWorker.exe
 |   +-- PDFium public-C document engine
 |   +-- progressive, cancellable tile rendering
 |   +-- text/search/selection extraction
 |
-+-- oleafly.exe --worker=science
++-- TExFlow.ScienceWorker.exe
 |   +-- derived FTS indexer
 |   +-- deterministic audits
 |
-+-- oleafly.exe --worker=research           on demand
-|   +-- Zotero and Better BibTeX clients
-|   +-- bounded literature-provider clients
++-- TExFlow.ResearchWorker.exe             on demand
+|   +-- typed Zotero/Better BibTeX request and response adapters
+|   +-- bounded literature-provider query/response normalization
 |   +-- untrusted metadata normalization
 |
-+-- oleafly.exe --worker=intelligence       optional, on demand
++-- TExFlow.IntelligenceWorker.exe         optional, on demand
 |   +-- pinned ONNX runtime/model
 |   +-- exact vector scan and reranking
 |
@@ -471,35 +621,76 @@ oleafly.exe
     +-- Codex, Claude Code, or OpenCode adapter
 ```
 
-One signed executable can expose worker entry points so isolation does not
-multiply installation size. Workers use typed, versioned, length-delimited
+The shipping baseline uses distinct signed Zig entry images for the UI and each
+worker role. Shared implementation stays source-shared; it is not an excuse to
+map the UI image into a hostile-document process. Windows resolves load-time
+imports and calls DLL entry points during process initialization, before a Zig
+argument dispatcher can make a process headless. Therefore
+`TExFlow.exe --worker=*` is not an admissible baseline: Scintilla and the
+UI/graphics import closure must never enter a product worker. A consolidated
+headless worker image may be measured only as a reversible T0 challenger and
+requires a design-delta review proving no broader imports, modules, executable
+code surface, privileges, working set, or startup tail before it can replace
+the role-specific images. Workers use typed, versioned, length-delimited
 messages over named pipes. Each message includes protocol version, request ID,
 project ID, project revision, payload length, and a bounded deadline. Unknown
 message types, oversized fields, invalid UTF-8, and stale revisions fail
 closed.
 
+The research worker never owns a socket or network capability. It prepares a
+typed provider request and parses bounded untrusted response bytes. A trusted
+Zig network broker on the app's background I/O lane revalidates current consent,
+destination, DNS/address class, redirect, proxy, credential, request-body, byte,
+time, and content-type policy at use time, performs the loopback or HTTPS I/O,
+and transfers only the declared bounded bytes. The UI STA never performs that
+work. This keeps network authority out of the parser while preserving the
+dedicated research-process failure boundary.
+
 Every pipe has a protected, non-inherited, least-right DACL, an unpredictable
 name, and a one-launch capability secret delivered through an explicitly
 inherited bootstrap handle. An internal single-worker endpoint has exactly one
-server instance and grants client data/attribute/synchronize rights only to the
-exact role AppContainer SID; it contains no current-user data/create-instance
-ACE and never uses a generic-write ACE that also implies
-`FILE_CREATE_PIPE_INSTANCE`. A later same-user integration endpoint that cannot
+server instance and two mirrored client-right ACEs: one for the exact current-
+logon SID and one for the exact role LPAC package SID. Each grants only
+`FILE_READ_DATA`, `FILE_WRITE_DATA`, `FILE_READ_ATTRIBUTES`,
+`FILE_WRITE_ATTRIBUTES`, and `SYNCHRONIZE`; neither grants append/create-instance
+rights, and no generic-write ACE can imply `FILE_CREATE_PIPE_INSTANCE`. Both
+ACEs are required because AppContainer access intersects the normal-token and
+restricted/package-SID checks. A later same-user integration endpoint that cannot
 use a role SID is separately scoped to the current logon SID, not every session
 of the account, and still receives only its required client rights. Name entropy
 is defense in depth, not authentication. This least-right descriptor narrows
 normal access but does not override the section 21.1 exclusion for malicious
 same-user code: the Windows object owner implicitly has `WRITE_DAC`. The broker
-verifies the canonical DACL, peer PID/creation time, expected executable
-identity, role, and protocol before
+verifies the canonical DACL, peer PID/creation time, expected worker executable
+path/volume/file/hash identity, role token, and protocol before
 accepting application data. Per-role request count, byte, in-flight, and
 outbound-result caps implement credit-based backpressure. Logs use bounded rings
 with an explicit truncation record; progress is coalescible, but terminal
 results are not. A peer that floods, stalls after its deadline, or violates
 framing is disconnected and its job is terminated.
 
-Classic AppContainer creation necessarily exposes a per-profile writable
-`LOCALAPPDATA`/`TEMP` tree. Oleafly therefore treats that tree as an explicit
+The current-logon half of the LPAC access intersection means an uncontained
+same-logon non-AppContainer process may reach the pipe transport. The product
+does not claim the DACL denies that excluded threat. A hostile control must prove
+such a process cannot pass the retained-child PID/token/image checks or the one-
+launch-secret transcript and receives no application data before disconnect.
+
+Peer proof is deliberately asymmetric rather than contradicting the worker ACL.
+The broker owns and locks the staged worker image, so it can validate the child
+through the retained process handle and the image's canonical path, volume/file
+identity, SHA-256, role token, and loaded-module receipt. The worker is denied
+read/map/load access to `TExFlow.exe`; it therefore never opens or hashes the UI
+PE. It binds the server PID to the explicitly inherited reduced parent-process
+handle, creation time, canonical process image path, the exact shared
+source/dependency-bound build identity defined in section 4.2, one-launch
+secret, challenges, role, and protocol transcript. This
+authenticates the intended launch under the stated same-user-code exclusion; it
+does not pretend an unsigned T0.2 worker can cryptographically attest its parent
+binary. Future signed distribution may strengthen that direction through a
+separately reviewed signed-manifest handle without granting UI-image bytes.
+
+Both regular AppContainer and LPAC profiles expose a per-profile writable
+`LOCALAPPDATA`/`TEMP` tree. TExFlow therefore treats that tree as an explicit
 untrusted scratch boundary, not as absent storage: the stable role moniker/SID
 is delete-and-recreated before each worker generation, no executable, DLL,
 configuration, project input, or canonical state is ever loaded from it, and it
@@ -507,14 +698,110 @@ is deleted after every clean/crash/timeout exit only after all handles close.
 Failed or partial deletion quarantines that profile and blocks another launch
 until a reparse-safe cleanup and empty/ACL verification succeeds. The science
 worker's separately ACL-brokered disposable search database is the sole declared
-persistent worker-writable exception; its AppContainer profile remains scratch.
+persistent worker-writable exception; its LPAC profile remains scratch.
 
-Aside from its declared scratch profile and the science-search exception, an
-isolated worker receives only duplicated handles, shared read-only sections, or
-brokered bytes for the declared snapshot. It does not receive ambient access to
-the project folder. A compatibility compiler that cannot consume brokered
-inputs receives a revision-specific snapshot directory and an honestly labeled
-host-access boundary.
+Zero named capabilities is not equivalent to zero ambient authority. A regular
+AppContainer can use resources whose ACLs include `ALL APPLICATION PACKAGES`;
+an LPAC removes that grant but can still use OS resources granted to `ALL
+RESTRICTED APPLICATION PACKAGES` (`S-1-15-2-2`) or its exact package SID. PDF
+and science roles therefore use the narrower LPAC, created imperatively with both
+`PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` and
+`PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY` set to
+`PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT`. While the process is still
+suspended, the controller requires `TokenIsAppContainer == 1`,
+`TokenIsLessPrivilegedAppContainer == 1`, the exact role package SID, and an
+empty capability list. A three-way canary matrix under one controlled parent
+with identical traverse/read-attribute access separates the leaf authorities:
+current-user plus `ALL APPLICATION PACKAGES` admits the regular control and
+denies LPAC; current-user plus `ALL RESTRICTED APPLICATION PACKAGES` admits LPAC
+and is recorded as its residual OS baseline; current-user plus an exact package-
+SID grant admits only the intended role. The regular control never receives untrusted project or
+PDF bytes and is not an admissible product fallback.
+
+Outside the documented OS-defined `ALL RESTRICTED APPLICATION PACKAGES`
+baseline, its declared scratch profile, and the science-search exception, an
+LPAC worker's product-specific authority consists only of duplicated handles,
+explicitly role-SID-ACL'd runtime resources, shared read-only sections, or
+brokered bytes for the declared snapshot. T0 inventories every successful
+file/registry/image/process/network access outside those explicit product roots
+while running the no-engine probe and full PDF/font/search corpus on each sealed
+OS lane. A loss-free trace records the requested/resulting operation, canonical
+resource identity, security-descriptor snapshot and matching AAP/ARAP/role
+trustee ACEs, signer/hash where applicable, and whether bytes are executable or
+user-writable. ETW does not identify a causal ACE, so only controlled canaries
+claim which SID changed the result. The manifest proves the observed workloads,
+not an exhaustive inventory of every Windows resource or a runtime allowlist.
+Any project/private-user access, unexpected write, user-writable executable or
+configuration load, unreadable required descriptor, or unexplained successful
+access fails isolation. TExFlow does not
+market LPAC as protecting a resource whose owner explicitly grants the broad
+restricted-app-packages SID.
+
+Each worker receives no `registryRead`, `lpacCom`, or network capability and no
+ambient project-folder access. Required PDF/font/data files must form a sealed,
+hash-bound, least-right role grant. Inside one TExFlow-owned staging root, each
+ancestor grants only the minimum directory traverse/read-attribute/synchronize
+rights actually required, never list/create/delete/write; leaf files grant only
+their role's measured read/execute/map needs. The PDF role can execute only
+`TExFlow.PdfWorker.exe` and load its sealed PDFium/font/data closure; the
+science role can execute only `TExFlow.ScienceWorker.exe` and use its sealed
+SQLite/search closure. Cross-role image open/map/load and every worker access
+to `TExFlow.exe`, Scintilla, or the UI/graphics closure are denied. Product-root
+and leaf DACLs are protected against
+inheritance and contain no `Everyone`, `Users`, AAP, or ARAP grant. Because
+AppContainer access is the intersection of the normal and restricted SID
+checks, each required right exists on both the current-logon/owner side and the
+exact role-package-SID side; `SYSTEM`/Administrators retain only required
+management rights. The harness rejects a null/default/unprotected DACL,
+unexpected/inherited ACE, generic access mask, wrong-role success, or either
+half of the intersection missing. TExFlow never rewrites a filesystem ancestor
+outside its owned root; it records the LPAC token's actual traverse privilege
+and external-prefix behavior instead of assuming ordinary-user defaults. Inability to
+complete the corpus in LPAC is
+an isolation failure that reopens the architecture, never permission to fall
+back silently to a regular AppContainer. A compatibility compiler that cannot
+consume brokered inputs receives a revision-specific snapshot directory and an
+honestly labeled host-access boundary.
+
+Every PDF and science worker starts with one exact predeclared mitigation
+profile passed through `PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY` as the
+documented two-element `DWORD64` array, plus the separate child-process policy.
+The non-negotiable pre-start profile is DEP with ATL thunk emulation absent,
+SEHOP, heap-terminate-on-corruption, force-relocate-images with relocations
+required, bottom-up and high-entropy ASLR, strict invalid-handle checks,
+Win32k-system-call disable, extension-point disable, dynamic-code prohibition
+with no thread opt-out or remote downgrade, non-system-font disable, and image
+load policies that reject remote and Low-integrity images and prefer System32
+for system dependencies. A build or required corpus that cannot run with that
+complete profile fails the worker architecture; a bit is never dropped after
+observing a failure. Microsoft/Store-only binary-signature policy is explicitly
+not claimed because it would reject TExFlow's own portable/native dependency
+closure rather than authenticate it.
+
+CFG and CET have separate, non-gameable evidence. Both workers request normal
+CFG at process creation, but the package report states exactly which PE images
+contain Guard CF metadata and instrumentation; setting the runtime bit alone is
+not called full CFG coverage. Strict CFG is admitted only when every mapped
+non-system image in the role closure is CFG-compatible. On an OS/CPU that
+supports user shadow stacks, workers request CET compatibility mode and report
+the effective policy and every image's CET compatibility; strict CET and
+blocking non-CET images are admitted only after the entire role closure passes.
+An unsupported platform is recorded as capability-unavailable, whereas a
+supported platform that silently loses a required baseline bit is failure.
+
+Before the sole `ResumeThread`, the controller retains the child-process handle
+returned by `CreateProcessW` with `PROCESS_QUERY_INFORMATION`, queries each
+observable policy with `GetProcessMitigationPolicy`, and compares exact
+effective fields with the frozen role profile. This controller handle is not the
+reduced parent-query handle inherited by the worker for peer authentication.
+After loader initialization but before accepting any PDF,
+search, or project-derived byte, the worker and broker independently inventory
+the image/import closure. The PDF inventory is repeated after the sealed
+PDFium load. Any UI/graphics/Scintilla module, role-inapplicable third-party
+image, unexpected path/hash/signer, writable executable image, mitigation
+downgrade, or unreported unsupported field terminates and quarantines the
+generation. T0 tests every required flag independently so an assertion that
+only checks one friendly aggregate mask cannot pass.
 
 ### 6.1 Ownership and scheduling
 
@@ -528,12 +815,24 @@ host-access boundary.
   or foreground-latency pressure.
 - `ledger.db` has one writer on a dedicated trusted broker thread in the UI
   process. The UI STA never calls SQLite, and no parser/research/science worker
-  can open the ledger directory. Readers use independent read-only connections
-  under the same broker boundary.
+  can open the ledger directory. Search presentation uses one separate trusted
+  read-only lane/connection under the same broker boundary: it copies at most
+  one bounded entity from a short snapshot, finalizes the statement/transaction,
+  then tokenizes outside SQLite. It never writes, holds a WAL reader across a
+  yield, or delays writer admission; the result is published only if the ledger
+  watermark/entity revision still equals the search request after tokenization.
 - The PDF worker has one engine thread that owns PDFium initialization and every
   PDFium object and call. Other threads exchange only bounded immutable
   requests/results; progressive rendering yields and cancels on the engine
   thread rather than entering the library concurrently.
+- The science worker has one authenticated pipe/control thread and one database
+  thread. The control thread owns framing and bounded queues and may only
+  publish generation/deadline/cancellation atomics; the database thread owns
+  every SQLite connection, statement, tokenizer instance, and call. SQLite's
+  progress callback and the Zig tokenizer observe those atomics at their frozen
+  instruction/byte/time boundaries, so a busy database thread never prevents a
+  new cancel frame from being received. No thread calls SQLite through another
+  thread's connection.
 - Compiler, language server, model, and provider work never holds a UI lock.
 - No lock is held across IPC, filesystem, network, database, or process waits.
 - Every Scintilla direct call occurs on the HWND-owning UI thread. Other threads
@@ -555,7 +854,7 @@ process.
 
 The compositor baseline uses a two-buffer
 `DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL` swap chain with a frame-latency waitable
-object and maximum frame latency of one. This is deliberate: Oleafly is a
+object and maximum frame latency of one. This is deliberate: TExFlow is a
 sparse-update document UI, and `DXGI_SWAP_EFFECT_FLIP_DISCARD` does not support
 partial presentation. The app waits on the latency object before the first and
 every later rendered frame, submits only when state is dirty, and uses
@@ -575,7 +874,7 @@ swap chain remains a specialist challenger rather than a compatibility
 baseline.
 
 Scintilla remains a native child HWND and draws source text through its
-DirectWrite path. Oleafly does not copy editor pixels through an intermediate
+DirectWrite path. TExFlow does not copy editor pixels through an intermediate
 texture. The D3D11/Direct2D compositor owns shell chrome, panels, overlays, and
 PDF tiles. Custom-drawn controls participate in one UIA fragment tree; standard
 Win32 menus or dialogs are retained where they provide a better system-native
@@ -611,7 +910,7 @@ src/
   versioning/          recovery journal, checkpoints, Git adapter
   publish/             PDF, source package, EPUB, RO-Crate
   protocols/           versioned schemas and bounded codecs
-  workers/             pdf, science, intelligence entry points
+  workers/             pdf, science, research, intelligence entry points
 tests/
   unit/
   contract/
@@ -636,13 +935,13 @@ stable boundary.
 Open Folder accepts a user-selected directory without copying it. Project root
 discovery examines explicit configuration, magic-root comments, include
 relationships, and candidate main documents. When more than one root remains
-valid, Oleafly asks once and persists the choice as project metadata without
+valid, TExFlow asks once and persists the choice as project metadata without
 modifying source.
 
 Opening a folder for inspection does not write into it. Until portable project
 metadata is requested, a local registry maps the canonical path and folder
 fingerprint to an internal project UUID. The first portable project-checkpoint
-or scientific-state export creates `.oleafly/project.toml` with that UUID and a
+or scientific-state export creates `.texflow/project.toml` with that UUID and a
 schema version after a visible confirmation. Moving a folder with this file
 preserves identity; an absent or conflicting identity produces a choice rather
 than an automatic merge.
@@ -689,7 +988,7 @@ text buffers.
 
 The filesystem watcher uses `ReadDirectoryChangesW` with overflow recovery by
 bounded rescan. A clean externally changed buffer reloads. A dirty buffer enters
-a three-way merge using saved base, local buffer, and external file. Oleafly
+a three-way merge using saved base, local buffer, and external file. TExFlow
 never discards either version automatically.
 
 Path handling is case-aware, long-path aware, reparse-point aware, and rooted
@@ -709,11 +1008,11 @@ pretending the operation was atomic.
 
 Scintilla is retained provisionally because it provides a mature source-editor
 surface, large-file behavior, indicators, completion, wrapping, and DirectWrite
-rendering without a browser runtime. Oleafly calls its direct interface for
+rendering without a browser runtime. TExFlow calls its direct interface for
 high-frequency operations instead of sending synchronous window messages.
 Styling and diagnostics are batched.
 
-Oleafly supplies its own server-side UI Automation Document provider with
+TExFlow supplies its own server-side UI Automation Document provider with
 TextPattern/TextPattern2, TextEdit, and Scroll support;
 selections, visible ranges, caret, line and document navigation, editable state,
 names, roles, states, and keyboard accelerators are exact. The multiline source
@@ -730,6 +1029,35 @@ composition, surrogate pairs, combining marks, bidirectional selection, screen
 readers, and Accessibility Insights. Scintilla does not pass merely because
 ordinary Latin typing works.
 
+The text contract is versioned rather than delegated to whichever Unicode table
+happens to ship with an OS build. Source identity and all persisted edit anchors
+remain half-open UTF-8 byte ranges over the original, never-normalized source.
+T0 pins Unicode 17.0.0, UAX #29 revision 47, and UAX #15 revision 57; a Zig tool
+generates compact read-only range/mapping tables from the exact locked UCD and
+the runtime implementation is Zig. The logical boundary engine follows
+untailored UAX #29 extended grapheme clusters and default word boundaries.
+`TextUnit_Character` counts each extended grapheme cluster except a cluster made
+only of C0/C1 or directional-format controls; such a run adds no movement count
+and attaches to the preceding counted unit, or the following unit at document
+start. An all-control document substitutes `TextUnit_Document` for Character.
+`TextUnit_Word` groups each UAX lexical segment with following break segments as
+UI Automation requires; a leading break run joins the first lexical segment,
+and a document with no lexical segment substitutes Document. `TextUnit_Format`
+is one maximal run with identical exposed
+attributes, `TextUnit_Line` is the line actually presented by Scintilla after
+wrapping, and `TextUnit_Paragraph` follows source newline structure. The editor
+has no page model, so `TextUnit_Page` explicitly substitutes the next supported
+larger unit, `TextUnit_Document`, instead of inventing pages. Endpoint affinity,
+CRLF, controls, empty units, and end-of-document behavior are fixed by tests.
+
+Default UAX #29 word segmentation is not advertised as dictionary-quality word
+breaking for Thai, Lao, Khmer, Myanmar, Chinese, or Japanese. A future locale
+profile must name and version its tailoring/data before it can be enabled.
+Scintilla/DirectWrite remains the visual shaping and UAX #9 BiDi implementation;
+TExFlow keeps ranges in logical order and verifies glyph/caret/selection
+geometry on every supported Windows lane. An OS shaping result never changes
+source bytes or the pinned logical-boundary result.
+
 TexLab runs as a bounded external process over JSON-RPC/LSP. The client:
 
 - validates message size and schema;
@@ -742,7 +1070,7 @@ TexLab runs as a bounded external process over JSON-RPC/LSP. The client:
 TexLab receives the approved read-only project snapshot plus explicit
 `didOpen`/`didChange` text, not ambient writable project authority. Its own
 builder, forward-search command launcher, and arbitrary external-command
-features are disabled because Oleafly owns those boundaries. Network access is
+features are disabled because TExFlow owns those boundaries. Network access is
 absent. A requested dynamic registration or capability expansion is rejected
 unless a later reviewed adapter contract permits it.
 
@@ -787,7 +1115,7 @@ new project revision instead of modifying an active snapshot.
 
 TeX dependency discovery is dynamic, so a cache of dependencies is never the
 authority for a first or changed build. The initial closure contains every
-regular file beneath the approved project root except explicit `.git`, Oleafly
+regular file beneath the approved project root except explicit `.git`, TExFlow
 cache/build, and user-configured exclusions. Enumeration, file count, individual
 file size, total bytes, and traversal time are bounded. Reparse points and paths
 outside the root are excluded until the user approves each additional root; the
@@ -877,7 +1205,7 @@ The sealed source-reconstructed PDFium artifact is loaded dynamically only
 after the isolated PDF-worker role is established, and only through the
 reviewed public C function table; the community comparison DLL is never an
 admitted runtime input. The build
-has V8 and XFA disabled; Oleafly never initializes form fill or JavaScript/XFA,
+has V8 and XFA disabled; TExFlow never initializes form fill or JavaScript/XFA,
 never supplies network or upload callbacks, and treats URI, launch, attachment,
 and form actions as inert bounded data. EPUB reading, HTML, XPS, OCR, barcode,
 and unrelated conversion are outside this engine. The worker applies input
@@ -1003,13 +1331,28 @@ path. Portable scientific state is exported explicitly to the project.
 
 The privileged UI process contains a narrow ledger broker on its own database
 thread. It accepts only typed, size-bounded event proposals, performs canonical
-validation itself, and owns the canonical directory. The science AppContainer
-cannot open that directory; it receives authenticated immutable event snapshots
-and writes only disposable `search.db`/derived cache in a separate ACL root.
+validation itself, and owns the canonical directory. The science LPAC
+cannot open that directory; it receives authenticated immutable complete-field
+projection records whose content references were resolved and hash-verified by
+the broker, and writes only disposable `search.db`/derived cache in a separate ACL root.
 Compromising an indexer therefore cannot rewrite accepted scientific history.
 Search replies carry a ledger watermark and canonical entity IDs; the broker
 revalidates both against its read-only projection before the UI consumes them.
-Worker-returned snippets, scores, and ordering remain labeled derived data.
+The worker cannot supply presentation text. It returns only bounded canonical
+entity IDs and finite ranks. The trusted broker re-tokenizes every frozen
+searchable field of a returned canonical entity, rejects the result unless the
+union contains every normalized literal-AND query token, and alone derives
+occurrences, the displayed snippet, and highlight ranges. Ranks and ordering
+remain labeled derived navigation data rather than scientific evidence. This
+validation proves soundness only for a returned row; an unavailable,
+compromised, or incorrect worker can still omit a valid row or manipulate the
+order of otherwise valid rows. TExFlow therefore never interprets a low rank,
+an empty result, or an absent row as evidence that a claim, paper, or supporting
+fact does not exist. An authenticated terminal empty reply says `No matches
+returned by the current derived index. This is not evidence of absence.`, and
+any scientific audit that requires completeness scans
+the canonical ledger or reconciles an independently frozen coverage manifest
+instead of consuming search absence or rank.
 
 ### 13.1 `ledger.db`
 
@@ -1017,12 +1360,43 @@ Worker-returned snippets, scores, and ordering remain labeled derived data.
 - WAL mode with `synchronous=FULL`;
 - immutable canonical events and normalized projections written in the same
   transaction;
+- project-scoped immutable content records store each bounded canonical text
+  value once as ordered chunks; events and projections contain typed
+  null/length/SHA-256 references rather than duplicate wide text rows;
 - UUIDv7 event IDs;
 - a per-project monotonic sequence number that is authoritative for order;
 - previous-event hash and SHA-256 event hash;
 - canonical JSON compatible with RFC 8785 JCS for portable event material;
 - schema version and deterministic migrations;
 - no model-generated overwrite of an accepted human assessment.
+
+The T0.2 storage profile keeps `SQLITE_LIMIT_LENGTH=2 MiB` on trusted ledger
+connections without making the four-MiB searchable-entity boundary fictional.
+Each canonical text value is at most one MiB and is stored under
+`(project_uuid, sha256, byte_length)` as ordered chunks of at most 256 KiB. A
+small canonical JCS event payload names the fixed field, null tag, byte length,
+and content hash; the entity projection has one metadata row and one reference
+row per field. New content chunks, the event, and all changed projection
+references commit atomically. No event or projection SQL row contains the whole
+entity, and the same text bytes are not copied into both history and projection.
+
+Reference encoding is exact. Null is `(tag=0, length=0, sha256=32 zero bytes)`
+and has no content record. Non-null is `tag=1`; an empty value has length zero,
+SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`,
+one metadata record, and zero chunks. A
+nonempty value has exactly `ceil(length / 262144)` chunks in zero-based ordinal
+order; every nonfinal chunk is 262,144 bytes and the final chunk is 1..262,144
+bytes. Its content hash is SHA-256 over the concatenated raw UTF-8 bytes, with no
+normalization or delimiter.
+
+The broker hashes and validates the complete UTF-8 value before insertion. A
+pre-existing content key is reused only after length and byte-for-byte streaming
+comparison; a mismatch is treated as integrity failure, not hash-based
+deduplication. Reopen, backup, repair, search feed, and portable export verify
+that every reference resolves to the declared ordered bytes and digest. The
+event chain binds the canonical typed reference; the content digest binds the
+referenced bytes. Missing, extra, reordered, cross-project, or corrupt chunks
+quarantine the ledger before that value can be served.
 
 Wall-clock UTC and UUIDv7 time are provenance metadata, not ordering authority;
 clock rollback cannot reorder accepted events. The hash chain detects accidental
@@ -1048,7 +1422,7 @@ If a projection write fails, the event does not commit. If recovery detects a
 hash-chain or database integrity failure, the ledger becomes read only until a
 verified repair or restore completes.
 
-Before a ledger schema migration, Oleafly creates a transactionally consistent
+Before a ledger schema migration, TExFlow creates a transactionally consistent
 same-user backup through SQLite's Online Backup API (or an equivalently proved
 SQLite snapshot), never by copying a live database file while WAL state is
 active. It opens and verifies the backup, records the source schema and logical
@@ -1061,18 +1435,210 @@ database usable and surfaces the exact recovery path.
 ### 13.2 `search.db`
 
 - derived and fully rebuildable;
-- FTS5 with BM25, phrases, prefix terms, NEAR, and a reviewed scientific
-  tokenizer;
+- an FTS5 contentless-delete table (`content=''`, `contentless_delete=1`,
+  `columnsize=1`) stores token index/docsize state but no second copy of the four
+  canonical text fields. A small ordinary map binds its integer rowid to the
+  canonical 16-byte entity UUID. Core and FTS5 secure-delete are enabled to
+  remove obsolete index terms during update/delete, without making a false
+  forensic-erasure claim;
+- `detail=full` with BM25 and a Zig-registered `texflow17` tokenizer is the
+  provisional latency-first detail mode. Because the descriptor-free protocol
+  consumes neither stored source nor index offsets, T0.2 benchmarks otherwise
+  identical contentless-delete `detail=column` and `detail=none` variants,
+  together with one stored-content `detail=full` counterfactual, against the
+  exact rank, update/delete, query, cancellation, rebuild, memory, and storage
+  gates. `columnsize=0` is ineligible because the contentless table would lose
+  the document-length input required by the frozen BM25 contract. A challenger
+  that uniquely closes a failed mandatory gate, or wins the preregistered
+  all-gates tradeoff, is adopted only through a reviewed spec/plan delta. If no
+  mode closes every gate, the architecture fails; there is no silent runtime
+  fallback or per-install schema choice;
+- Unicode 17.0.0/UAX #29 default word segmentation, with each eligible token
+  containing a Letter or Number transformed as
+  `NFD(full-default-case-fold(NFD(token)))`; accents are not removed, source
+  bytes are untouched. Exact DOI/citekey/provider IDs remain typed canonical
+  ledger fields and never enter folded text; T0.2 copies none of them into the
+  worker or rowid map because it exposes no exact-ID candidate path. T3.1 may
+  add a bounded derived identity index only with its frozen union/rank contract;
 - WAL mode with `synchronous=NORMAL`;
-- batched commits;
+- complete-entity commits assembled from independently authenticated bounded
+  field messages;
 - indexed-ledger watermark;
 - content and schema fingerprints;
 - semantic-model, tokenizer, quantization, and dimension fingerprints for every
   vector namespace;
 - corruption or deletion cannot change the ledger.
 
-Core ranking combines lexical BM25 with exact DOI, citekey, provider ID, claim,
-and anchor boosts. This is the always-available smart path.
+The trusted broker sends a search projection, not a raw SQL command or
+worker-chosen field set. One entity transfer has an authenticated begin record,
+the four enum-ordered fields as separate <=1-MiB logical messages fragmented by
+the common 64-KiB frame layer, and an authenticated commit record carrying the
+entity revision plus per-field and aggregate hashes. Each field record has an
+exact null/non-null tag and checked length so null and empty remain distinct;
+its hash binds the tag, length, and bytes. The worker holds at most
+one <=4-MiB entity assembly, rejects duplicate/missing/reordered fields, and
+performs one all-columns contentless-delete insert/update only after the commit
+record verifies; cancellation, disconnect, or crash discards the incomplete
+assembly. Delete and rowid-map mutation share that SQLite transaction. A clean
+rebuild receives entities in unsigned UUID order so its rowid map and database
+manifest are deterministic; incremental rowid choice cannot affect the public
+UUID tie-break.
+
+The four T0.2 transfer digests are also byte-canonical. For field IDs 1..4 in
+order, `field_digest = SHA-256("texflow:search-field:v1\0" || field_id_u8 ||
+tag_u8 || length_u32_le || bytes)`; null requires tag zero, zero length, and no
+bytes, while non-null empty uses tag one. The commit's aggregate digest is
+`SHA-256("texflow:search-entity:v1\0" || project_uuid[16] || entity_uuid[16] ||
+entity_revision_u64_le || ledger_sequence_u64_le || ledger_hash[32] ||
+watermark_u64_le || generation_u64_le || aggregate_length_u32_le ||
+field_digest[0] || ... || field_digest[3])`. Any noncanonical tag, length,
+field order, digest, revision, or generation rejects the assembly before SQLite.
+
+Every rebuild writes a generation-unique staging directory. A cancelled,
+crashed, over-budget, corrupt, wrong-watermark, or wrong-fingerprint stage is
+never queried or labeled active. Only after full replay, FTS integrity and
+membership checks, a truncating WAL checkpoint, clean close/reopen, and manifest
+verification may the broker accept its generation-bound completion and replace
+the active pointer. At most one compatible active generation and one staging
+generation coexist; when the complete derived-root quota cannot hold both, the
+UI explicitly makes search unavailable and removes the old disposable
+generation before rebuilding rather than crossing the quota. A compatible old
+generation may serve only with its exact watermark/coverage label; an
+incompatible or corrupt generation never becomes an empty result.
+
+The T0 query language is bounded literal-AND only. One <=4-KiB valid-UTF-8 user
+string is tokenized as a whole by `texflow17` into 1-64 tokens; ordinary Unicode
+whitespace and punctuation participate only in the tokenizer's boundary rules,
+while NUL, C0/C1 controls, and
+directional-format controls reject the query. Normalized duplicate tokens
+collapse in first-occurrence order before their zero-based query indexes are
+assigned. The Zig builder encodes each surviving token as one double-quoted FTS5
+string, doubles every embedded U+0022 byte, joins phrases with exact ASCII
+` AND `, rejects encoded output above 65,536 bytes, and binds that whole value to
+the one parameter of a fixed MATCH statement. Thus text such as `AND`, `OR`,
+`NEAR`, Hebrew-letter/double-quote segments, parentheses, colons, carets, minus
+signs, and asterisks has only tokenizer-defined literal/separator meaning and
+can never become raw FTS or SQL syntax. A versioned field enum and schema bound
+the searchable surface to at most eight fields and four MiB of canonical UTF-8
+per entity; the feasibility slice freezes its smaller exact subset rather than
+accepting worker-selected field names.
+
+The T0.2 lexical rank is the result of
+`bm25(search_fts, 1.0, 1.0, 1.0, 1.0)` over the four frozen columns and is
+carried as one IEEE-754 binary64 payload encoded little-endian;
+NaN, infinity, values outside the frozen bound, and noncanonical negative zero
+are rejected, with computed `-0.0` normalized to `+0.0` before encoding. Results
+sort by numeric rank ascending and then the canonical 16-byte entity ID in
+unsigned binary order. The science worker returns only that bounded
+`(entity_uuid, rank_f64_le)` result list, never a field selector, token
+descriptor, truncation claim, snippet, markup, path, SQL fragment, pointer, or
+byte offset. `texflow17` emits exactly one callback with flags zero per eligible
+word segment and never emits a synonym or `FTS5_TOKEN_COLOCATED` token.
+
+For a requested visible candidate, the broker's dedicated read-only presentation
+lane resolves every indexed canonical field reference and loads its verified
+content chunks in enum order from one short snapshot, copies the bounded entity,
+closes the statement/transaction, applies the same
+Zig tokenizer outside SQLite, and streams all occurrences
+of the de-duplicated query tokens while proving that their union satisfies the
+literal-AND query. No candidate becomes a visible result row until that proof
+succeeds. A missing token rejects the complete worker candidate and
+quarantines/rebuilds the disposable index; a compromised worker cannot choose a
+field or displayed occurrence. One shared presentation transform first maps any
+run of Unicode-17 `White_Space` scalars—including TAB, CR/LF (with CRLF consumed
+as one separator), NEL, line separator, and paragraph separator—to one ASCII
+space and trims edge spaces. It then maps every remaining C0/C1 scalar, DEL,
+U+061C, U+200E/U+200F, U+202A-U+202E, and U+2066-U+2069 to the exact uppercase
+ASCII atom `[U+XXXX]`; all other valid scalars remain byte-identical. The UI
+applies direction isolation at the text-layout boundary and inserts no hidden
+directional characters into display bytes.
+
+The broker alone selects, among windows whose transformed output fits both 64
+source tokens and 8 KiB including elision markers, the window that maximizes
+distinct query-term coverage, then match count, then minimizes source-byte span,
+with `(field_id, start_ordinal, end_ordinal)` as the final ascending tie-break.
+It derives hit truncation itself. An omitted prefix and/or suffix contributes one
+literal U+2026 `…` atom at the corresponding edge; markers count toward the byte
+cap. Highlight spans are
+sorted non-overlapping half-open UTF-8 byte ranges in that final display string,
+with scalar and extended-grapheme-cluster boundaries; UTF-16 conversion happens
+only after validation. The snippet is rendered in its own isolated text layout
+and remains visibly labeled derived.
+
+The row title applies the same transform to the canonical `title` field. If the
+result is empty, it uses exact `search.untitled`, ` — `, and the full lowercase
+hyphenated canonical entity UUID; it never relabels claim/evidence text as a
+title. A nonempty title retains the largest complete transformed-grapheme prefix
+for which a trailing U+2026 fits, so the final string including that marker is
+at most 256 extended grapheme clusters and 2 KiB of UTF-8. No marker is added
+when the complete transformed title fits.
+Canonical presentation work is lazy and bounded: at most eight visible entity
+IDs enter one broker batch, at most sixteen await presentation, one entity of at
+most four MiB is materialized at a time, tokenization uses the same 64-KiB
+scratch cap, and the non-UI broker yields or observes cancellation at each
+64-KiB chunk and after at most two milliseconds of CPU work. Scrolling or a new
+query cancels obsolete batches. After match proof and an unchanged ledger
+watermark/entity revision, the UI may show the stable canonical identity/safe-
+title row before its derived snippet arrives; it never
+blocks the STA or displays an unproved candidate.
+
+The English baseline resource uses the following exact values; for each line,
+the value is every character after ` = ` through the end of the line:
+
+> `search.results.notice` = Derived-index navigation — up to 100 candidates; visible rows are verified matches; omissions and order are not scientific evidence.
+>
+> `search.empty` = No matches returned by the current derived index. This is not evidence of absence.
+>
+> `search.rebuilding` = Search index rebuilding
+>
+> `search.unavailable` = Search index unavailable
+>
+> `search.eligibility` = Canonical fields eligible for indexing: {eligible}/{total}; derived-index completeness is not verified.
+>
+> `search.untitled` = Untitled record
+
+Rebuilding and unavailable never collapse into the empty message. Raw BM25
+values are not user-visible.
+
+Indexing is also bounded. A canonical searchable field is at most 1 MiB, an
+emitted source segment at most 1,024 UTF-8 bytes, its normalized token at most
+256 bytes, a field at most 65,536 emitted tokens, and one entity at most four
+MiB across no more than eight searchable fields. A bound violation aborts
+that entity's derived-index transaction, and the trusted broker records a typed
+`lexical-unindexed` reason without truncating a token or changing canonical
+data. The only visible denominator is broker-computed canonical eligibility at
+the exact ledger watermark—eligible fields over total canonical fields—and is
+explicitly not a claim that the untrusted worker indexed every eligible field.
+Worker-reported coverage can never replace it or close a completeness-sensitive
+audit. Tokenization uses <=64 KiB scratch and streams the field; a
+single hostile field cannot consume the science worker's process limit. The
+token profile/table hash is part of the search schema, batch, request, and reply;
+a mismatch rejects or rebuilds derived state before a result is served.
+
+The T0.2 search performance oracle is `W6-search`: exactly 10,000 generated
+canonical entities whose four fixed fields total 128 MiB of valid UTF-8. It
+freezes Unicode-17 additions, Vietnamese NFC/NFD distinctions, Greek,
+Cyrillic, Arabic, CJK, emoji/control boundaries, duplicate tokens,
+0/1/10/100/>100-hit and 64-term queries, plus one exact four-MiB adversarial
+entity. IDs, ledger/event hashes, query order, expected literal-AND membership,
+provisional-baseline BM25 order, snippet/range hashes, and clean-rebuild
+database/complete-root manifests are committed before timing. Every timed query
+must first equal its oracle's expected capped membership/order; `H` and the
+identity/snippet endpoint follow section 4.2. Task 7 runs separate 30-trial
+first-use, warm-query/presentation/cancellation, and rebuild cells for every
+physical machine/OS stratum and reports every cardinality class independently;
+no smaller, pooled, or post-result-edited corpus can close the release budgets.
+
+The ranking contract is versioned, deterministic, and explainable. T0.2 proves
+only lexical retrieval ordered by finite BM25 ascending and binary entity ID;
+it is visibly labeled a feasibility rank and does not pretend that reserved
+identity fields already provide a boost. Before T3.1 enables the always-
+available smart path, it must freeze typed DOI/citekey/provider-ID parsing,
+candidate-set union, exact-match priority, claim/evidence/anchor context
+features, feature normalization and weights or fusion rule, missing-feature
+behavior, tie-breaks, benchmark corpus, and a per-result explanation receipt.
+Changing that fingerprint creates a new derived ranking namespace. No model or
+unversioned database expression silently changes order.
 
 Semantic vectors from different model or tokenizer fingerprints are never
 mixed. Changing any fingerprint creates a new derived namespace and a bounded,
@@ -1081,16 +1647,20 @@ or lexical ranking and labels the coverage denominator.
 
 ### 13.3 Portable checkpoint
 
-`.oleafly/science.checkpoint.jsonl` is a deterministic, reviewable export of
-accepted scientific events. Export uses canonical ordering and hashes. Import
-detects common ancestry; divergent histories produce an explicit conflict
-workflow rather than last-writer-wins merging.
+`.texflow/science.checkpoint.jsonl` is a deterministic, reviewable export of
+accepted scientific events and every project-scoped content record they
+reference. Export streams canonical ordering, lengths, chunks, and hashes rather
+than silently exporting dangling references. Import verifies all content before
+accepting an event, detects common ancestry, and makes divergent histories an
+explicit conflict workflow rather than last-writer-wins merging. The exact
+portable content encoding is frozen and tested in its owning later slice; T0.2
+proves the ledger-side reference/chunk invariant and verified SQLite backup.
 
 ## 14. Research layer
 
 ### 14.1 Zotero
 
-Oleafly uses the documented Zotero Local API and Better BibTeX JSON-RPC. It does
+TExFlow uses the documented Zotero Local API and Better BibTeX JSON-RPC. It does
 not read or write Zotero's SQLite database directly. Collections are aliases,
 not filesystem ownership. Attachments retain Zotero item identity, local path,
 artifact hash, and availability state.
@@ -1101,6 +1671,10 @@ default. A library mutation, Better BibTeX refresh, attachment copy, or citekey
 rewrite is a separately previewed action; loss of Zotero never blocks editing or
 corrupts the last synchronized record.
 
+The trusted network broker owns the loopback connection; the research worker
+receives only the declared request metadata and bounded response bytes. Linking
+Zotero does not grant the worker a general loopback or filesystem capability.
+
 ### 14.2 Provider federation
 
 Each provider adapter returns a normalized record plus raw provenance. Requests
@@ -1110,7 +1684,7 @@ provider cannot erase successful results from another.
 
 Anonymous public endpoints may be enabled individually. Login-backed, API-key,
 quota-billed, or paid endpoints remain disabled until the user configures that
-provider and accepts its destination and data policy. Oleafly never acquires a
+provider and accepts its destination and data policy. TExFlow never acquires a
 key, opens an account, or upgrades a plan on the user's behalf.
 
 Provider-specific fields remain namespaced. Crossref, PubMed, OpenAlex, arXiv,
@@ -1182,7 +1756,7 @@ The adapter layer normalizes session, progress, diff, tool request, citation,
 usage, cancellation, and error events. It does not pretend providers have
 identical semantics.
 
-Oleafly is an outbound MCP client by default. An optional inbound local MCP
+TExFlow is an outbound MCP client by default. An optional inbound local MCP
 server is a separate, off-by-default capability: it binds only to an
 ACL-protected named pipe or explicit loopback endpoint, requires a per-launch
 capability token, advertises only the narrow tools below, rate limits calls, and
@@ -1229,8 +1803,8 @@ ID.
 
 | Mode | Meaning |
 | --- | --- |
-| Isolated | AppContainer worker with declared capabilities and no ambient project access |
-| Brokered | Typed Oleafly tools mediate every read, write, compile, and audit |
+| Isolated | Dedicated role-specific LPAC worker image with zero named capabilities, explicit role grants, no ambient project access, and a workload-observed OS `ALL RESTRICTED APPLICATION PACKAGES` baseline |
+| Brokered | Typed TExFlow tools mediate every read, write, compile, and audit |
 | Host access | External agent receives ambient host capability; UI displays an unconfined red state |
 
 The UI never calls host access a sandbox. Credentials live in Windows
@@ -1240,19 +1814,25 @@ purpose, destination, duration, and capability. Approval tokens are one use
 and bound to request, project, revision, tool, and expiry.
 
 Brokered is the default external-agent mode. Even in host-access compatibility
-mode, Oleafly starts the agent in a disposable snapshot or worktree and does not
+mode, TExFlow starts the agent in a disposable snapshot or worktree and does not
 offer the live project as its working directory. Resulting files are harvested
 as an immutable patch against the base snapshot. Because a same-user unconfined
 process can still discover and mutate other paths, any live-project change that
 arrives during the session is quarantined as an untrusted external change and
-must pass the visible three-way diff before Oleafly compiles or publishes it.
+must pass the visible three-way diff before TExFlow compiles or publishes it.
 Host access is never eligible for an "isolated" or "policy enforced" receipt.
 
 Network egress is brokered by destination and data class. Redirects, DNS
 rebinding, loopback/private-address transitions, proxy changes, and a new upload
 body are revalidated at the point of use. Provider and tool output cannot add an
-egress destination. Cancellation closes request bodies and response streams
-without silently retrying a disclosure.
+egress destination. For native Zotero/provider adapters, the trusted background
+network broker—not a research, science, PDF, or intelligence worker and never
+the UI STA—owns each socket and credential use. A separately installed external
+agent that must own its provider connection is labeled as an external-process
+egress boundary, names its destination/data/credential scope in consent and the
+receipt, and is never represented as native-broker-owned or isolated. Cancellation
+closes request bodies and response streams without silently retrying a
+disclosure.
 
 Remote providers require HTTPS with normal Windows certificate and hostname
 validation; certificate errors are never bypassed by a retry. Plain HTTP is
@@ -1339,7 +1919,7 @@ exit as if recent edits were protected.
 Ledger, recovery, cache, receipt, and diagnostic directories are created with
 an owner-only DACL rather than inheriting a broad parent ACL. Recovery content
 can contain an unpublished manuscript, so settings expose its age, size,
-retention rule, and a delete action. Deletion is immediate from Oleafly's index
+retention rule, and a delete action. Deletion is immediate from TExFlow's index
 and normal filesystem view, but the UI does not promise forensic erasure from
 an SSD or backup system it does not control.
 
@@ -1350,7 +1930,7 @@ quarantined while the last valid prefix remains usable.
 Git uses a typed Zig adapter over a discovered executable or optional verified
 portable pack. Arguments are passed as an array without shell interpolation.
 Repository root, worktree state, operation, paths, output, and exit code are
-normalized. Destructive actions require exact previews and user intent. Oleafly
+normalized. Destructive actions require exact previews and user intent. TExFlow
 does not auto-commit, auto-push, rewrite history, or combine recovery
 checkpoints with Git commits.
 
@@ -1365,7 +1945,7 @@ from logs; credentials are never placed on the command line.
 
 A publish transaction selects one immutable project snapshot. PDF, source
 package, EPUB, RO-Crate metadata, validation results, and receipt all reference
-that snapshot and their own hashes. Oleafly never combines an older accepted PDF
+that snapshot and their own hashes. TExFlow never combines an older accepted PDF
 with newer source under one unlabeled release. Each target commits independently
 to staging and becomes visible only after its validators pass; failure cannot
 overwrite a previous published artifact.
@@ -1416,7 +1996,7 @@ EPUB Accessibility 1.1 is the release conformance target. Conversion preserves
 heading hierarchy, document language and direction, table relationships,
 footnotes, link purpose, alternative text, reading order, and native MathML for
 mathematics when the source semantics are sufficient. Every export includes a
-discoverability metadata report. Oleafly claims accessibility conformance only
+discoverability metadata report. TExFlow claims accessibility conformance only
 when all machine-checkable requirements pass and every required human judgment
 is resolved; otherwise it names the unknowns and does not mint a false claim.
 The 2026 EPUB Accessibility 1.2 Candidate Recommendation is tracked but is not a
@@ -1499,7 +2079,7 @@ continuity and is disabled under reduced motion.
 
 ### 19.4 Ease of use
 
-First use begins with Open Folder, not an account or template wizard. Oleafly
+First use begins with Open Folder, not an account or template wizard. TExFlow
 detects candidate main files, installed compilers, Git, Zotero, and optional
 packs, then shows honest capability states. One recommended action appears for
 each missing requirement.
@@ -1569,11 +2149,19 @@ kernel compromise, debugger, or arbitrary malicious process already executing
 as the same user. Owner-only ACLs, capability secrets, isolation, receipts, and
 hashes reduce exposure and detect classes of failure; they are not marketed as
 an OS security boundary where Windows does not provide one.
+The LPAC claim excludes OS resources or user-owned resources deliberately
+granted to `ALL RESTRICTED APPLICATION PACKAGES`; those remain a measured,
+documented residual authority, never an invisible “broker-only” promise.
 
 ### 21.2 Process containment
 
-Non-interactive document parsers and intelligence workers run in AppContainer
-with explicit capabilities. The one interactive exception is the declared
+Non-interactive document parsers and intelligence workers run from dedicated,
+role-specific Zig PE images in imperatively created LPACs with zero named
+capabilities and explicit least-right role grants. The UI executable and its
+load-time Scintilla/UI/graphics closure are never worker images.
+Token mode, package SID, capability list, `ALL APPLICATION PACKAGES` opt-out,
+`ALL RESTRICTED APPLICATION PACKAGES` canary/baseline, and negative access are
+verified while each worker is still suspended and across its full corpus. The one interactive exception is the declared
 Scintilla editing/layout/paint TCB; its production syntax scanner is bounded Zig,
 not Lexilla, and cannot grant authority. External compilers run under the
 strongest compatible restricted-token and Job Object policy, and the UI labels
@@ -1583,14 +2171,18 @@ writable command-line buffer produced from a typed argument vector by the
 reviewed serializer for that executable, a minimal environment block, declared
 working directory, and a `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` allowlist. The
 serializer is tested against spaces, quotes, trailing backslashes, empty
-arguments, Unicode, and each external tool's actual parser. Oleafly does not
+arguments, Unicode, and each external tool's actual parser. TExFlow does not
 invoke `cmd.exe` or PowerShell for product actions.
 
-The package audit verifies DEP, ASLR, control-flow protection, stack-protection,
-and hardware-enforced stack compatibility for Oleafly and native dependencies
-where the selected compiler and target support them. No executable page is both
-writable and executable unless a separately reviewed dependency proves that it
-is essential and the worker boundary records the exception.
+The package audit verifies the exact UI/PDF/science PE split, recursive imports,
+load configuration, relocations, NX/ASLR, Guard CF metadata/instrumentation,
+stack protection, and CET compatibility for TExFlow and every native
+dependency. Runtime evidence separately proves the frozen worker mitigation
+profile and loaded-module closure; neither a PE header bit nor a successful
+launch substitutes for the other. No executable page is both writable and
+executable. A dependency that requires writable executable code cannot enter a
+product worker under the mandatory dynamic-code prohibition and must trigger an
+architecture review rather than receive a post-hoc exception.
 
 Archive extraction rejects absolute paths, drive changes, device names,
 alternate streams, traversal, unexpected symlinks, duplicate normalized names,
@@ -1605,7 +2197,7 @@ Operational logs are local, bounded, redacted, correlation-ID based, and
 owner-readable only. They omit source text, quotations, credentials, request
 bodies, authenticated URLs, and model prompts by default. A diagnostic bundle is
 an explicit export with a file inventory and second redaction pass; sending it
-anywhere is a separate user action. Oleafly-created crash dumps containing
+anywhere is a separate user action. TExFlow-created crash dumps containing
 project memory are off by default and follow the same retention and disclosure
 boundary when enabled. Windows Error Reporting remains governed by OS or
 administrator policy and is shown as an external privacy dependency rather than
@@ -1615,7 +2207,7 @@ silently claimed as disabled.
 
 The application ships as a signed MSIX and a first-class portable ZIP. Every
 shipped executable and DLL is Authenticode signed. The portable ZIP is bound to
-an Oleafly-signed release manifest and exact archive hash; HTTPS or an adjacent
+a TExFlow-signed release manifest and exact archive hash; HTTPS or an adjacent
 hash alone is not treated as publisher identity. MSIX uses block-level
 differential update support and clean uninstall behavior. The portable build
 stores mutable data outside its executable directory unless the user explicitly
@@ -1633,8 +2225,8 @@ downgrade never inherits a newer version's approval or receipt.
 Release automation pins third-party CI actions by immutable commit, grants the
 minimum job permissions, exposes no signing secret to untrusted pull-request
 code, inventories build inputs, and signs only from the protected release path.
-T0.1 proves the portable and MSIX verification paths before either is called a
-distribution artifact.
+T5.2 proves the signed portable-ZIP and MSIX verification, update, rollback, and
+clean-uninstall paths before either is called a release distribution artifact.
 
 Startup loads only the shell, editor boundary, Zig container lexer, and settings required for the
 first frame. The science worker, PDF worker/PDFium, TexLab, compiler, Git pack, Pandoc,
@@ -1646,7 +2238,7 @@ the current journey needs them.
 The rewritten project remains AGPL-3.0-or-later. PDFium's license and complete
 transitive notice/source obligations are audited before distribution; the
 feasibility binary alone does not satisfy that release gate. Scintilla,
-SQLite, ONNX Runtime, models, compiler packs, language servers, and every transitive native
+SQLite, Unicode data, ONNX Runtime, models, compiler packs, language servers, and every transitive native
 component receive an audited license record, source location, version, hash,
 notices, and source-offer treatment before packaging. A technically attractive
 dependency does not ship until license compatibility and redistribution terms
@@ -1729,7 +2321,8 @@ read only rather than downgraded.
 
 Cutover requires retained-scope acceptance evidence, budget compliance on both
 reference machines, clean migration of supported local state, signed package
-proof, recovery proof, and two final clean whole-product passes. The React,
+proof, recovery proof, and one final clean whole-product pass after the last
+medium-or-higher repair. The React,
 TypeScript, Tauri, and Rust production graph is then deleted rather than left as
 an unused fallback.
 
@@ -1745,8 +2338,9 @@ Every slice follows this state machine:
    where applicable, UIA journey, screenshots, logs, and resource traces.
 4. **Review**: review code, architecture, security, accessibility, scientific
    honesty, visual behavior, licenses, and test effectiveness.
-5. **Quality streak**: obtain two consecutive closed-coverage passes with no
-   open or newly discovered medium-or-higher finding.
+5. **Quality streak**: obtain one full closed-coverage pass after the last
+   medium-or-higher repair, with no open or newly discovered
+   medium-or-higher finding.
 6. **Commit and push**: create one atomic commit with an evidence manifest and
    push it before beginning the next slice.
 
@@ -1771,14 +2365,14 @@ closed coverage only when its predeclared requirement, risk, platform/state,
 tool, fixture, and negative-case matrix completed with no unexplained skip. An
 unavailable required environment is `unverified`, not clean.
 
-Pass A is an adversarial full affected-matrix run after the last fix. Pass B
-repeats the same oracle from a fresh process and fresh disposable user/project
-state, rebuilds or verifies generated evidence by hash, changes scenario order,
-and assigns new trace and screenshot IDs. It may reuse immutable fixtures and
-tool binaries whose hashes are recorded, but it cannot reuse Pass A's mutable
-cache, database, worker, browser context, or verdict. Any medium-or-higher
-finding in either pass resets the streak to zero and invalidates later partial
-passes until the finding is fixed.
+The admission pass is an adversarial full affected-matrix run after the last
+fix, from a fresh process and fresh disposable user/project state. It rebuilds
+or verifies generated evidence by hash and assigns fresh trace and screenshot
+IDs. It may reuse immutable fixtures and tool binaries whose hashes are
+recorded, but it cannot reuse mutable cache, database, worker, browser context,
+or a pre-repair verdict. Any medium-or-higher finding resets the streak to zero
+and invalidates later partial checks until the finding is fixed; after repair,
+the complete admission pass starts again.
 
 ### 24.2 Five-pass test-effectiveness review
 
@@ -1881,7 +2475,7 @@ Representative behavior:
 
 | Requested outcome | Design evidence | Final implementation proof |
 | --- | --- | --- |
-| Entire Oleafly runtime in Zig | Sections 5 and 7 | Cutover source inventory and packaged-binary dependency audit |
+| Entire TExFlow runtime in Zig | Sections 5 and 7 | Cutover source inventory and packaged-binary dependency audit |
 | Extremely fast, light, smooth, efficient | Sections 4, 6, and 25 | 30-run startup/WS traces, PresentMon, energy and low-tier matrix |
 | Live render | Section 10 | revision/cancellation fault tests and source-to-photon runtime journey |
 | LaTeX, TexLab, multi-file | Sections 8 and 9 | T1.1/T1.2 native journeys |
@@ -1898,7 +2492,7 @@ Representative behavior:
 | Easy and visually distinctive | Section 19 | UIA task journeys, visual matrix, usability and onboarding checks |
 | Accessible and international-text safe | Sections 19 and 20 | contrast-token audit, UIA/screen-reader/keyboard journeys, IME/BiDi/locale matrix |
 | Local-first privacy and bounded authority | Sections 15, 17, and 21 | process/IPC/egress adversarial tests, ACL inspection, disclosure and redaction journeys |
-| Strict review and two clean passes per part | Section 24 | per-commit evidence manifest and streak state |
+| Strict multi-round review and one final clean pass per part | Section 24 | per-commit evidence manifest and streak state |
 | Removed generic product areas | Section 3.4 | final production graph and route/command inventory |
 
 ## 28. Decision evidence and primary references
@@ -1915,6 +2509,7 @@ than being presented as mathematically certain.
 
 - [Zig 0.16 release notes](https://ziglang.org/download/0.16.0/release-notes.html)
 - [Zig build system](https://ziglang.org/learn/build-system/)
+- [Microsoft: VERSIONINFO resource](https://learn.microsoft.com/en-us/windows/win32/menurc/versioninfo-resource)
 - [Microsoft: DXGI flip model](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-performance--use-dxgi-flip-model)
 - [Microsoft: DXGI swap effects and partial-presentation constraint](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ne-dxgi-dxgi_swap_effect)
 - [Microsoft: flip model, dirty rectangles, and scrolled areas](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements)
@@ -1932,7 +2527,18 @@ than being presented as mathematically certain.
 - [Microsoft: Windows thread pools](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pools)
 - [Microsoft: process quality of service](https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service)
 - [Microsoft: creating processes and explicit handle inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/creating-processes)
-- [Microsoft: launching an AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer)
+- [Microsoft: load-time versus run-time dynamic linking](https://learn.microsoft.com/en-us/windows/win32/dlls/about-dynamic-link-libraries)
+- [Microsoft: process-creation mitigation attributes and exact flags](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
+- [Microsoft: querying effective process mitigation policies](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocessmitigationpolicy)
+- [Chromium: Windows sandbox process mitigations and Win32k lockdown](https://chromium.googlesource.com/chromium/src/+/main/docs/design/sandbox.md#process-mitigation-policies)
+- [Microsoft: launching an AppContainer or LPAC](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer)
+- [Microsoft: `TokenIsLessPrivilegedAppContainer` and `ALL APPLICATION PACKAGES`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class)
+- [Chromium: LPAC and the `ALL RESTRICTED APPLICATION PACKAGES` baseline](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md#less-privileged-app-container-lpac)
+- [Microsoft: `S-1-15-2-2` and exact package SIDs](https://devblogs.microsoft.com/oldnewthing/20220502-00/?p=106550)
+- [Microsoft: explicit AppContainer-SID ACLs for named objects](https://learn.microsoft.com/en-us/windows/apps/develop/communication/sharing-named-objects)
+- [Microsoft: file and directory access rights, including `FILE_TRAVERSE`](https://learn.microsoft.com/en-us/windows/win32/fileio/file-access-rights-constants)
+- [Microsoft: protected DACLs and `SE_DACL_PROTECTED`](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-control)
+- [Microsoft: experimental Create Process in Sandbox API](https://learn.microsoft.com/en-us/windows/win32/secauthz/createprocessinsandbox)
 - [Microsoft: access-control lists](https://learn.microsoft.com/en-us/windows/win32/secauthz/access-control-lists)
 - [Microsoft: named-pipe security and access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights)
 - [Microsoft: file-mapping security and access rights](https://learn.microsoft.com/en-us/windows/win32/memory/file-mapping-security-and-access-rights)
@@ -1945,7 +2551,7 @@ than being presented as mathematically certain.
 - [Microsoft: Windows 10 end of support](https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro)
 - [Microsoft: Windows 11 release health](https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information)
 - [Scintilla documentation](https://scintilla.org/ScintillaDoc.html)
-- [Scintilla 5.6.6 exact source tree](https://sourceforge.net/p/scintilla/code/ci/rel-5-6-6/tree/)
+- [Scintilla 5.6.6 exact release files](https://sourceforge.net/projects/scintilla/files/scintilla/5.6.6/)
 - [Microsoft RichEditD2D challenger](https://devblogs.microsoft.com/math-in-office/richeditd2d-window-controls/)
 - [PDFium source and public ABI](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/README.md)
 - [PDFium view API](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdfview.h)
@@ -1953,6 +2559,13 @@ than being presented as mathematically certain.
 - [PDFium progressive API](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdf_progressive.h)
 - [Rejected MuPDF error boundary](https://mupdf.readthedocs.io/en/latest/reference/c/overview.html)
 - [SQLite FTS5](https://sqlite.org/fts5.html)
+- [Unicode 17.0.0](https://www.unicode.org/versions/Unicode17.0.0/)
+- [Unicode 17.0.0 Character Database](https://www.unicode.org/Public/17.0.0/ucd/)
+- [UAX #29 revision 47: Unicode Text Segmentation](https://www.unicode.org/reports/tr29/tr29-47.html)
+- [UAX #15 revision 57: Unicode Normalization Forms](https://www.unicode.org/reports/tr15/tr15-57.html)
+- [UAX #9 revision 51: Unicode Bidirectional Algorithm](https://www.unicode.org/reports/tr9/tr9-51.html)
+- [Unicode License v3](https://www.unicode.org/license.txt)
+- [Microsoft: UI Automation text units](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-uiautomationtextunits)
 - [SQLite WAL](https://www2.sqlite.org/wal.html)
 - [SQLite floating-point numbers](https://sqlite.org/floatingpoint.html)
 - [SQLite Online Backup API](https://sqlite.org/backup.html)
@@ -1986,10 +2599,14 @@ than being presented as mathematically certain.
 
 The architecture, live-render model, scientific data and AI boundaries,
 migration strategy, QA protocol, performance contract, and Evidence Instrument
-direction are approved. The written spec's separate adversarial review and
-repair record is captured in the linked review evidence. T0.1 is complete on
-`main`; the next gate is the independently reviewed T0.2 plan. T0.2
-implementation remains unauthorized until that plan records two consecutive
-closed-coverage reviews with no Medium-or-higher finding. Every later slice
-receives its own plan only after the previous slice has passed its gates,
-committed, and pushed.
+direction retain user approval. That product-direction approval is not a clean
+review verdict for a newly repaired document. The current written-spec candidate
+is admitted only after its linked review evidence records one fresh, full
+closed-coverage pass after the last repair with no Medium-or-higher finding,
+followed by the atomic
+corrective commit and push. T0.1 is complete on `main`; after the repaired spec
+is admitted, the next gate is the independently reviewed T0.2 plan. T0.2
+implementation remains unauthorized until both the spec and plan are pushed and
+the plan has its own final clean closed-coverage review pass. Every later slice receives
+its own plan only after the previous slice has passed its gates, committed, and
+pushed.
