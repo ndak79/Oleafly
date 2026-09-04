@@ -44,6 +44,38 @@ covers the port pattern, the contribution registry, and the alias wiring.
 - [Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
 - Optional during setup: [pandoc](https://pandoc.org/installing.html) for Markdown PDF compilation and document export (the app can install its pinned build on demand)
 
+## Zig walking skeleton (T0.1)
+
+The rewrite starts in native/zig/ while the existing Tauri/React/Rust tree
+remains a development oracle. The root build.zig and build.zig.zon are the
+future build entry points; no legacy runtime is wrapped or packaged by this
+slice.
+
+Download the exact archive listed in tools/zig/toolchain.json from
+ziglang.org, verify its byte size and SHA-256 before extraction, and put the
+matching directory on PATH. CI performs the same checks on fresh Windows and
+Linux runners.
+
+```
+zig version
+zig fmt --check build.zig build.zig.zon native/zig
+zig build --fetch=all
+zig build -Doptimize=Debug test --summary all
+zig build --release=safe test --summary all
+zig build --release=safe abi --summary all
+zig build --release=fast abi --summary all
+zig build --release=safe miscompile-corpus --summary all
+zig build --release=safe simd-corpus --summary all
+zig build --release=fast simd-corpus --summary all
+zig build --release=safe run --summary all
+```
+
+The final command prints oleafly-t0.1 toolchain ok. ReleaseSafe is the
+shipping default; ReleaseFast is used only to expose optimizer-dependent ABI,
+FNV, or SIMD known-answer regressions. The full application, native Windows UI, editor,
+compiler workers, research ledger, and publishing pipeline remain future
+bounded slices.
+
 ## First run
 
 ```bash
