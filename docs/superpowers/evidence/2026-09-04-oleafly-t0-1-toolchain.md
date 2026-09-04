@@ -14,11 +14,11 @@
   10.0.26200, 64-bit; native target `x86_64-windows-msvc`.
 - Windows archive SHA-256:
   `68659eb5f1e4eb1437a722f1dd889c5a322c9954607f5edcf337bc3684a75a7e`;
-  local byte-size and SHA-256 verification passed, and both accepted remote
+  local byte-size and SHA-256 verification passed, and all accepted remote
   runs repeated the manifest bootstrap check.
 - Linux archive SHA-256:
   `70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00`;
-  both accepted Ubuntu runners passed strict size and `sha256sum` verification.
+  all accepted Ubuntu runners passed strict size and `sha256sum` verification.
 - Remote Run A: `33825541019`,
   <https://github.com/ndak79/Oleafly/actions/runs/33825541019>, source
   `e5d71a398edbf0a853d15f6c06a35e70b985b9ba`; `Zig T0.1 (Windows x64)`
@@ -27,8 +27,24 @@
   <https://github.com/ndak79/Oleafly/actions/runs/33825809417>, source
   `e5d71a398edbf0a853d15f6c06a35e70b985b9ba`; `Zig T0.1 (Windows x64)`
   and `Zig T0.1 (Linux x64)` both concluded `success`.
+- Provenance-correction commit:
+  `b584b20628622d177dbf929422930a7fc4ca67de`; its only delta from the source
+  snapshot is this evidence document, and Git parses all six correction fields
+  as one canonical trailer block.
+- Post-correction Run C: `33827705850`,
+  <https://github.com/ndak79/Oleafly/actions/runs/33827705850>, verified
+  `b584b20628622d177dbf929422930a7fc4ca67de`; both native jobs concluded
+  `success` and form clean streak pass 1.
+- Post-correction Run D: `33827950005`,
+  <https://github.com/ndak79/Oleafly/actions/runs/33827950005>, verified
+  `b584b20628622d177dbf929422930a7fc4ca67de`; both native jobs concluded
+  `success` and form clean streak pass 2.
 - Rejected pre-streak run: `33825017735` failed on Windows CRLF formatting and
   was not counted. Finding `T0.1-F01` below records its closure.
+- Excluded orchestration run: `33827703684` was cancelled by the workflow's
+  `cancel-in-progress` policy when two reruns were initially dispatched at
+  once. It was not a test failure and is not counted; Runs C/D were dispatched
+  and completed sequentially.
 - Provenance correction: the first evidence commit
   `00965f7adb1f795ab98ac9183ed40b10b00acc9b` incorrectly labelled its own tree
   `b4a80b042ff5df0d4a7e707fccc0036ed1ac8d1c` as `Reviewed-Tree`. The source
@@ -42,13 +58,15 @@
 | --- | --- | --- | --- |
 | A | Local Windows 11 / `x86_64-windows-msvc`, local Linux cross-target, remote Windows Server 2022 and Ubuntu 24.04 native runners | Fresh processes plus distinct install/local/global cache roots for reproducibility | Local format/fetch/C11/header checks, Debug/Safe/Fast tests, smoke run, and both cross-builds passed; accepted remote Run A had exactly two successful jobs. |
 | B | Local Linux cross-target first, then Windows Fast before Safe/Debug; remote Windows Server 2022 and Ubuntu 24.04 native runners | New processes and new disposable install/local/global cache roots; failed attempts excluded from the streak | Changed-order local checks and three subsequent exact-order stress sequences passed; accepted remote Run B had exactly two successful jobs. |
+| C | Remote Windows Server 2022 and Ubuntu 24.04 native runners | Fresh hosted runners at provenance-correction commit `b584b20628622d177dbf929422930a7fc4ca67de` | Run `33827705850` completed with exactly two successful jobs; all required summaries, smoke outputs, and OS-specific hashes were present. |
+| D | Remote Windows Server 2022 and Ubuntu 24.04 native runners | Fresh hosted runners at the same correction commit, dispatched only after Run C completed | Run `33827950005` completed with exactly two successful jobs and repeated every Run C oracle; this is the second consecutive post-correction clean pass. |
 
 ## Direct outputs
 
 - `zig build -Doptimize=Debug test`: `9/9 steps succeeded; 6/6 tests passed`
-  on both accepted native runners and the local Windows lane.
+  on every accepted native runner and the local Windows lane.
 - `zig build --release=safe test`: `9/9 steps succeeded; 6/6 tests passed`
-  on both accepted native runners and the local Windows lane.
+  on every accepted native runner and the local Windows lane.
 - `zig build abi` in `--release=safe` and `--release=fast`: each invocation
   reported `5/5 steps succeeded; 1/1 tests passed` on Windows and Linux.
 - `zig build miscompile-corpus` in `--release=safe` and `--release=fast`: each
@@ -113,24 +131,29 @@
   commit: `Reviewed-Tree` named that evidence commit's tree rather than the
   reviewed source tree, and blank lines separated its message fields so Git
   parsed only the last field as a canonical trailer. This revision records the
-  actual source tree, uses one contiguous trailer block, and resets the quality
-  streak. The original Runs A/B remain valid source-build evidence but do not
-  count toward the renewed post-finding streak. Two new remote runs are required
-  before T0.1 can close.
+  actual source tree, and correction commit
+  `b584b20628622d177dbf929422930a7fc4ca67de` uses one contiguous trailer block.
+  The original Runs A/B remain valid source-build evidence but do not count
+  toward the renewed post-finding streak. Sequential Runs C/D each completed
+  with exactly two successful native jobs and repeated all required log and
+  artifact-hash oracles. The finding is closed; no Medium-or-higher finding
+  remains open.
 - Flakes or unexplained skips: one local changed-order attempt reported a
   transient Zig standard-library read error,
   `crypto/aes_ocb.zig: unable to load: Unexpected`, during Debug compilation.
   That process was excluded from the streak. The file and all 552 standard
   library files matched a second verified extraction byte-for-byte; three
-  fresh exact-order stress sequences and both accepted native CI runs passed.
+  fresh exact-order stress sequences and all four accepted native CI runs passed.
   No accepted CI run contained a flake or unexplained skip. The single local
   process remains an explicitly unverified environmental observation, not a
-  product-pass claim.
+  product-pass claim. Cancelled run `33827703684` is an excluded dispatch-policy
+  event, not a test retry or product pass.
 - Explicitly unverified items: native Linux execution on the local Windows
   workstation; T0.2 native-window feasibility; startup, working-set, energy,
   presentation, and application performance budgets; all later editor,
   research, AI, quality, versioning, publishing, and UI behavior.
 - Browser/UI QA: not applicable to T0.1 by explicit scope; no browser-visible
   surface exists.
-- Quality streak: reset to 0/2 after `T0.1-F02`; post-correction remote reruns
-  are intentionally pending.
+- Quality streak: 2/2 clean closed-coverage post-correction passes
+  (`33827705850`, `33827950005`), each with exactly two successful native jobs
+  at `b584b20628622d177dbf929422930a7fc4ca67de`.
