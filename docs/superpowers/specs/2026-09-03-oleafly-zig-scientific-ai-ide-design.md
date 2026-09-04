@@ -2,9 +2,10 @@
 
 | Field | Decision |
 | --- | --- |
-| Status | Adversarial spec review incorporated; awaiting user approval; implementation has not started |
+| Status | Approved system design; T0.1 complete; T0.2 plan under adversarial review; T0.2 implementation has not started |
 | Decision date | 2026-09-03 |
-| Baseline | `2b389eaf7379531e661fabbce22918b123c805ea` |
+| Original repository baseline | `2b389eaf7379531e661fabbce22918b123c805ea` |
+| Current implementation baseline | T0.1 evidence commit `4898f33c88ca93e95295d2da5c4ffa367b90a8d6` |
 | Target | Windows-first native desktop application |
 | Product source of truth | Plain-folder LaTeX source, with `.tex` authoritative |
 | Product loop | Research -> Evidence -> Write -> Cite -> Compile -> Review -> Publish |
@@ -164,7 +165,7 @@ Every performance release gate runs on both of these Windows machines:
 - mainstream: current 6-8 physical CPU cores, 16 GiB RAM, integrated or
   entry discrete GPU, SSD.
 
-T0.1 freezes the exact CPU and GPU models, firmware and driver revisions,
+T0.2, before the first measured native campaign, freezes the exact CPU and GPU models, firmware and driver revisions,
 memory configuration, storage model and free-space floor, display path, cooling
 policy, and AC/battery state for both reference machines. A replacement machine
 must first pass a recorded equivalence calibration against the retired one;
@@ -186,11 +187,22 @@ Linux, native ARM64, and Windows on ARM performance are outside this rewrite;
 adding any of them requires a separate design and benchmark decision.
 
 The matrix covers the Windows 10 compatibility/ESU lane and supported Windows
-11 lane, 1920x1080/2560x1440/3840x2160, 60/120/144 Hz,
-100/150/200 percent DPI, hardware rendering, WARP, and RDP. Interaction metrics
-report p50, p95, p99, dropped presentation ratio, intentional coalescing,
-refresh rate, present mode, and trace-loss count. A mean alone or a trace with
-lost events is not release evidence.
+11 lane on both frozen reference machines, 1920x1080/2560x1440/3840x2160,
+60/120/144 Hz, 100/150/200 percent DPI, hardware rendering, WARP, clean and
+established profiles, and RDP. It is a predeclared constrained mixed-strength
+matrix rather than an undocumented Cartesian sample: every pair of declared
+factors is covered, display/renderer/OS risk groups receive three-way coverage,
+and fixed worst-case cells are added explicitly. A repository-owned Zig
+generator and verifier materialize the rows and prove coverage before any
+measurement; rows cannot be deleted after results are seen. Thirty-trial
+performance distributions belong to named benchmark cells and profile strata,
+not to a pooled grab bag of matrix rows. Results never pool different machine,
+OS, renderer, profile, power, or RDP strata to pass a budget.
+
+Interaction metrics report p50, p95, p99, worst, dropped presentation ratio,
+intentional coalescing, refresh rate, present mode, and trace-loss count. A mean
+alone, a trace with lost events, an undeclared replacement trial, or an
+aggregate whose constituent stratum fails is not release evidence.
 
 Local-display photon gates apply to the physical-display rows. RDP cannot be
 given the same absolute photon promise because network, client display, and
@@ -219,7 +231,7 @@ reported, not silently compared with a local-display threshold.
 | All-input to photon p95, editor and app-compositor lanes | <= `min(25 ms, 2R)`, where `R` is one refresh period |
 | Dropped presentations during a 10,000-edit trace | <= 0.1 percent |
 | Empty-shell idle CPU after quiescence | <= 0.5 percent of one logical processor |
-| Fixed render or polling timers while occluded | zero |
+| Fixed render, polling, or editor-child wake timers while minimized/fully occluded after quiescence | zero |
 | Live-render scheduling delay in Auto mode | adaptive 220-750 ms |
 | Superseded compiler grace before cancellation | 75 ms |
 | Visible stale artifact presented as current | zero |
@@ -289,7 +301,16 @@ the trace so the ratio cannot be improved by silently discarding samples.
 - Indexing, embedding, and maintenance work uses EcoQoS and low memory
   priority when the platform supports it.
 - Minimized or fully occluded windows do not wake for fixed rendering,
-  animation, indexing, or status polling.
+  animation, indexing, status polling, or editor-child work. The timer inventory
+  includes Scintilla's caret, dwell, scroll, widen, and idle-styling tickers, not
+  only timers created by Oleafly.
+- A visible, focused Scintilla caret may use the current Windows system blink
+  period; that expected wake is recorded separately and is not mislabeled as
+  application polling. On minimized or fully occluded transition, Oleafly
+  disables caret blink, dwell, and idle styling and cancels or boundedly drains
+  pending scroll/widen/idle work. It restores the exact visible-state settings
+  without losing focus, selection, IME composition, or pending edits. After the
+  declared occluded quiescence point, no such periodic timer may wake.
 - Compilation may continue while occluded only when the user requested it or
   an active publish operation depends on it.
 - Empty-shell CPU is measured after the quiescence point above. Background work
@@ -327,8 +348,8 @@ decoding code. The evidence manifest names every approved exception.
 
 | Capability | Candidate | Boundary |
 | --- | --- | --- |
-| Source editor | Scintilla/Lexilla 5.6.6 candidate pin | Native C++ source, direct interface, wrapped by a narrow Zig ABI |
-| PDF | MuPDF 1.28.x candidate pin | Minimal PDF-only C build in an isolated worker |
+| Source editor | Scintilla 5.6.6 plus an Oleafly-owned Zig LaTeX/BibTeX container lexer | Native C++ editing core through the upstream status-returning direct interface; styling through bounded Zig `SCN_STYLENEEDED` handling; Lexilla 5.5.3 is test-only comparison evidence and is not shipped |
+| PDF | PDFium 154.0.8035.0 (`chromium/8035`) feasibility pin | Public C ABI, no V8/XFA, isolated single-engine-thread worker |
 | Database and full-text search | SQLite 3.53.4 or newer reviewed patch release | Pinned amalgamation, FTS5 enabled |
 | Graphics | D3D11, DXGI, Direct2D, DirectWrite, DWM | Windows system APIs |
 | Accessibility | UI Automation and Text Services Framework | Windows system APIs |
@@ -339,12 +360,56 @@ archives and generated binaries are checksum pinned. Dynamic libraries load
 only by absolute path with the appropriate `LOAD_LIBRARY_SEARCH_*` policy and
 verified hash or signature.
 
-The Scintilla boundary uses its documented C-compatible direct function and
-fixed-width bridge types, not C++ object ownership. C++ exceptions, allocators,
-RTTI objects, and standard-library types never cross into Zig. The bridge catches
-all upstream exceptions and returns a typed status. T0 builds the bridge with the
-same reviewed compiler/runtime policy used for packaging and runs ABI probes in
-both `ReleaseSafe` and `ReleaseFast`.
+The PDF candidate changed after approval because source-level review found a
+hard all-Zig boundary violation in the original MuPDF proposal. MuPDF's serious
+operations require its `fz_try`/`fz_catch` macros, whose `setjmp`/`longjmp`
+control flow cannot safely cross Zig stack frames without an Oleafly-owned C
+bridge. Process isolation contains a crash but cannot make an unguarded call a
+valid error boundary. PDFium is the replacement candidate because its upstream
+public C ABI exposes the required render, text, search, character geometry,
+link, annotation, and progressive-pause surface without an owned non-Zig shim.
+T0.2 must still reject it unless exact official root commit
+`6f2272e1f3aaa141305475b83ef4eac2c1f527b8` and its resolved source graph can be
+independently reconstructed, statically matched to the provenance-checked
+reference's ABI/enabled surface, and shown to pass independent correctness,
+resource, and performance oracles. The community binary is reference evidence only: no admitted T0.2
+worker may load it after reconstruction. Runtime/security probes use the sealed
+reconstructed artifact and record its digest. That artifact is still not
+release-qualified; the shipping DLL requires a later protected
+Oleafly-controlled build, repeat equivalence/security evidence, and Authenticode
+signing. This paragraph is the 2026-09-04 PDF-engine ADR and supersedes the
+original candidate wherever historical review evidence names MuPDF.
+
+No PDFium DLL executes during acquisition, source reconstruction, or static ABI
+audit. T0.2 first launches a Zig-only dummy role and proves the zero-capability
+AppContainer, Job, peer identity, handle allowlist, sealed runtime, and negative
+access probes. Only then may a fresh worker load the sealed source-reconstructed
+artifact. The community reference DLL is never executed; runtime correctness is
+judged against independently generated semantic/pixel oracles and the exact
+upstream API contract.
+
+The Scintilla boundary uses its documented C-compatible
+`SCI_GETDIRECTSTATUSFUNCTION` and fixed-width public types, not C++ object
+ownership. Scintilla's upstream Win32 message entry catches its own exceptions
+and the direct-status function returns that error status; Oleafly declares and
+calls the function in Zig and adds no C/C++ bridge. C++ exceptions, allocators,
+RTTI objects, and standard-library types never cross into Zig. T0 builds the
+upstream source with the reviewed compiler/runtime policy used for packaging and
+runs independent ABI probes in both `ReleaseSafe` and `ReleaseFast`.
+
+Scintilla's text storage, layout, input, and paint path is the one deliberate
+native C++ component inside the UI trust boundary; the threat model names it
+rather than claiming every parser is sandboxed. Oleafly does not attach Lexilla
+to the production document. It selects container styling with
+`SCI_SETILEXER(NULL)` and handles `SCN_STYLENEEDED` through a bounded,
+revision-stamped Zig lexical scanner for LaTeX and BibTeX. Line-state
+checkpoints, edit invalidation until state convergence, byte-exact full-versus-
+incremental differential tests, long-line/invalid-input/fuzz cases, and a strict
+per-dispatch work cap prevent styling from becoming an unbounded UI task.
+Semantic parsing, language intelligence, and every parser that can produce
+authority-bearing output remain outside the UI process. Pinned Lexilla may run
+only in a test executable over reviewed fixtures to expose behavioral gaps; it
+is never linked into or loaded by the shipped app.
 
 ### 5.3 External tool packs
 
@@ -377,15 +442,15 @@ oleafly.exe
 |   +-- D3D11/DXGI/Direct2D/DirectWrite compositor
 |   +-- Scintilla host and Oleafly UIA provider
 |   +-- immutable application snapshots
+|   +-- trusted ledger broker on a dedicated database thread
 |   +-- typed worker clients
 |
 +-- oleafly.exe --worker=pdf
-|   +-- minimal MuPDF document server
-|   +-- display-list and tile rendering
+|   +-- PDFium public-C document engine
+|   +-- progressive, cancellable tile rendering
 |   +-- text/search/selection extraction
 |
 +-- oleafly.exe --worker=science
-|   +-- ledger writer
 |   +-- derived FTS indexer
 |   +-- deterministic audits
 |
@@ -413,19 +478,41 @@ project ID, project revision, payload length, and a bounded deadline. Unknown
 message types, oversized fields, invalid UTF-8, and stale revisions fail
 closed.
 
-Every pipe has a DACL limited to the current user and required worker or
-AppContainer SID, an unpredictable name, and a one-launch capability secret
-delivered through an explicitly inherited handle. The broker verifies the peer
-PID, expected executable identity, role, and protocol before accepting
-application data. Per-role request count, byte, in-flight, and outbound-result
-caps implement credit-based backpressure. Logs use bounded rings with an
-explicit truncation record; progress is coalescible, but terminal results are
-not. A peer that floods, stalls after its deadline, or violates framing is
-disconnected and its job is terminated.
+Every pipe has a protected, non-inherited, least-right DACL, an unpredictable
+name, and a one-launch capability secret delivered through an explicitly
+inherited bootstrap handle. An internal single-worker endpoint has exactly one
+server instance and grants client data/attribute/synchronize rights only to the
+exact role AppContainer SID; it contains no current-user data/create-instance
+ACE and never uses a generic-write ACE that also implies
+`FILE_CREATE_PIPE_INSTANCE`. A later same-user integration endpoint that cannot
+use a role SID is separately scoped to the current logon SID, not every session
+of the account, and still receives only its required client rights. Name entropy
+is defense in depth, not authentication. This least-right descriptor narrows
+normal access but does not override the section 21.1 exclusion for malicious
+same-user code: the Windows object owner implicitly has `WRITE_DAC`. The broker
+verifies the canonical DACL, peer PID/creation time, expected executable
+identity, role, and protocol before
+accepting application data. Per-role request count, byte, in-flight, and
+outbound-result caps implement credit-based backpressure. Logs use bounded rings
+with an explicit truncation record; progress is coalescible, but terminal
+results are not. A peer that floods, stalls after its deadline, or violates
+framing is disconnected and its job is terminated.
 
-An isolated worker receives only duplicated handles, shared read-only sections,
-or brokered bytes for the declared snapshot. It does not receive ambient access
-to the project folder. A compatibility compiler that cannot consume brokered
+Classic AppContainer creation necessarily exposes a per-profile writable
+`LOCALAPPDATA`/`TEMP` tree. Oleafly therefore treats that tree as an explicit
+untrusted scratch boundary, not as absent storage: the stable role moniker/SID
+is delete-and-recreated before each worker generation, no executable, DLL,
+configuration, project input, or canonical state is ever loaded from it, and it
+is deleted after every clean/crash/timeout exit only after all handles close.
+Failed or partial deletion quarantines that profile and blocks another launch
+until a reparse-safe cleanup and empty/ACL verification succeeds. The science
+worker's separately ACL-brokered disposable search database is the sole declared
+persistent worker-writable exception; its AppContainer profile remains scratch.
+
+Aside from its declared scratch profile and the science-search exception, an
+isolated worker receives only duplicated handles, shared read-only sections, or
+brokered bytes for the declared snapshot. It does not receive ambient access to
+the project folder. A compatibility compiler that cannot consume brokered
 inputs receives a revision-specific snapshot directory and an honestly labeled
 host-access boundary.
 
@@ -439,9 +526,14 @@ host-access boundary.
 - A bounded CPU pool has `max(1, min(physical_cores - 1, 4))` workers, never
   underflows on a one-core environment, and lowers its active width under memory
   or foreground-latency pressure.
-- `ledger.db` has one writer. Readers use independent read-only connections.
-- The PDF worker has one document-server thread that creates display lists and
-  cloned MuPDF contexts for bounded raster workers.
+- `ledger.db` has one writer on a dedicated trusted broker thread in the UI
+  process. The UI STA never calls SQLite, and no parser/research/science worker
+  can open the ledger directory. Readers use independent read-only connections
+  under the same broker boundary.
+- The PDF worker has one engine thread that owns PDFium initialization and every
+  PDFium object and call. Other threads exchange only bounded immutable
+  requests/results; progressive rendering yields and cancels on the engine
+  thread rather than entering the library concurrently.
 - Compiler, language server, model, and provider work never holds a UI lock.
 - No lock is held across IPC, filesystem, network, database, or process waits.
 - Every Scintilla direct call occurs on the HWND-owning UI thread. Other threads
@@ -461,11 +553,26 @@ process.
 
 ### 6.2 Presentation path
 
-The compositor uses a two-buffer DXGI flip-discard swap chain with a frame
-latency waitable object and maximum frame latency of one. It waits before
-rendering, submits only when a dirty region exists, and uses `Present1` dirty
-and scroll rectangles when correct. The application does not run a fixed 60 or
-120 fps loop.
+The compositor baseline uses a two-buffer
+`DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL` swap chain with a frame-latency waitable
+object and maximum frame latency of one. This is deliberate: Oleafly is a
+sparse-update document UI, and `DXGI_SWAP_EFFECT_FLIP_DISCARD` does not support
+partial presentation. The app waits on the latency object before the first and
+every later rendered frame, submits only when state is dirty, and uses
+`Present1` dirty/scroll metadata only after proving the current back buffer
+coherent. It tracks intersections across both buffers; first frame, resize,
+DPI/adapter transition, device recovery, invalid history, or uncertain coverage
+forces a complete redraw and zero dirty-rectangle count. It never mixes GDI or
+another presenter into the swap-chain HWND. The application does not run a
+fixed 60 or 120 fps loop.
+
+T0 also measures a two-buffer `DXGI_SWAP_EFFECT_FLIP_DISCARD` full-redraw
+challenger with empty partial-present metadata. It may replace the baseline only
+after the same hardware/WARP/RDP matrix proves a material net improvement in
+latency, GPU/CPU work, memory bandwidth, energy, and correctness without
+weakening any budget; the ADR is updated before T1. A Windows 11 composition
+swap chain remains a specialist challenger rather than a compatibility
+baseline.
 
 Scintilla remains a native child HWND and draws source text through its
 DirectWrite path. Oleafly does not copy editor pixels through an intermediate
@@ -606,12 +713,22 @@ rendering without a browser runtime. Oleafly calls its direct interface for
 high-frequency operations instead of sending synchronous window messages.
 Styling and diagnostics are batched.
 
-Oleafly supplies its own UI Automation provider with TextPattern and
-TextPattern2 support, selections, visible ranges, caret, line and document
-navigation, editable state, names, roles, states, and keyboard accelerators.
-Train T0 tests Vietnamese, CJK, Arabic, IME composition, surrogate pairs,
-combining marks, bidirectional selection, screen readers, and Accessibility
-Insights. Scintilla does not pass merely because ordinary Latin typing works.
+Oleafly supplies its own server-side UI Automation Document provider with
+TextPattern/TextPattern2, TextEdit, and Scroll support;
+selections, visible ranges, caret, line and document navigation, editable state,
+names, roles, states, and keyboard accelerators are exact. The multiline source
+document deliberately does not expose `IValueProvider`; clients retrieve bounded
+or whole text through TextPattern ranges and edit through normal focused input,
+so no giant whole-document BSTR or second mutation endpoint is introduced. Its
+`WM_GETOBJECT` subclass handles only `UiaRootObjectId`, forwards all other IDs
+and unmodified parameters so Scintilla's MSAA path survives, and disconnects the
+provider/event map before HWND and COM-apartment teardown. Provider calls obey
+STA COM threading; independent UIA clients and event handlers use one non-UI MTA
+thread. Bounding rectangles are physical screen coordinates while text movement
+uses logical document order. Train T0 tests Vietnamese, CJK, Arabic, IME
+composition, surrogate pairs, combining marks, bidirectional selection, screen
+readers, and Accessibility Insights. Scintilla does not pass merely because
+ordinary Latin typing works.
 
 TexLab runs as a bounded external process over JSON-RPC/LSP. The client:
 
@@ -756,18 +873,63 @@ approval.
 
 ## 11. PDF preview
 
-MuPDF is built for PDF only. JavaScript, EPUB reading, HTML, XPS, OCR, barcode,
-and unrelated converters are disabled. The worker applies input size, page,
-object, recursion, allocation, CPU, and wall-clock limits before content reaches
-the UI process.
+The sealed source-reconstructed PDFium artifact is loaded dynamically only
+after the isolated PDF-worker role is established, and only through the
+reviewed public C function table; the community comparison DLL is never an
+admitted runtime input. The build
+has V8 and XFA disabled; Oleafly never initializes form fill or JavaScript/XFA,
+never supplies network or upload callbacks, and treats URI, launch, attachment,
+and form actions as inert bounded data. EPUB reading, HTML, XPS, OCR, barcode,
+and unrelated conversion are outside this engine. The worker applies input
+size, page, text, link, geometry, allocation, CPU, and wall-clock limits before
+content reaches the UI process; an outer watchdog terminates a non-progressing
+parse or extraction call.
 
-The document-server thread creates immutable display lists. Bounded render
-workers use cloned MuPDF contexts to raster visible pages. The cache uses 512 px
-RGBA tiles, prioritizes viewport plus or minus one page, and enforces a 32-64
-MiB adaptive LRU limit. Upload work per frame is bounded so a new page cannot
-starve typing or scrolling.
+Worker-side limits are defense in depth, not authority. The UI broker parses
+every authenticated worker reply with its own pre-allocation byte/count caps,
+then revalidates artifact/document generation, page identity, UTF-8, monotonic
+and in-range text offsets, finite checked transforms/rectangles, dimensions,
+link/action/annotation allowlists, and cross-field counts before constructing a
+private immutable snapshot. No worker pointer, object address, unbounded string,
+or worker-owned view reaches UIA, layout, navigation, or canonical science
+state. A malformed, oversized, internally inconsistent, stale, or unexpected
+reply is discarded, retains the last good artifact, and quarantines or restarts
+the worker; authenticated-hostile reply fuzzing is a T0 gate.
 
-Search, selection, links, annotations used for evidence, page geometry,
+The single engine thread uses PDFium's progressive render pause/continue API so
+newer document generations can cancel stale work between bounded slices. The
+cache uses 512 px opaque BGRx tiles, prioritizes viewport plus or minus one page,
+and enforces a measured 32/48/64-MiB adaptive LRU limit. Tile memory is initialized
+before rendering, format/stride/dimensions are validated, and bounded upload
+work per frame prevents a new page from starving typing or scrolling.
+
+Every decoded tile crosses the trust boundary through a fresh unnamed,
+pagefile-backed, non-executable one-MiB section that is unique to one slot
+generation and is never pooled or reused. The broker state machine is
+`created -> writing -> ready -> consuming -> retired`: the worker initializes
+all bytes, computes the exact-byte SHA-256 digest, unmaps its declared view,
+closes its declared write handle, and authenticates the generation/dimensions/
+stride/digest in `ready`. The UI maps only read access, copies exactly one
+validated tile into one of at most two private staging buffers, hashes that
+private copy, and unmaps/closes and permanently retires the section before any
+GPU upload. It uploads only from the private buffer and clips content to the
+PDF viewport beneath UI-owned chrome. At most four tile-transfer sections may
+be live, independent of the resident 32/48/64-MiB GPU tile LRU.
+
+Closing one declared handle cannot revoke a hidden duplicate or mapped view in
+a compromised process, so neither the close acknowledgement nor the worker's
+digest is treated as a security proof. One-shot object identity prevents a
+retained writer from corrupting any later generation; digest mismatch, a late
+write, an invalid state, or unreclaimed worker handles quarantines the result
+and restarts or latches the worker. A compromised renderer can still choose
+arbitrary pixels, so raster tiles are explicitly untrusted derived display data:
+they never establish artifact identity, evidence truth, citation truth, or any
+canonical scientific state. A bounded overlapped-pipe copy into the same UI
+staging pool is the measured fallback if one-shot section creation fails a T0
+correctness or performance gate; direct upload from shared worker-writable
+memory and reusable writable tile sections are forbidden.
+
+Search, selection, links, bounded annotation metadata/geometry used for evidence, page geometry,
 CropBox, rotation, and text extraction retain document and artifact hashes.
 Active PDF content never executes.
 
@@ -838,6 +1000,16 @@ silently rewrite the authoritative anchor after an ambiguous match.
 SQLite state lives in local app data rather than inside a network or OneDrive
 project folder. The project has a stable local identity mapped to its canonical
 path. Portable scientific state is exported explicitly to the project.
+
+The privileged UI process contains a narrow ledger broker on its own database
+thread. It accepts only typed, size-bounded event proposals, performs canonical
+validation itself, and owns the canonical directory. The science AppContainer
+cannot open that directory; it receives authenticated immutable event snapshots
+and writes only disposable `search.db`/derived cache in a separate ACL root.
+Compromising an indexer therefore cannot rewrite accepted scientific history.
+Search replies carry a ledger watermark and canonical entity IDs; the broker
+revalidates both against its read-only projection before the UI consumes them.
+Worker-returned snippets, scores, and ordering remain labeled derived data.
 
 ### 13.1 `ledger.db`
 
@@ -974,7 +1146,7 @@ Full text is derived data and can be deleted or rebuilt without deleting the
 paper record, note, claim, or evidence edge.
 
 Scanned papers use an optional, explicitly invoked OCR pack rather than adding
-OCR to MuPDF or the core. Every OCR text layer records artifact hash, engine and
+OCR to the PDF engine or the core. Every OCR text layer records artifact hash, engine and
 version, language, page mapping, confidence, and invocation receipt. OCR text
 is searchable derived data and is never presented as an exact quotation until
 the anchor has been checked against the page image.
@@ -1296,8 +1468,12 @@ not a permanent fourth panel.
 ### 19.2 Responsive desktop layouts
 
 - Above 1180 logical px: tri-canvas Project + Source + PDF.
-- 761-1180 logical px: Source + PDF, with Project as a flyout.
-- At or below 760 logical px: one focus surface plus a clear switcher.
+- 880-1180 logical px: Source + PDF, with Project as a flyout and pane ratios
+  clamped to their readable minima.
+- 760-879 logical px: one focus surface plus a clear Source/PDF switcher and
+  Project flyout; 760 logical px is the supported minimum window width.
+- Below 760 logical px: preserve access and reflow without claiming a supported
+  production layout.
 - Zen mode leaves a clean source editor.
 - Detached PDF is available for a second monitor.
 - Pane and window state restores exactly, with an escape path to defaults.
@@ -1396,10 +1572,13 @@ an OS security boundary where Windows does not provide one.
 
 ### 21.2 Process containment
 
-Compatible parsers and intelligence workers run in AppContainer with explicit
-capabilities. External compilers run under the strongest compatible restricted
-token and Job Object policy, and the UI labels any remaining host access
-honestly. `CreateProcessW` receives a non-null absolute `lpApplicationName`, a
+Non-interactive document parsers and intelligence workers run in AppContainer
+with explicit capabilities. The one interactive exception is the declared
+Scintilla editing/layout/paint TCB; its production syntax scanner is bounded Zig,
+not Lexilla, and cannot grant authority. External compilers run under the
+strongest compatible restricted-token and Job Object policy, and the UI labels
+any remaining host access honestly. `CreateProcessW` receives a non-null
+absolute `lpApplicationName`, a
 writable command-line buffer produced from a typed argument vector by the
 reviewed serializer for that executable, a minimal environment block, declared
 working directory, and a `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` allowlist. The
@@ -1457,20 +1636,22 @@ code, inventories build inputs, and signs only from the protected release path.
 T0.1 proves the portable and MSIX verification paths before either is called a
 distribution artifact.
 
-Startup loads only the shell, editor boundary, and settings required for the
-first frame. The science worker, MuPDF, TexLab, compiler, Git pack, Pandoc,
+Startup loads only the shell, editor boundary, Zig container lexer, and settings required for the
+first frame. The science worker, PDF worker/PDFium, TexLab, compiler, Git pack, Pandoc,
 provider adapters, and model runtime start after the first frame and only when
 the current journey needs them.
 
 ### 22.1 Licensing and source obligations
 
-The rewritten project remains AGPL-3.0-or-later. MuPDF's AGPL option is
-compatible with that distribution model. Scintilla/Lexilla, SQLite, ONNX
-Runtime, models, compiler packs, language servers, and every transitive native
+The rewritten project remains AGPL-3.0-or-later. PDFium's license and complete
+transitive notice/source obligations are audited before distribution; the
+feasibility binary alone does not satisfy that release gate. Scintilla,
+SQLite, ONNX Runtime, models, compiler packs, language servers, and every transitive native
 component receive an audited license record, source location, version, hash,
 notices, and source-offer treatment before packaging. A technically attractive
 dependency does not ship until license compatibility and redistribution terms
-are proved for both MSIX and portable ZIP.
+are proved for both MSIX and portable ZIP. Test-only Lexilla retains its own
+source/license record but is excluded from both distribution inventories.
 
 ## 23. Migration strategy
 
@@ -1481,15 +1662,16 @@ and there is no long-lived Zig shell around a React/Tauri application.
 This document is the umbrella system design. Each table row below is a bounded
 delivery subproject with its own implementation plan, acceptance evidence, and
 commit. A later slice returns to a focused design-delta review only when it
-introduces a decision not resolved here. The first writing-plans phase covers
-T0.1 only; it does not create one unreviewable plan for the entire rewrite.
+introduces a decision not resolved here. The first writing-plans phase covered
+T0.1 only; subsequent phases remain one reviewed slice at a time rather than
+creating one unreviewable plan for the entire rewrite.
 
 ### 23.1 Six trains, twelve bounded slices
 
 | Slice | Shippable proof |
 | --- | --- |
 | T0.1 Toolchain | Pinned Zig build, Windows executable, dual CI lanes, reproducible dependency graph, ABI and miscompile corpus |
-| T0.2 Native feasibility | Waitable flip presentation, startup/working-set trace, Scintilla direct API/UIA/IME, minimal MuPDF, split SQLite crash tests |
+| T0.2 Native feasibility | Waitable flip presentation, startup/working-set trace, Scintilla direct API/Zig container lexer/UIA/IME, PDFium source-reconstruction/ABI/isolation proof, split SQLite crash tests |
 | T1.1 Source workspace | Open Folder, project/root discovery, edit, save, external-change handling, multi-file outline |
 | T1.2 Write loop | TexLab, revision scheduler, contained compile, diagnostics, PDF, exact bidirectional SyncTeX, last-good behavior |
 | T2.1 Reliable state | recovery journal, automatic checkpoints, conflict recovery, settings, error surfaces |
@@ -1501,12 +1683,22 @@ T0.1 only; it does not create one unreviewable plan for the entire rewrite.
 | T5.1 Publish | preflight, accepted PDF, deterministic source, EPUB, RO-Crate, Word import utility |
 | T5.2 Cutover | signed MSIX and ZIP, performance/a11y/i18n/security audit, parity decision, legacy production graph deletion |
 
+This is the complete approved top-level roadmap: six trains and twelve slices,
+from `T0.1` through `T5.2`. `T0.1` has six completed implementation tasks and
+the current `T0.2` plan has eight tasks (`T0.2a` through `T0.2h`), so fourteen
+detailed tasks exist today. The ten slices from `T1.1` through `T5.2` are
+intentionally not decomposed until their own reviewed planning phase; their
+future task count is therefore unknown, not hidden. Labels such as `T0.2a` are
+tasks inside a slice, not extra trains or slices. No `T6`, `T7`, unnumbered
+delivery train, or additional top-level slice is approved without a future
+design-delta review that changes this table explicitly.
+
 Each slice is end to end. For example, T1.2 is not "write the PDF module"; it
 proves that a user edit can compile, produce validated current output, navigate
 in both directions, survive failure, and remain responsive.
 
-T0.1 creates a dedicated pinned-Zig Windows CI lane before production Zig code
-can accumulate. While the legacy tree remains, its impacted CI and the Zig lane
+T0.1 created a dedicated pinned-Zig Windows CI lane before production Zig code
+could accumulate. While the legacy tree remains, its impacted CI and the Zig lane
 must both pass; path filters cannot turn a changed runtime into a docs-only
 green result. Removing a legacy lane requires the corresponding journey to be
 replaced, traced to new evidence, and absent from the production dependency
@@ -1604,13 +1796,39 @@ Coverage percentage alone is never evidence that faults are detected.
 The native lane uses a repo-owned Zig harness over `IUIAutomation` for launch,
 Open Folder, edit, save, compile, SyncTeX, research, evidence, diff, accept,
 reject, recovery, and publish journeys. It captures Windows screenshots at the
-defined DPI, theme, renderer, RDP, and viewport matrix.
+defined DPI, theme, renderer, RDP, and viewport matrix. Authoritative visual
+evidence comes from an independent Zig controller using DXGI Desktop
+Duplication after DWM composition, with compositor timestamps, output/adapter,
+rotation, color-space, crop, protected-content, and frame-loss metadata. It is
+captured in dedicated visual trials outside timed performance intervals and is
+calibrated against a known-pixel fixture. `PrintWindow`, a screen-DC copy, an
+app-exported framebuffer, or a browser rendering cannot close this native
+oracle. Windows Graphics Capture may corroborate an isolated window, but it
+cannot replace visible-desktop evidence for popups, overlays, occlusion, or the
+Windows 10 lane. Any capture fallback or cross-oracle disagreement is explicit
+and leaves the affected state unverified.
+
+The same native lane runs the built-in Windows Narrator on both supported OS
+lanes through a predeclared keyboard-only journey and records the operator
+oracle; Narrator is not optional because it ships with Windows. A second screen
+reader may add diversity when already installed, but its absence neither
+weakens nor substitutes for the mandatory Narrator and independent UIA-client
+checks.
 
 The browser lane validates browser-visible artifacts: design companions,
 evidence reports, generated HTML, unpacked EPUB reading order, documentation
 previews, source links, console and network behavior, keyboard traversal,
 reflow, and accessibility semantics. Browser tests never stand in for native
 Windows interactions.
+
+For prose-only design and plan documents, that lane is a minimal publication
+smoke: parse, links, embedded assets, landmarks, reflow, keyboard reachability,
+accessibility, console, and failed requests. Repeated screenshots of document
+sections are not architecture review, product-visual evidence, or native-app QA
+and are not a completion requirement. Architecture and plan correctness come
+from primary-source decisions, cross-contract review, feasibility gates, and
+executable acceptance criteria; product screenshots begin only when the
+corresponding native UI or browser-visible product artifact exists.
 
 The repository evidence manifest records the parent commit, an explicit
 path-and-hash inventory of reviewed inputs and outputs (excluding any impossible
@@ -1698,24 +1916,42 @@ than being presented as mathematically certain.
 - [Zig 0.16 release notes](https://ziglang.org/download/0.16.0/release-notes.html)
 - [Zig build system](https://ziglang.org/learn/build-system/)
 - [Microsoft: DXGI flip model](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-performance--use-dxgi-flip-model)
+- [Microsoft: DXGI swap effects and partial-presentation constraint](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ne-dxgi-dxgi_swap_effect)
+- [Microsoft: flip model, dirty rectangles, and scrolled areas](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements)
 - [Microsoft: waitable swap-chain latency](https://learn.microsoft.com/en-us/windows/uwp/gaming/reduce-latency-with-dxgi-1-3-swap-chains)
 - [Microsoft: `Present1` dirty rectangles](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgiswapchain1-present1)
 - [PresentMon console metrics](https://github.com/GameTechDev/PresentMon/blob/main/README-ConsoleApplication.md)
 - [Microsoft: Direct2D overview and software/RDP behavior](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-overview)
 - [Microsoft: device-loss handling](https://learn.microsoft.com/en-us/windows/uwp/gaming/handling-device-lost-scenarios)
+- [Microsoft: Desktop Duplication API](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/desktop-dup-api)
+- [Microsoft: `IDXGIOutput5::DuplicateOutput1`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_5/nf-dxgi1_5-idxgioutput5-duplicateoutput1)
+- [Microsoft: Desktop Duplication frame acquisition](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgioutputduplication-acquirenextframe)
+- [Microsoft: Windows Graphics Capture](https://learn.microsoft.com/en-us/windows/apps/develop/media-authoring-processing/screen-capture)
+- [Microsoft: `PrintWindow` behavior](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-printwindow)
+- [NIST: combinatorial testing](https://www.nist.gov/publications/combinatorial-testing)
 - [Microsoft: Windows thread pools](https://learn.microsoft.com/en-us/windows/win32/procthread/thread-pools)
 - [Microsoft: process quality of service](https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service)
 - [Microsoft: creating processes and explicit handle inheritance](https://learn.microsoft.com/en-us/windows/win32/procthread/creating-processes)
 - [Microsoft: launching an AppContainer](https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer)
 - [Microsoft: access-control lists](https://learn.microsoft.com/en-us/windows/win32/secauthz/access-control-lists)
 - [Microsoft: named-pipe security and access rights](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights)
+- [Microsoft: file-mapping security and access rights](https://learn.microsoft.com/en-us/windows/win32/memory/file-mapping-security-and-access-rights)
+- [Microsoft: shared-memory synchronization and lifetime](https://learn.microsoft.com/en-us/windows/win32/memory/sharing-files-and-memory)
+- [Microsoft: `MapViewOfFile` access and cross-process coherence](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile)
+- [Microsoft: `DuplicateHandle` object identity](https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-duplicatehandle)
+- [Microsoft: `UnmapViewOfFile` process-local scope](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-unmapviewoffile)
+- [Microsoft: D3D11 `UpdateSubresource1`](https://learn.microsoft.com/en-us/windows/win32/api/d3d11_1/nf-d3d11_1-id3d11devicecontext1-updatesubresource1)
 - [Microsoft: `CryptProtectData`](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
 - [Microsoft: Windows 10 end of support](https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro)
 - [Microsoft: Windows 11 release health](https://learn.microsoft.com/en-us/windows/release-health/windows11-release-information)
 - [Scintilla documentation](https://scintilla.org/ScintillaDoc.html)
+- [Scintilla 5.6.6 exact source tree](https://sourceforge.net/p/scintilla/code/ci/rel-5-6-6/tree/)
 - [Microsoft RichEditD2D challenger](https://devblogs.microsoft.com/math-in-office/richeditd2d-window-controls/)
-- [MuPDF C overview](https://mupdf.readthedocs.io/en/latest/reference/c/overview.html)
-- [MuPDF build switches](https://github.com/ArtifexSoftware/mupdf/blob/master/Makerules)
+- [PDFium source and public ABI](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/README.md)
+- [PDFium view API](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdfview.h)
+- [PDFium text/search API](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdf_text.h)
+- [PDFium progressive API](https://pdfium.googlesource.com/pdfium/+/refs/heads/main/public/fpdf_progressive.h)
+- [Rejected MuPDF error boundary](https://mupdf.readthedocs.io/en/latest/reference/c/overview.html)
 - [SQLite FTS5](https://sqlite.org/fts5.html)
 - [SQLite WAL](https://www2.sqlite.org/wal.html)
 - [SQLite floating-point numbers](https://sqlite.org/floatingpoint.html)
@@ -1734,6 +1970,7 @@ than being presented as mathematically certain.
 - [GitHub Actions security hardening](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)
 - [Windows typography](https://learn.microsoft.com/en-us/windows/apps/design/signature-experiences/typography)
 - [Windows accessibility](https://learn.microsoft.com/en-us/windows/apps/develop/accessibility)
+- [Microsoft: Windows Narrator guide](https://support.microsoft.com/en-us/windows/complete-guide-to-narrator-e4397a0d-ef4f-b386-d8ae-c172f109bdb1)
 - [Overleaf source and PDF workflow](https://docs.overleaf.com/getting-started/how-do-i-use-overleaf/redesigned-overleaf-editor)
 - [Zotero collections and tags](https://www.zotero.org/support/collections_and_tags/)
 - [MCP 2026-07-28 release](https://blog.modelcontextprotocol.io/posts/2026-07-28/)
@@ -1749,12 +1986,10 @@ than being presented as mathematically certain.
 
 The architecture, live-render model, scientific data and AI boundaries,
 migration strategy, QA protocol, performance contract, and Evidence Instrument
-direction were approved through four design checkpoints. The written spec's
-separate adversarial review and repair record is captured in the linked review
-evidence; user approval is still required. Only after that approval may the
-writing-plans phase create the executable plan for T0.1. Every subsequent slice
-receives its own plan after the previous slice has passed its gates, committed,
-and pushed.
-
-No production scaffold, dependency installation, or rewrite code is authorized
-by this document alone.
+direction are approved. The written spec's separate adversarial review and
+repair record is captured in the linked review evidence. T0.1 is complete on
+`main`; the next gate is the independently reviewed T0.2 plan. T0.2
+implementation remains unauthorized until that plan records two consecutive
+closed-coverage reviews with no Medium-or-higher finding. Every later slice
+receives its own plan only after the previous slice has passed its gates,
+committed, and pushed.
