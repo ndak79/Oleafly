@@ -14,3 +14,8 @@
 
 # Parsed with "\n"-based markers by scripts/fetch-language-servers.node-tests.mjs.
 .github/workflows/*.yml text eol=lf
+
+# Zig formatting and workflow verification require stable LF bytes on Windows.
+*.zig text eol=lf
+*.zon text eol=lf
+tools/zig/toolchain.json text eol=lf

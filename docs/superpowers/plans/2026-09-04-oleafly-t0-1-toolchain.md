@@ -40,6 +40,7 @@ must not claim those product measurements are complete.
 | native/zig/fixtures/abi_layout.c | C11 _Static_assert layout fixture; no main, I/O, or executable logic. |
 | tools/zig/toolchain.json | Exact Zig release, source index, archive roots, sizes, SHA-256 hashes, and allowed targets. |
 | .github/workflows/zig.yml | Pinned-Zig Windows and Linux lanes, archive verification, format/test/build/reproducibility checks. |
+| .gitattributes | Keeps Zig source, manifest, and workflow inputs LF-normalized on Windows so formatter checks are deterministic. |
 | .gitignore | Excludes Zig caches, install output, and any local archive. |
 | docs/development.md | T0.1 local commands and migration-boundary explanation. |
 | docs/superpowers/evidence/2026-09-04-oleafly-t0-1-toolchain.md | Post-verification evidence manifest containing actual commit, toolchain, commands, machine, results, unverified items, and streak. |
@@ -507,6 +508,7 @@ Expected: every command passes. ReleaseFast is a comparison lane only; the defau
 **Files:**
 
 - Modify: .gitignore
+- Modify: .gitattributes
 - Modify: docs/development.md
 
 - [ ] **Step 1: Ignore generated Zig state without hiding source**
@@ -522,7 +524,23 @@ tools/zig/zig-*.zip
 tools/zig/zig-*.tar.xz
 ~~~
 
-- [ ] **Step 2: Document the migration-safe local loop**
+- [ ] **Step 2: Keep Zig inputs LF-normalized on Windows**
+
+Append to .gitattributes:
+
+~~~gitattributes
+# Zig formatting and workflow verification require stable LF bytes on Windows.
+*.zig text eol=lf
+*.zon text eol=lf
+tools/zig/toolchain.json text eol=lf
+~~~
+
+Run `git check-attr eol -- build.zig build.zig.zon native/zig/src/main.zig
+tools/zig/toolchain.json .github/workflows/zig.yml` and require `eol: lf` for
+every path. This closes the Windows checkout normalization gap where
+`zig fmt --check` rejects CRLF input.
+
+- [ ] **Step 3: Document the migration-safe local loop**
 
 Insert the following section after the existing prerequisites in docs/development.md, before the legacy Tauri first-run instructions:
 
@@ -560,16 +578,17 @@ compiler workers, research ledger, and publishing pipeline remain future
 bounded slices.
 ~~~~
 
-- [ ] **Step 3: Check the docs and ignore rules**
+- [ ] **Step 4: Check the docs, attributes, and ignore rules**
 
 Run:
 
 ~~~text
 git diff --check
-rg -n "native/zig|ReleaseSafe|miscompile-corpus|simd-corpus|toolchain.json" docs/development.md .gitignore
+git check-attr eol -- build.zig build.zig.zon native/zig/src/main.zig tools/zig/toolchain.json .github/workflows/zig.yml
+rg -n "native/zig|ReleaseSafe|miscompile-corpus|simd-corpus|toolchain.json" docs/development.md .gitignore .gitattributes
 ~~~
 
-Expected: no whitespace errors; every named local command and generated path is present; no generated directory is accidentally ignored under native/zig/.
+Expected: no whitespace errors; every named local command and generated path is present; every Zig/manifest/workflow path reports `eol: lf`; no generated directory is accidentally ignored under native/zig/.
 
 ## Task 5: Add the dedicated reproducible CI lanes
 
@@ -592,6 +611,7 @@ on:
       - "build.zig.zon"
       - "native/zig/**"
       - "tools/zig/**"
+      - ".gitattributes"
       - ".github/workflows/zig.yml"
   pull_request:
     branches: [main]
@@ -600,6 +620,7 @@ on:
       - "build.zig.zon"
       - "native/zig/**"
       - "tools/zig/**"
+      - ".gitattributes"
       - ".github/workflows/zig.yml"
   workflow_dispatch:
 
@@ -806,10 +827,10 @@ Run:
 
 ~~~text
 git diff --check
-rg -n "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1|native/zig/\\*\\*|build\\.zig\\.zon|ReleaseSafe SHA-256" .github/workflows/zig.yml
+rg -n "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1|native/zig/\\*\\*|build\\.zig\\.zon|\\.gitattributes|ReleaseSafe SHA-256" .github/workflows/zig.yml
 ~~~
 
-Expected: one pinned checkout per job, both Zig source/path triggers, both release-safe reproducibility assertions, and no paths-ignore clause in the Zig workflow.
+Expected: one pinned checkout per job, both Zig source/path triggers plus `.gitattributes`, both release-safe reproducibility assertions, and no paths-ignore clause in the Zig workflow.
 
 - [ ] **Step 3: Execute both jobs locally where the host permits**
 
