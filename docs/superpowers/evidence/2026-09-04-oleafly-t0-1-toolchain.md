@@ -3,6 +3,7 @@
 ## Identity
 
 - Source snapshot commit: `e5d71a398edbf0a853d15f6c06a35e70b985b9ba`.
+- Source snapshot tree: `4a003826e5ecdf729e0be8122d09332e181a4042`.
 - Pre-implementation parent commit: `d45e26ef7b2279ff211c9daa087bc9f6ca5cdcd1`.
 - T0.1 was delivered as focused commits for contracts, build graph, runtime/ABI,
   developer hygiene, CI, and the Windows line-ending correction; the source
@@ -28,6 +29,12 @@
   and `Zig T0.1 (Linux x64)` both concluded `success`.
 - Rejected pre-streak run: `33825017735` failed on Windows CRLF formatting and
   was not counted. Finding `T0.1-F01` below records its closure.
+- Provenance correction: the first evidence commit
+  `00965f7adb1f795ab98ac9183ed40b10b00acc9b` incorrectly labelled its own tree
+  `b4a80b042ff5df0d4a7e707fccc0036ed1ac8d1c` as `Reviewed-Tree`. The source
+  tree is the value above, independently resolved with
+  `git rev-parse e5d71a398edbf0a853d15f6c06a35e70b985b9ba^{tree}`. Finding `T0.1-F02`
+  records the correction and streak reset.
 
 ## Matrix
 
@@ -101,7 +108,15 @@
   added LF attributes for `*.zig`, `*.zon`, and the toolchain manifest and made
   `.gitattributes` a workflow trigger. A fresh `core.autocrlf=true` clone, local
   formatter replay, and accepted Runs A/B all passed. The finding is closed;
-  no Medium-or-higher finding remains open.
+  no product-code Medium-or-higher finding remains open.
+- `T0.1-F02` (Medium) exposed incorrect provenance in the first evidence
+  commit: `Reviewed-Tree` named that evidence commit's tree rather than the
+  reviewed source tree, and blank lines separated its message fields so Git
+  parsed only the last field as a canonical trailer. This revision records the
+  actual source tree, uses one contiguous trailer block, and resets the quality
+  streak. The original Runs A/B remain valid source-build evidence but do not
+  count toward the renewed post-finding streak. Two new remote runs are required
+  before T0.1 can close.
 - Flakes or unexplained skips: one local changed-order attempt reported a
   transient Zig standard-library read error,
   `crypto/aes_ocb.zig: unable to load: Unexpected`, during Debug compilation.
@@ -117,5 +132,5 @@
   research, AI, quality, versioning, publishing, and UI behavior.
 - Browser/UI QA: not applicable to T0.1 by explicit scope; no browser-visible
   surface exists.
-- Quality streak: 2/2 clean closed-coverage remote passes (`33825541019`,
-  `33825809417`), each with exactly two successful native jobs.
+- Quality streak: reset to 0/2 after `T0.1-F02`; post-correction remote reruns
+  are intentionally pending.
