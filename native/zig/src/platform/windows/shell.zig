@@ -38,11 +38,11 @@ pub fn admitWide(allocator: std.mem.Allocator, arguments: []const [*:0]const u16
 pub fn run(allocator: std.mem.Allocator, arguments: []const [*:0]const u16, entropy: entry.Entropy, backend: anytype) Result {
     const admission = admitWide(allocator, arguments, entropy) catch return .{ .code = .admission_failed };
     var result: Result = .{ .admission = admission };
-    runAdmitted(backend, &result.code);
+    runAdmitted(backend, &result.code, admission.trace_trial);
     return result;
 }
 
-fn runAdmitted(backend: anytype, code: *ExitCode) void {
+fn runAdmitted(backend: anytype, code: *ExitCode, trace_trial: [16]u8) void {
     if (!backend.restrictDllSearch()) {
         code.* = .dll_search_failed;
         return;
@@ -67,6 +67,8 @@ fn runAdmitted(backend: anytype, code: *ExitCode) void {
         code.* = .window_failed;
         return;
     }
+    if (@hasDecl(@TypeOf(backend.*), "setTraceTrial")) backend.setTraceTrial(trace_trial);
+    if (@hasDecl(@TypeOf(backend.*), "startTelemetry")) backend.startTelemetry();
     defer if (!backend.destroyWindow() and code.* == .success) {
         code.* = .window_cleanup_failed;
     };

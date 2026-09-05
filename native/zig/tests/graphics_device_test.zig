@@ -85,6 +85,7 @@ test "explicit WARP device admission is deterministic" {
     try std.testing.expect(device.feature_level >= graphics.minimum_feature_level);
     try std.testing.expect(device.deviceHandle() != null);
     try std.testing.expect(device.contextHandle() != null);
+    try std.testing.expect(device.adapter_luid != 0);
 }
 
 test "explicit device-path creation stays unsupported outside Windows" {
@@ -100,6 +101,7 @@ test "device creation is a real hardware-or-WARP D3D11 admission" {
     try std.testing.expect(device.feature_level >= @intFromEnum(graphics.FeatureLevel.level_10_0));
     try std.testing.expect(device.deviceHandle() != null);
     try std.testing.expect(device.contextHandle() != null);
+    try std.testing.expect(device.adapter_luid != 0);
 }
 
 test "device creation remains explicitly unsupported on non-Windows targets" {

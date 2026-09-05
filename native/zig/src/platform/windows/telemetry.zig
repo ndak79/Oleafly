@@ -1,5 +1,6 @@
 //! Fixed-schema render telemetry. No source text, paths, secrets, or paper
 //! contents are representable in this payload.
+const builtin = @import("builtin");
 const std = @import("std");
 
 pub const encoded_size: usize = 64;
@@ -71,6 +72,121 @@ pub fn parseTrialId(text: []const u8) ![16]u8 {
         result[index] = (high << 4) | low;
     }
     return result;
+}
+
+/// Narrow classic ETW ABI.  The payload is deliberately one opaque fixed-size
+/// field so a provider manifest cannot reinterpret or accidentally expose
+/// content-bearing members.  The UI shell registers this provider only after
+/// DLL-search admission; disabled ETW remains a cheap EventWrite status path.
+pub const Guid = extern struct {
+    Data1: u32,
+    Data2: u16,
+    Data3: u16,
+    Data4: [8]u8,
+};
+
+pub const EventDescriptor = extern struct {
+    Id: u16,
+    Version: u8,
+    Channel: u8,
+    Level: u8,
+    Opcode: u8,
+    Task: u16,
+    Keyword: u64,
+};
+
+pub const EventDataDescriptor = extern struct {
+    Ptr: u64,
+    Size: u32,
+    Reserved: u32,
+};
+
+pub const provider_guid = Guid{
+    .Data1 = 0x6f4e1f2a,
+    .Data2 = 0x6c53,
+    .Data3 = 0x4d91,
+    .Data4 = .{ 0x9a, 0x8d, 0x7e, 0x6b, 0x5c, 0x4a, 0x3f, 0x21 },
+};
+
+pub const render_event_descriptor = EventDescriptor{
+    .Id = 1,
+    .Version = 1,
+    .Channel = 0,
+    .Level = 4, // TRACE_LEVEL_INFORMATION
+    .Opcode = 0,
+    .Task = 1,
+    .Keyword = 1,
+};
+
+const raw = struct {
+    extern "advapi32" fn EventRegister(*const Guid, ?*anyopaque, ?*anyopaque, *u64) callconv(.winapi) u32;
+    extern "advapi32" fn EventUnregister(u64) callconv(.winapi) u32;
+    extern "advapi32" fn EventWrite(u64, *const EventDescriptor, u32, *const EventDataDescriptor) callconv(.winapi) u32;
+};
+
+pub const ProviderError = error{
+    UnsupportedTarget,
+    InvalidTrialId,
+    RegisterFailed,
+    WriteFailed,
+    NotRegistered,
+    UnregisterFailed,
+};
+
+pub const Provider = struct {
+    handle: ?u64 = null,
+    trial_id: [16]u8 = [_]u8{0} ** 16,
+
+    pub fn register(trial_id: [16]u8) ProviderError!Provider {
+        if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+        if (!hasNonZeroByte(trial_id[0..])) return error.InvalidTrialId;
+        var handle: u64 = 0;
+        if (raw.EventRegister(&provider_guid, null, null, &handle) != 0 or handle == 0) {
+            return error.RegisterFailed;
+        }
+        return .{ .handle = handle, .trial_id = trial_id };
+    }
+
+    pub fn write(self: *const Provider, event: Event) ProviderError!void {
+        if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+        const handle = self.handle orelse return error.NotRegistered;
+        var enriched = event;
+        enriched.trial_id = self.trial_id;
+        const encoded = enriched.encode() catch return error.WriteFailed;
+        const data = EventDataDescriptor{
+            .Ptr = @intCast(@intFromPtr(encoded[0..].ptr)),
+            .Size = @intCast(encoded.len),
+            .Reserved = 0,
+        };
+        if (raw.EventWrite(handle, &render_event_descriptor, 1, &data) != 0) return error.WriteFailed;
+    }
+
+    pub fn unregister(self: *Provider) ProviderError!void {
+        if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+        const handle = self.handle orelse return error.NotRegistered;
+        if (raw.EventUnregister(handle) != 0) return error.UnregisterFailed;
+        self.handle = null;
+    }
+
+    pub fn deinit(self: *Provider) void {
+        if (comptime builtin.os.tag != .windows) {
+            self.handle = null;
+            return;
+        }
+        if (self.handle) |handle| {
+            _ = raw.EventUnregister(handle);
+            self.handle = null;
+        }
+    }
+
+    pub fn isRegistered(self: *const Provider) bool {
+        return self.handle != null;
+    }
+};
+
+fn hasNonZeroByte(bytes: []const u8) bool {
+    for (bytes) |byte| if (byte != 0) return true;
+    return false;
 }
 
 fn hexNibble(value: u8) ?u8 {

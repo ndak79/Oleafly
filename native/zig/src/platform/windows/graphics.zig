@@ -142,6 +142,10 @@ pub const Device = struct {
     feature_level: u32,
     device: ?*anyopaque,
     context: ?*anyopaque,
+    /// Stable DXGI adapter identity used by render telemetry. Zero is only
+    /// valid on declaration-only/non-Windows test values; native creation
+    /// rejects a device whose adapter identity cannot be queried.
+    adapter_luid: u64 = 0,
 
     pub fn create() !Device {
         if (builtin.os.tag != .windows) return error.UnsupportedTarget;
@@ -217,17 +221,39 @@ fn createWindowsPath(path: DevicePath) !Device {
     if (!result.failed and device != null and context != null and
         admitsNativeFeatureLevel(chosen))
     {
+        const adapter_luid = queryAdapterLuid(device.?) catch {
+            releasePartial(&device, &context);
+            return error.DeviceAdapterUnavailable;
+        };
         return .{
             .path = path,
             .feature_level = @intCast(@intFromEnum(chosen)),
             .device = @ptrCast(device.?),
             .context = @ptrCast(context.?),
+            .adapter_luid = adapter_luid,
         };
     }
     releasePartial(&device, &context);
-
-    releasePartial(&device, &context);
     return error.DeviceCreationFailed;
+}
+
+fn queryAdapterLuid(device: *api.d3d11.ID3D11Device) !u64 {
+    var dxgi_device_raw: ?*anyopaque = null;
+    const query_result = device.IUnknown.QueryInterface(
+        api.dxgi.IID_IDXGIDevice,
+        @ptrCast(&dxgi_device_raw),
+    );
+    if (query_result.failed or dxgi_device_raw == null) return error.QueryInterfaceFailed;
+    const dxgi_device: *api.dxgi.IDXGIDevice = @ptrCast(@alignCast(dxgi_device_raw.?));
+    defer _ = dxgi_device.IUnknown.Release();
+
+    var adapter: ?*api.dxgi.IDXGIAdapter = null;
+    if (dxgi_device.GetAdapter(@ptrCast(&adapter)).failed or adapter == null) return error.AdapterUnavailable;
+    defer _ = adapter.?.IUnknown.Release();
+
+    var description: api.dxgi.DXGI_ADAPTER_DESC = undefined;
+    if (adapter.?.GetDesc(&description).failed) return error.AdapterDescriptionUnavailable;
+    return @bitCast(description.AdapterLuid);
 }
 
 fn admitsNativeFeatureLevel(level: api.direct3d.D3D_FEATURE_LEVEL) bool {

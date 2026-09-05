@@ -319,6 +319,18 @@ pub fn build(b: *std.Build) void {
     telemetry_check_step.dependOn(&telemetry_tests.step);
     t0_2c_models_test.dependOn(&run_telemetry_tests.step);
     t0_2c_models_check.dependOn(&telemetry_tests.step);
+    const telemetry_native_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/telemetry_native_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    telemetry_native_tests.root_module.addImport("windows_telemetry", windows_telemetry_module);
+    if (target.result.os.tag == .windows) telemetry_native_tests.root_module.linkSystemLibrary("advapi32", .{});
+    const telemetry_native_run = b.addRunArtifact(telemetry_native_tests);
+    b.step("t0-2c-telemetry-native-test", "Exercise the native ETW provider ABI").dependOn(&telemetry_native_run.step);
+    b.step("t0-2c-telemetry-native-check", "Compile the native ETW provider ABI").dependOn(&telemetry_native_tests.step);
     const icon_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/icon_gen_test.zig"),
@@ -475,10 +487,11 @@ pub fn build(b: *std.Build) void {
     shell_native_module.addImport("app_role", app_role_module);
     shell_native_module.addImport("app_layout", app_layout_module);
     shell_native_module.addImport("app_strings", app_strings_module);
+    shell_native_module.addImport("windows_telemetry", windows_telemetry_module);
     shell_native_module.addImport("graphics", graphics_module);
     shell_native_module.addImport("presenter_native", presenter_native_module);
     if (target.result.os.tag == .windows) {
-        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "d3d11", "dxgi" }) |library| shell_native_module.linkSystemLibrary(library, .{});
+        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "advapi32", "d3d11", "dxgi" }) |library| shell_native_module.linkSystemLibrary(library, .{});
     }
     const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
     if (product_target) {

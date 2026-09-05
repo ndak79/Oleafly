@@ -11,6 +11,7 @@ const entry = @import("ui_entry");
 const role = @import("app_role");
 const layout = @import("app_layout");
 const strings = @import("app_strings");
+const telemetry = @import("windows_telemetry");
 const graphics = @import("graphics");
 const presenter = @import("presenter_native");
 const presenter_config = @import("presenter_config");
@@ -147,6 +148,9 @@ pub fn isFrameSignalMessage(message: u32) bool {
 const raw = struct {
     extern "kernel32" fn GetCommandLineW() callconv(.winapi) [*:0]const u16;
     extern "kernel32" fn LocalFree(?*anyopaque) callconv(.winapi) ?*anyopaque;
+    extern "kernel32" fn GetCurrentProcessId() callconv(.winapi) u32;
+    extern "kernel32" fn GetCurrentThreadId() callconv(.winapi) u32;
+    extern "kernel32" fn QueryPerformanceCounter(*i64) callconv(.winapi) i32;
     extern "kernel32" fn SetDefaultDllDirectories(u32) callconv(.winapi) i32;
     extern "shell32" fn CommandLineToArgvW([*:0]const u16, *i32) callconv(.winapi) ?[*][*:0]u16;
     extern "bcrypt" fn BCryptGenRandom(?*anyopaque, [*]u8, u32, u32) callconv(.winapi) i32;
@@ -230,6 +234,8 @@ pub const Backend = struct {
     status_value: ?HWND = null,
     accelerators: ?*anyopaque = null,
     recovery_visible: bool = false,
+    trace_trial: [16]u8 = [_]u8{0} ** 16,
+    telemetry_provider: ?telemetry.Provider = null,
     graphics_device: ?graphics.Device = null,
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
@@ -260,6 +266,17 @@ pub const Backend = struct {
     }
     pub fn uninitializeCom(_: *Backend) void {
         com.uninitialize();
+    }
+    pub fn setTraceTrial(self: *Backend, trial: [16]u8) void {
+        self.trace_trial = trial;
+    }
+    pub fn startTelemetry(self: *Backend) void {
+        if (self.telemetry_provider != null) return;
+        self.telemetry_provider = telemetry.Provider.register(self.trace_trial) catch null;
+        // Registration happens after the hidden bootstrap frame has been
+        // presented, so emit one dimension/QPC snapshot to bind that first
+        // displayed frame to the trial without tracing any source content.
+        if (self.telemetry_provider != null) self.emitTelemetrySnapshot();
     }
     pub fn registerClass(self: *Backend) bool {
         const cursor = raw.LoadCursorW(null, @ptrFromInt(32512)) orelse return false; // IDC_ARROW, shared
@@ -595,6 +612,7 @@ pub const Backend = struct {
                         .clear_color = Backend.initial_clear_color,
                     }) catch return .failed;
                     const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch return .failed;
+                    if (outcome == .presented or outcome == .occluded) self.emitRenderTelemetry(width, height);
                     return switch (outcome) {
                         .presented => .presented,
                         .occluded => .occluded,
@@ -604,6 +622,39 @@ pub const Backend = struct {
             }
         }
         return .failed;
+    }
+
+    fn emitRenderTelemetry(self: *Backend, width: u32, height: u32) void {
+        const provider = self.telemetry_provider orelse return;
+        var qpc: i64 = 0;
+        if (raw.QueryPerformanceCounter(&qpc) == 0 or qpc <= 0) return;
+        const pixels = std.math.mul(u64, width, height) catch return;
+        const render_path: telemetry.RenderPath = if (self.graphics_device) |device|
+            if (device.path == .warp) .warp else .hardware
+        else
+            .hardware;
+        _ = provider.write(.{
+            .trial_id = self.trace_trial,
+            .process_id = raw.GetCurrentProcessId(),
+            .thread_id = raw.GetCurrentThreadId(),
+            .qpc = @intCast(qpc),
+            .adapter_luid = if (self.graphics_device) |device| device.adapter_luid else 0,
+            .render_path = render_path,
+            .width = width,
+            .height = height,
+            .dirty_pixels = pixels,
+            .version = 1,
+        }) catch {};
+    }
+
+    fn emitTelemetrySnapshot(self: *Backend) void {
+        const window = self.window orelse return;
+        var client: RECT = undefined;
+        if (raw.GetClientRect(window, &client) == 0) return;
+        const width_i = client.right - client.left;
+        const height_i = client.bottom - client.top;
+        if (width_i <= 0 or height_i <= 0) return;
+        self.emitRenderTelemetry(@intCast(width_i), @intCast(height_i));
     }
 
     pub fn renderFrame(self: *Backend) bool {
@@ -752,6 +803,10 @@ pub const Backend = struct {
         self.frame_pending = false;
         self.destroyShellControls();
         self.releaseFrameResources();
+        if (self.telemetry_provider) |*provider| {
+            provider.deinit();
+            self.telemetry_provider = null;
+        }
         const window = self.window orelse return true;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
         if (raw.IsWindow(window) != 0 and raw.DestroyWindow(window) == 0) return false;

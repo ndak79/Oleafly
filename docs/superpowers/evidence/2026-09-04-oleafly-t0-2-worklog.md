@@ -1456,3 +1456,31 @@ Browser QA is not applicable: this slice changes only native Win32/D3D child
 HWND composition. Browser evidence cannot substitute for the separate native
 UIA, DWM-visible capture, ETW, DPI/occlusion/device-loss matrix, and Task 7
 black-box obligations. Full T0.2c admission therefore remains open.
+
+## T0.2c ETW render provider and adapter identity (2026-09-06)
+
+This increment turns the fixed 64-byte telemetry contract into an optional
+classic ETW provider owned by the UI thread. The provider has a stable GUID and
+one information-level event descriptor, accepts only a non-sentinel lowercase
+trial identity, writes exactly one encoded payload, and keeps its registration
+handle live if an unregister call fails so teardown can retry. Native graphics
+admission now queries `IDXGIDevice` → `IDXGIAdapter::GetDesc` and binds the
+actual adapter LUID to the device; the shell emits a QPC/dimension snapshot for
+the hidden bootstrap frame and emits subsequent records only after `Present1`
+reports `presented` or `occluded`. No source text, paths, secrets, or paper
+contents are representable in the event.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED/repair | The first native ETW run reached `2/2` only after correcting a test that expected `unregister()` to return an error even though the successful API contract is `void`; the provider implementation was then exercised rather than masked. | The test contract caught an invalid assertion before the green run. |
+| Windows native provider | `t0-2c-telemetry-native-test -Dtarget=x86_64-windows-msvc` passed `3/3` in Debug and ReleaseSafe. | Registration, fixed-payload write, unregister/idempotence, ABI sizes, descriptor identity, and sentinel-trial rejection are green on Windows. |
+| Windows graphics/shell | `t0-2c-graphics-test` passed `7/7` with two documented skips in Debug and ReleaseSafe; `t0-2c-shell-native-test` passed `12/12` in both modes. | Real adapter-LUID discovery, WARP/hardware admission, first-frame snapshot, Present ordering, and provider teardown coexist with the native resource path. |
+| Product black-box/PE | `t0-2c-product-build` and `t0-2c-product-test` passed (`12/12`) in ReleaseSafe; the explicit `flip_discard` challenger also passed build and product tests. | The shipped GUI image contains the required kernel/advapi32 ETW imports and remains inside the allowlisted system DLL closure. |
+| Portability/regression | `t0-2c-telemetry-native-check`, `t0-2c-graphics-check`, and `t0-2c-shell-native-check` compiled for `x86_64-linux-gnu`; aggregate `t0-2c-models-test` passed `149/152` with the same three documented skips in Windows Debug and ReleaseSafe, and aggregate Linux compile passed. | Non-Windows code remains declaration/compile-only; no Linux runtime claim is made. |
+| Hygiene/review | `zig fmt --check` and `git diff --check` passed. Root review checked GUID/descriptor ABI, zero-trial rejection, unregister retryability, provider ownership, QPC/Present ordering, privacy, checked pixel multiplication, and adapter release order. Requested Luna max reviewer streams ended `adapter_eof`, so no external verdict is claimed. | Current quality streak for this bounded slice is `1/1`; no Medium+ root finding remains. |
+
+Browser QA is not applicable: this increment changes only native ETW/D3D11
+runtime and has no HTML/browser surface. Loss-free WPR/WPA/PresentMon
+collection, long-run event-rate/energy evidence, full DPI/occlusion/device-loss
+campaigns, DWM-visible capture, separate-process UIA journey, and Task 7's
+physical matrix remain open T0.2c obligations.
