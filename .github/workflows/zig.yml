@@ -197,7 +197,7 @@ jobs:
           set -euo pipefail
           zig build -Dtarget=x86_64-linux-gnu --release=safe t0-1-smoke --summary all
 
-      - name: Prove two clean ReleaseSafe hashes
+      - name: Prove two clean ReleaseSafe Linux install graphs are empty
         shell: bash
         run: |
           set -euo pipefail
@@ -207,9 +207,9 @@ jobs:
           cache_b="$RUNNER_TEMP/texflow-cache-b"
           global_a="$RUNNER_TEMP/texflow-global-a"
           global_b="$RUNNER_TEMP/texflow-global-b"
+          mkdir -p "$out_a" "$out_b"
           zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_a" --cache-dir "$cache_a" --global-cache-dir "$global_a" --summary all
           zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_b" --cache-dir "$cache_b" --global-cache-dir "$global_b" --summary all
-          hash_a="$(sha256sum "$out_a/bin/texflow" | cut -d' ' -f1)"
-          hash_b="$(sha256sum "$out_b/bin/texflow" | cut -d' ' -f1)"
-          test "$hash_a" = "$hash_b"
-          echo "ReleaseSafe SHA-256: $hash_a"
+          test -z "$(find "$out_a" -mindepth 1 -print -quit)"
+          test -z "$(find "$out_b" -mindepth 1 -print -quit)"
+          echo "ReleaseSafe Linux install graphs: empty (both clean prefixes)"

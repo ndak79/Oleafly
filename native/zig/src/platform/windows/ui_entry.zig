@@ -1,14 +1,14 @@
 //! Portable GUI argument admission, called before window/database/network
 //! initialization. Arguments exclude argv[0]; already-tokenized UTF-8 slices
 //! are borrowed only for the duration of admission. No allocation or Win32
-//! import is needed. Native command-line decoding and inherited OS handle
-//! inspection remain responsibilities of the later process-entry binding.
+//! import is needed. Native command-line decoding belongs to shell_native;
+//! inherited worker-bootstrap handle inspection remains a later worker binding.
 //!
 //! A trial ID is correlation data only. It cannot select a worker, fixture,
 //! test seam, policy, or acceptance mode. The result contains only its sixteen
 //! bytes and their source. Injectable entropy is an internal API dependency,
-//! never a command-line option. The production caller uses `admitOs` with its
-//! system-backed std.Io; secure entropy failure aborts admission without a
+//! never a command-line option. Callers use `admitOs` with system-backed std.Io
+//! or the native shell's BCrypt provider; entropy failure aborts without a
 //! PRNG, clock, zero-value, or retry fallback.
 
 const std = @import("std");

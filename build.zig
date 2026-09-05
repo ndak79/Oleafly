@@ -17,19 +17,9 @@ pub fn build(b: *std.Build) void {
         .small => .ReleaseSmall,
     };
 
-    const executable = b.addExecutable(.{
-        .name = "texflow",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("native/zig/src/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    // Release artifacts are stripped so PE/PDB metadata cannot inject
-    // per-build timestamps or identifiers into the reproducibility hash.
-    // Debug keeps symbols for local diagnostics.
-    executable.root_module.strip = optimize != .Debug;
-    b.installArtifact(executable);
+    // Product admission is deliberately narrower than the portable test graph.
+    const product_target = target.result.os.tag == .windows and target.result.cpu.arch == .x86_64;
+    var executable: ?*std.Build.Step.Compile = null;
 
     const abi_library = b.addLibrary(.{
         .name = "texflow_abi",
@@ -41,7 +31,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     // The portable ABI corpus belongs only to explicit cache/test paths.
-    // The placeholder executable remains until the native GUI cutover.
 
     const abi_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -259,6 +248,60 @@ pub fn build(b: *std.Build) void {
     b.step("t0-2c-shell-check", "Compile native-shell model tests").dependOn(&windows_shell_tests.step);
     t0_2c_models_test.dependOn(&run_windows_shell_tests.step);
     t0_2c_models_check.dependOn(&windows_shell_tests.step);
+    const shell_native_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/shell_native.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shell_native_module.addImport("windows_shell", windows_shell_module);
+    shell_native_module.addImport("windows_com", windows_com_module);
+    shell_native_module.addImport("ui_entry", ui_entry_module);
+    shell_native_module.addImport("app_role", app_role_module);
+    if (target.result.os.tag == .windows) {
+        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt" }) |library| shell_native_module.linkSystemLibrary(library, .{});
+    }
+    const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
+    if (product_target) {
+        const product = b.addExecutable(.{
+            .name = "TExFlow",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("native/zig/src/main.zig"),
+                .target = target,
+                .optimize = optimize,
+                .strip = optimize != .Debug,
+            }),
+        });
+        product.root_module.addImport("shell_native", shell_native_module);
+        product.subsystem = .Windows;
+        b.installArtifact(product);
+        product_build_step.dependOn(&product.step);
+        executable = product;
+    }
+    const shell_native_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/windows_shell_native_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    shell_native_tests.root_module.addImport("shell_native", shell_native_module);
+    shell_native_tests.root_module.addImport("windows_shell", windows_shell_module);
+    shell_native_tests.root_module.addImport("windows_com", windows_com_module);
+    b.step("t0-2c-shell-native-test", "Test narrow Win32 ABI command line and COM contracts").dependOn(&b.addRunArtifact(shell_native_tests).step);
+    b.step("t0-2c-shell-native-check", "Compile narrow Win32 ABI contracts").dependOn(&shell_native_tests.step);
+    const product_contract = b.addOptions();
+    const product_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/windows_product_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    product_tests.root_module.addOptions("product_contract", product_contract);
+    product_tests.root_module.addImport("windows_argv", windows_argv_module);
+    if (target.result.os.tag == .windows) product_tests.root_module.linkSystemLibrary("user32", .{});
+    b.step("t0-2c-product-test", "Test native product PE and owned Windows shell runtime").dependOn(&b.addRunArtifact(product_tests).step);
+    b.step("t0-2c-product-check", "Compile product contract tests without execution").dependOn(&product_tests.step);
     inline for (.{
         "role_test.zig",
         "build_identity_test.zig",
@@ -1017,11 +1060,16 @@ pub fn build(b: *std.Build) void {
     deps_audit_step.dependOn(&run_zigwin32_cache_tests.step);
     deps_audit_step.dependOn(unicode_audit_step);
     scintilla_contract.addOption(bool, "install_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, b.getInstallStep(), library) else false);
-    scintilla_contract.addOption(bool, "product_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, &executable.step, library) else false);
+    scintilla_contract.addOption(bool, "product_reaches_library", if (executable) |product| if (scintilla_library) |library| buildReachesLibrary(b, &product.step, library) else false else false);
     abi_contract.addOption(bool, "install_reaches_library", buildReachesLibrary(b, b.getInstallStep(), abi_library));
-    abi_contract.addOption(bool, "product_reaches_library", buildReachesLibrary(b, &executable.step, abi_library));
+    abi_contract.addOption(bool, "product_reaches_library", if (executable) |product| buildReachesLibrary(b, &product.step, abi_library) else false);
     smoke_contract.addOption(bool, "install_reaches_smoke", buildReachesLibrary(b, b.getInstallStep(), smoke_tests));
-    smoke_contract.addOption(bool, "product_reaches_smoke", buildReachesLibrary(b, &executable.step, smoke_tests));
+    smoke_contract.addOption(bool, "product_reaches_smoke", if (executable) |product| buildReachesLibrary(b, &product.step, smoke_tests) else false);
+    product_contract.addOption(bool, "has_product", executable != null);
+    product_contract.addOption([]const u8, "product_name", if (executable) |product| product.name else "");
+    if (executable) |product| product_contract.addOptionPath("path", product.getEmittedBin()) else product_contract.addOption([]const u8, "path", "");
+    product_contract.addOption(bool, "install_empty", b.getInstallStep().dependencies.items.len == 0);
+    product_contract.addOption(bool, "install_reaches_product", if (executable) |product| buildReachesLibrary(b, b.getInstallStep(), product) else false);
 }
 
 // Inspect actual build steps and transitive module/library edges. Checking only
