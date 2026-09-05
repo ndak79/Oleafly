@@ -340,3 +340,37 @@ upstream public-domain blessing. The notice records reference provenance and
 license URLs but does not claim a complete installed-payload inventory or
 resolved PDFium transitive runtime closure. No browser QA applies to this
 native/CLI/license slice; browser evidence remains a UI/HTML-lane requirement.
+
+## T0.2b bounded static PE32+ auditor/fixture slice evidence (2026-09-05)
+
+This increment adds a pure-Zig, offline PE32+ admission oracle and a generated
+Windows x64 fixture. The auditor reads bytes only; it never maps, loads,
+launches, fetches, signs, or installs an image. The narrow fixture profile
+requires an executable AMD64 PE32+ image, canonical adjacent sections, bounded
+headers/sections, NX/ASLR/high-entropy mitigations, real DIR64 relocations,
+exact `kernel32.dll!ExitProcess` imports, an optional canonical CFG layout, and
+the single empty reproducibility marker. Import lookup/IAT/name/descriptor
+envelopes and all other audited metadata are protected from relocation writes;
+recognized source-path forms are scanned deterministically.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The initial focused suite failed against the missing auditor/fixture contract; the generated PE artifact was also refused until the source contract existed. | Tests detect missing implementation and missing native fixture evidence before green. |
+| Review repair 1 | Independent review found that a DIR64 relocation could target import metadata; conservative per-section metadata envelopes and full eight-byte target checks were added. | The loader-written relocation surface cannot rewrite audited import bytes in this profile. |
+| Review repair 2 | Independent review found PE32+ named-thunk reserved-bit handling, IAT/ILT aliasing, section RVA ordering/2-GiB image bound, and IAT overlap with a later DLL name; each finding received a regression oracle and was fixed. | The profile now rejects those malformed/ambiguous layouts instead of admitting them. |
+| Windows Debug | `t0-2b-pe-test t0-2b-pe-audit -Doptimize=Debug -j1`: 8/8 steps, 31/31 tests; generated fixture accepted. | Parser, fixture, and CLI are green in debug mode. |
+| Windows ReleaseSafe | Same commands with `-Doptimize=ReleaseSafe`: 8/8 steps, 31/31 tests; fixture SHA-256 `95e2740392b70031a54ed6ff314bcae68b850c0e718de67043547071716d2d0d`. | Safe optimized admission and deterministic artifact identity are green. |
+| Windows ReleaseFast | `t0-2b-pe-test -Doptimize=ReleaseFast -j1`: 5/5 steps, 31/31 tests. | Fast optimized parser remains green. |
+| Linux portability | `t0-2b-pe-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1`: 3/3 compile steps. | Cross-target compilation is covered; Linux execution and Windows runtime are not claimed. |
+| Baseline regression | `zig build test -Doptimize=ReleaseSafe -j1`: 9/9 steps, 6/6 tests. | Existing ABI/corpus/SIMD tests remain green. |
+| Formatting/diff | `zig fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
+| Independent GPT-6 static review, final pass | No Medium+ findings; quality streak `1`. The reviewer inspected bounds, section/directory mapping, imports/IAT, relocations, unwind/CFG handling, reporting, tests, and build integration. | Final read-only review is clean; runtime/product-closure exclusions remain explicit. |
+
+This is intentionally a bounded static slice, not final product PE closure:
+it does not enumerate or recursively audit transitive DLLs, verify the shipped
+TExFlow executable identity/resources/manifest/certificate/signature, simulate
+runtime CFG, admit extended unwind/load-config/debug formats, or prove module
+and worker dependency closure. The CLI accepts an explicit path but applies
+only the fixture allowlist; broader policies must use the Zig API. Browser QA
+is not applicable to this native/CLI-only increment; it remains required for
+the future TExFlow UI/HTML/live-render evidence lane.

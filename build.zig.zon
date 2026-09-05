@@ -19,6 +19,7 @@
         "tools/zig/native-deps.json",
         "tools/zig/notices.zig",
         "tools/zig/package_probe.zig",
+        "tools/zig/pe_audit.zig",
         "tools/zig/sqlite_probe.zig",
         "tools/zig/scintilla_probe.zig",
         "tools/zig/toolchain.json",

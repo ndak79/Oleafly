@@ -155,6 +155,59 @@ pub fn build(b: *std.Build) void {
         pdfium_static_step.dependOn(&pdfium_tests.step);
     }
 
+    // Static PE parser only: no image loading, launch, fetch or product edge.
+    const pe_audit_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/pe_audit.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const pe_audit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pe_audit_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pe_audit_tests.root_module.addImport("pe_audit", pe_audit_module);
+    const pe_artifact = b.addOptions();
+    const pe_fixture = b.addExecutable(.{
+        .name = "texflow-pe-fixture-unshipped",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pe_fixture.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .msvc }),
+            .optimize = .ReleaseSafe,
+            .strip = true,
+            .unwind_tables = .none,
+        }),
+    });
+    pe_fixture.entry = .{ .symbol_name = "WinMainCRTStartup" };
+    pe_fixture.subsystem = .Console;
+    pe_fixture.root_module.linkSystemLibrary("kernel32", .{});
+    if (target.result.os.tag == .windows) {
+        pe_artifact.addOptionPath("path", pe_fixture.getEmittedBin());
+    } else {
+        pe_artifact.addOption([]const u8, "path", "");
+    }
+    pe_audit_tests.root_module.addOptions("pe_artifact", pe_artifact);
+    b.step("t0-2b-pe-test", "Test the offline static PE32+ auditor").dependOn(&b.addRunArtifact(pe_audit_tests).step);
+    b.step("t0-2b-pe-check", "Compile the static PE auditor tests without executing the target").dependOn(&pe_audit_tests.step);
+    const pe_audit_tool = b.addExecutable(.{
+        .name = "texflow-pe-audit",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/pe_audit.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    const pe_audit_run = b.addRunArtifact(pe_audit_tool);
+    if (b.option([]const u8, "pe-audit-path", "Explicit PE file to read under the narrow fixture import profile; no image is executed")) |path| {
+        pe_audit_run.addFileArg(.{ .cwd_relative = path });
+    } else {
+        pe_audit_run.addFileArg(pe_fixture.getEmittedBin());
+    }
+    pe_audit_run.has_side_effects = true;
+    b.step("t0-2b-pe-audit", "Statically audit a Windows fixture PE; this is not product closure").dependOn(&pe_audit_run.step);
+
     // Offline fixture compression oracle: no fetch, installer, or product edge.
     const package_probe_tests = b.addTest(.{
         .root_module = b.createModule(.{
