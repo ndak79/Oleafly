@@ -120,8 +120,8 @@ jobs:
           $globalB = Join-Path $env:RUNNER_TEMP "texflow-global-b"
           zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outA --cache-dir $cacheA --global-cache-dir $globalA --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outB --cache-dir $cacheB --global-cache-dir $globalB --summary all
-          $hashA = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outA "bin\texflow.exe")).Hash.ToLowerInvariant()
-          $hashB = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outB "bin\texflow.exe")).Hash.ToLowerInvariant()
+          $hashA = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outA "bin\TExFlow.exe")).Hash.ToLowerInvariant()
+          $hashB = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outB "bin\TExFlow.exe")).Hash.ToLowerInvariant()
           if ($hashA -ne $hashB) { throw "ReleaseSafe build is not reproducible: $hashA != $hashB" }
           Write-Output "ReleaseSafe SHA-256: $hashA"
 
