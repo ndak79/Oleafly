@@ -374,3 +374,47 @@ and worker dependency closure. The CLI accepts an explicit path but applies
 only the fixture allowlist; broader policies must use the Zig API. Browser QA
 is not applicable to this native/CLI-only increment; it remains required for
 the future TExFlow UI/HTML/live-render evidence lane.
+
+## T0.2c bounded pure-Zig app-model foundation evidence (2026-09-05)
+
+This increment adds the deterministic, platform-independent model layer for
+the eventual TExFlow shell: authenticated UI/PDF/science role identities,
+versioned build identity, event/deadline-driven live-render scheduling,
+monotonic lifecycle ownership, locked semantic theme/layout tokens, and a
+versioned English resource table with pseudo-locale helpers. It is deliberately
+kept outside the product/UI graph so the models can be compiled on Windows and
+Linux without admitting HWND, COM, graphics, worker binaries, or native
+dependency loading.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Focused model tests initially failed to compile against the absent scheduler, lifecycle, theme, layout, and resource APIs. | The new tests were written before the corresponding implementation and detect missing contracts. |
+| Windows Debug | `t0-2c-models-test -Doptimize=Debug -j1`: `22/22` tests passed. | All role, identity, scheduler, lifecycle, palette/layout, and string-resource paths are green. |
+| Windows ReleaseSafe | `t0-2c-models-test -Doptimize=ReleaseSafe -j1`: `22/22` tests passed. | Safe optimized model behavior remains deterministic. |
+| Windows ReleaseFast | `t0-2c-models-test -Doptimize=ReleaseFast -j1`: `22/22` tests passed. | Fast optimized model behavior remains deterministic. |
+| Linux portability | `t0-2c-models-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1`: `7/7` compile steps passed. | The pure models have no Windows-only compile dependency; Linux execution is not claimed. |
+| Baseline regression | `zig build test -Doptimize=ReleaseSafe -j1`: `9/9` steps, `6/6` tests passed. | Existing ABI, corpus, and SIMD gates remain green. |
+| Allocation-failure coverage | Pseudo-localization is exercised through `std.testing.checkAllAllocationFailures`; all focused tests pass. | Partial UTF-8 output and owned-buffer failures are released correctly. |
+| GPT-6 review repairs | Initial review found seven Medium issues; follow-up review found two additional semantic issues and one cancellation hand-off path. Tests and implementation were repaired, then re-reviewed. | Grace deadlines are bounded/preserved, cancellation wait events are actionable, stale completion retires active state, current vs last-good artifacts are explicit, queued work survives cancellation, empty close can finish, and semantic palette/contrast pairs match the lock. |
+| Final GPT-6 review | No Medium+ findings; quality streak `1`. | Final read-only review is clean for this bounded slice. |
+| Formatting/diff | Explicit `zig fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
+
+The scheduler adapts Auto delays within 220–750 ms, keeps supersession grace
+at or below 75 ms without cancellation storms, waits on the earliest render or
+cancellation deadline, preserves a due latest request while an older worker is
+being retired, and accepts a completion only after explicit worker admission.
+Lifecycle teardown is monotonic and reverse-ordered, with a direct empty-startup
+close path and a typed `not_ready` clean-exit result. Theme tokens separate
+shell/pane chrome from the always-light PDF paper/ink pair and check body,
+semantic, syntax, divider, focus, shell, pane, and PDF contrast in linear sRGB.
+Layout data encodes the 1180/880/760 breakpoints, pane minima, 58/42 Source/PDF
+allocation, and compact/touch targets. Strings fail closed for unsupported
+locales/missing keys and support deterministic expanded/combining/BiDi QA.
+
+No browser QA applies to this native model-only increment; browser evidence is
+required when the real TExFlow UI/HTML/live-render lane exists. This slice does
+not create the Win32 entry point, HWND/COM/DPI shell, D3D presenter, UIA,
+manifest/resources/icon, worker executables, TexLab/TeX compiler, real timer or
+thread integration, research/evidence graph, publishing pipeline, or full
+product/reproducibility closure. Those remain subsequent T0.2c/T0.2d–T5
+tasks and are not implied by the green model gates.

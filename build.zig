@@ -129,6 +129,73 @@ pub fn build(b: *std.Build) void {
     const windows_argv_check = b.step("t0-2b-argv-check", "Compile Windows argv contracts for the selected target");
     windows_argv_check.dependOn(&windows_argv_tests.step);
 
+    // T0.2c pure app-model contracts. These modules are deliberately kept
+    // separate from the product/UI graph so Linux can compile and exercise
+    // the deterministic state machines without any Windows dependencies.
+    const app_role_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/role.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const app_build_identity_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/build_identity.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const app_live_render_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/live_render.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const app_lifecycle_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/lifecycle.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const app_theme_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/theme.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const app_layout_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/layout.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const app_strings_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/strings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const t0_2c_models_test = b.step("t0-2c-models-test", "Run deterministic T0.2c app-model tests");
+    const t0_2c_models_check = b.step("t0-2c-models-check", "Compile deterministic T0.2c app-model tests");
+    inline for (.{
+        "role_test.zig",
+        "build_identity_test.zig",
+        "live_render_scheduler_test.zig",
+        "lifecycle_test.zig",
+        "theme_layout_test.zig",
+        "strings_test.zig",
+    }) |test_file| {
+        const model_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("native/zig/tests/" ++ test_file),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        model_tests.root_module.addImport("app_role", app_role_module);
+        model_tests.root_module.addImport("app_build_identity", app_build_identity_module);
+        model_tests.root_module.addImport("app_live_render", app_live_render_module);
+        model_tests.root_module.addImport("app_lifecycle", app_lifecycle_module);
+        model_tests.root_module.addImport("app_theme", app_theme_module);
+        model_tests.root_module.addImport("app_layout", app_layout_module);
+        model_tests.root_module.addImport("app_strings", app_strings_module);
+        const run_model_tests = b.addRunArtifact(model_tests);
+        t0_2c_models_test.dependOn(&run_model_tests.step);
+        t0_2c_models_check.dependOn(&model_tests.step);
+    }
+
     // T0.2b declares the Windows public-C contract only. These artifacts do
     // not link or load an engine and have no dependency-cache/fetch edge.
     const pdfium_module = b.createModule(.{
