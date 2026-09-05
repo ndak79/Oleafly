@@ -213,6 +213,26 @@ pub fn build(b: *std.Build) void {
     presenter_check_step.dependOn(&presenter_tests.step);
     t0_2c_models_test.dependOn(&run_presenter_tests.step);
     t0_2c_models_check.dependOn(&presenter_tests.step);
+    const ui_entry_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/ui_entry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const ui_entry_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/ui_entry_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ui_entry_tests.root_module.addImport("ui_entry", ui_entry_module);
+    const run_ui_entry_tests = b.addRunArtifact(ui_entry_tests);
+    const ui_entry_test_step = b.step("t0-2c-entry-test", "Run portable GUI argument admission tests");
+    ui_entry_test_step.dependOn(&run_ui_entry_tests.step);
+    const ui_entry_check_step = b.step("t0-2c-entry-check", "Compile portable GUI argument admission tests");
+    ui_entry_check_step.dependOn(&ui_entry_tests.step);
+    t0_2c_models_test.dependOn(&run_ui_entry_tests.step);
+    t0_2c_models_check.dependOn(&ui_entry_tests.step);
     inline for (.{
         "role_test.zig",
         "build_identity_test.zig",

@@ -488,3 +488,33 @@ black-box evidence is required when the real TExFlow HWND/UIA/D3D surface and
 HTML/live-render evidence lane exist. The GUI-subsystem entry point, Win32
 window/resources, `t0-2-repro`, actual D3D/DWM presentation, and full Task 3
 acceptance remain open.
+
+## T0.2c bounded GUI-entry admission evidence (2026-09-05)
+
+This increment adds the allocation-free `ui_entry` admission contract used
+before the future UI initializes a window, database, network, or worker. The
+argv vector admits only an optional `--trace-trial=<32 lowercase hexadecimal
+digits>` value. It decodes to exactly sixteen bytes, or obtains exactly sixteen
+bytes once through the existing secure `std.Io.randomSecure` backend when the
+option is absent. Worker selectors, internal/probe switches, bootstrap-handle
+spelling, separated values, duplicates, and every other argument fail closed.
+This module has no Win32, allocator, fixture, test-mode, or policy side effect;
+native command-line decoding and inherited-handle inspection remain later
+entry-binding responsibilities.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `ui_entry_test.zig` first failed because `ui_entry.zig` was absent. | The admission oracle was proven to fail before implementation. |
+| Windows Debug | `zig build t0-2c-entry-test -Doptimize=Debug --summary all`: `3/3` steps, `12/12` tests passed. | Exact grammar, rejection classes, entropy ordering, and secure adapter are green. |
+| Windows ReleaseSafe | `zig build t0-2c-entry-test -Doptimize=ReleaseSafe --summary all`: `3/3` steps, `12/12` tests passed. | Safe optimized admission remains deterministic. |
+| Windows ReleaseFast | `zig build t0-2c-entry-test -Doptimize=ReleaseFast --summary all`: `3/3` steps, `12/12` tests passed. | Fast comparison mode preserves the same contract. |
+| Linux compile-only | `zig build t0-2c-entry-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all`: `2/2` steps passed. | The parser is portable and has no Windows-only compile dependency. Linux runtime is not claimed. |
+| Combined model regression | `zig build t0-2c-models-test -Doptimize=ReleaseSafe --summary all`: `17/17` steps, `58/58` tests passed. | Entry admission integrates without regressing the existing T0.2c models. |
+| Adversarial falsification | Swapped-nibble/uppercase mutations failed `4` checks, premature entropy mutations failed `11`, and a nonsecure random adapter mutation failed `1`; all were restored. Exhaustive rejection covers all `240` noncanonical byte values at every hex position. | Decode correctness, full-vector validation before entropy, and no weak-random fallback are actively detected. |
+| Formatting/diff | Full-path Zig `fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
+| Final GPT-6 review | `gpt-6-astra` max read-only review: `CLEAN`, no Medium+ findings; quality streak `1`. | Grammar, error ordering, secure entropy, prohibited switches, and build wiring were independently reviewed. |
+
+No browser QA applies to this native parser-only increment. The real UI entry
+binding must later connect this contract before Win32 initialization and add
+native inherited-handle/command-line decoding evidence; this slice does not
+claim GUI shell, worker isolation, or full Task 3 acceptance.
