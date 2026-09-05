@@ -9,6 +9,8 @@ const shell = @import("windows_shell");
 const com = @import("windows_com");
 const entry = @import("ui_entry");
 const role = @import("app_role");
+const layout = @import("app_layout");
+const strings = @import("app_strings");
 const graphics = @import("graphics");
 const presenter = @import("presenter_native");
 const presenter_config = @import("presenter_config");
@@ -58,6 +60,11 @@ pub const CREATESTRUCTW = extern struct {
     lpszClass: [*:0]const u16,
     dwExStyle: u32,
 };
+pub const ACCEL = extern struct {
+    fVirt: u8,
+    key: u16,
+    cmd: u16,
+};
 
 pub const dll_search_flags: u32 = 0x800; // LOAD_LIBRARY_SEARCH_SYSTEM32
 pub const window_style: u32 = 0xcf0000; // WS_OVERLAPPEDWINDOW, system caption
@@ -74,8 +81,43 @@ const wm_ncdestroy: u32 = 0x0082;
 const wm_destroy: u32 = 0x0002;
 const wm_size: u32 = 0x0005;
 const wm_paint: u32 = 0x000f;
+const wm_command: u32 = 0x0111;
 const size_minimized: usize = 1;
 const gwlp_userdata: i32 = -21;
+const ws_child: u32 = 0x40000000;
+const ws_visible: u32 = 0x10000000;
+const ws_tabstop: u32 = 0x00010000;
+const ws_group: u32 = 0x00020000;
+const ws_ex_transparent: u32 = 0x00000020;
+const bs_pushbutton: u32 = 0x00000000;
+const ss_left: u32 = 0x00000000;
+const sw_hide: i32 = 0;
+const sw_show: i32 = 5;
+const fvirt_key: u8 = 0x01;
+const fvirt_control: u8 = 0x08;
+const fvirt_shift: u8 = 0x04;
+const vk_b: u16 = 0x42;
+const vk_m: u16 = 0x4d;
+const vk_o: u16 = 0x4f;
+const vk_r: u16 = 0x52;
+const vk_s: u16 = 0x53;
+const control_id_open_folder: u16 = 100;
+const control_id_mode: u16 = 101;
+const control_id_compile: u16 = 102;
+const control_id_save: u16 = 103;
+const control_id_recovery: u16 = 104;
+const button_class = std.unicode.utf8ToUtf16LeStringLiteral("BUTTON");
+const static_class = std.unicode.utf8ToUtf16LeStringLiteral("STATIC");
+const open_folder_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.open_folder));
+const mode_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.mode));
+const compile_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.compile));
+const save_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.save));
+const recovery_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.recovery));
+const project_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.project));
+const source_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.source));
+const pdf_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.pdf));
+const status_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.status));
+const ready_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.ready));
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.machine_class);
 const window_title = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.product_name);
 
@@ -117,6 +159,11 @@ const raw = struct {
     extern "user32" fn CreateWindowExW(u32, [*:0]const u16, [*:0]const u16, u32, i32, i32, i32, i32, ?HWND, ?*anyopaque, HINSTANCE, ?*anyopaque) callconv(.winapi) ?HWND;
     extern "user32" fn SetWindowTextW(HWND, [*:0]const u16) callconv(.winapi) i32;
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
+    extern "user32" fn MoveWindow(HWND, i32, i32, i32, i32, i32) callconv(.winapi) i32;
+    extern "user32" fn GetDpiForWindow(HWND) callconv(.winapi) u32;
+    extern "user32" fn CreateAcceleratorTableW([*]const ACCEL, i32) callconv(.winapi) ?*anyopaque;
+    extern "user32" fn DestroyAcceleratorTable(?*anyopaque) callconv(.winapi) i32;
+    extern "user32" fn TranslateAcceleratorW(HWND, ?*anyopaque, *const MSG) callconv(.winapi) i32;
     extern "user32" fn SetWindowLongPtrW(HWND, i32, isize) callconv(.winapi) isize;
     extern "user32" fn GetWindowLongPtrW(HWND, i32) callconv(.winapi) isize;
     extern "user32" fn ValidateRect(HWND, ?*const RECT) callconv(.winapi) i32;
@@ -171,6 +218,18 @@ pub const Backend = struct {
     instance: HINSTANCE,
     show: i32,
     window: ?HWND = null,
+    open_folder_control: ?HWND = null,
+    mode_control: ?HWND = null,
+    compile_control: ?HWND = null,
+    save_control: ?HWND = null,
+    recovery_control: ?HWND = null,
+    project_label: ?HWND = null,
+    source_label: ?HWND = null,
+    pdf_label: ?HWND = null,
+    status_label: ?HWND = null,
+    status_value: ?HWND = null,
+    accelerators: ?*anyopaque = null,
+    recovery_visible: bool = false,
     graphics_device: ?graphics.Device = null,
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
@@ -223,6 +282,243 @@ pub const Backend = struct {
     pub fn unregisterClass(self: *Backend) bool {
         return raw.UnregisterClassW(class_name, self.instance) != 0;
     }
+
+    fn createChild(self: *Backend, class: [*:0]const u16, title: [*:0]const u16, ex_style: u32, style: u32, id: u16) ?HWND {
+        const parent = self.window orelse return null;
+        return raw.CreateWindowExW(
+            ex_style,
+            class,
+            title,
+            style,
+            0,
+            0,
+            1,
+            1,
+            parent,
+            @ptrFromInt(@as(usize, id)),
+            self.instance,
+            null,
+        );
+    }
+
+    fn forgetShellControls(self: *Backend) void {
+        if (self.accelerators) |accelerators| {
+            _ = raw.DestroyAcceleratorTable(accelerators);
+            self.accelerators = null;
+        }
+        self.open_folder_control = null;
+        self.mode_control = null;
+        self.compile_control = null;
+        self.save_control = null;
+        self.recovery_control = null;
+        self.project_label = null;
+        self.source_label = null;
+        self.pdf_label = null;
+        self.status_label = null;
+        self.status_value = null;
+        self.recovery_visible = false;
+    }
+
+    fn destroyShellControls(self: *Backend) void {
+        const children = [_]?HWND{
+            self.open_folder_control,
+            self.mode_control,
+            self.compile_control,
+            self.save_control,
+            self.recovery_control,
+            self.project_label,
+            self.source_label,
+            self.pdf_label,
+            self.status_label,
+            self.status_value,
+        };
+        for (children) |child| {
+            if (child) |window| {
+                if (raw.IsWindow(window) != 0) _ = raw.DestroyWindow(window);
+            }
+        }
+        self.forgetShellControls();
+    }
+
+    fn createShellControls(self: *Backend) bool {
+        if (self.window == null) return false;
+        self.destroyShellControls();
+
+        const button_style = ws_child | ws_visible | ws_tabstop | bs_pushbutton;
+        const first_button_style = button_style | ws_group;
+        const hidden_button_style = ws_child | ws_tabstop | bs_pushbutton;
+        const label_style = ws_child | ws_visible | ss_left;
+
+        self.open_folder_control = self.createChild(button_class, open_folder_title, 0, first_button_style, control_id_open_folder) orelse return false;
+        self.mode_control = self.createChild(button_class, mode_title, 0, button_style, control_id_mode) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.compile_control = self.createChild(button_class, compile_title, 0, button_style, control_id_compile) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.save_control = self.createChild(button_class, save_title, 0, button_style, control_id_save) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.recovery_control = self.createChild(button_class, recovery_title, 0, hidden_button_style, control_id_recovery) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.project_label = self.createChild(static_class, project_title, ws_ex_transparent, label_style, 105) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.source_label = self.createChild(static_class, source_title, ws_ex_transparent, label_style, 106) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.pdf_label = self.createChild(static_class, pdf_title, ws_ex_transparent, label_style, 107) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.status_label = self.createChild(static_class, status_title, ws_ex_transparent, label_style, 108) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.status_value = self.createChild(static_class, ready_title, ws_ex_transparent, label_style, 109) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+
+        const accelerators = [_]ACCEL{
+            .{ .fVirt = fvirt_key | fvirt_control, .key = vk_o, .cmd = control_id_open_folder },
+            .{ .fVirt = fvirt_key | fvirt_control, .key = vk_m, .cmd = control_id_mode },
+            .{ .fVirt = fvirt_key | fvirt_control, .key = vk_b, .cmd = control_id_compile },
+            .{ .fVirt = fvirt_key | fvirt_control, .key = vk_r, .cmd = control_id_recovery },
+            .{ .fVirt = fvirt_key | fvirt_control | fvirt_shift, .key = vk_r, .cmd = control_id_recovery },
+            .{ .fVirt = fvirt_key | fvirt_control, .key = vk_s, .cmd = control_id_save },
+        };
+        self.accelerators = raw.CreateAcceleratorTableW(&accelerators, @intCast(accelerators.len)) orelse {
+            self.forgetShellControls();
+            return false;
+        };
+        self.recovery_visible = false;
+        if (!self.relayoutControls(960, 640)) {
+            self.forgetShellControls();
+            return false;
+        }
+        return true;
+    }
+
+    fn pixelsToDip(pixels: u32, dpi: u32) u32 {
+        const effective_dpi = if (dpi == 0) 96 else dpi;
+        const value = (@as(u64, pixels) * 96 + effective_dpi / 2) / effective_dpi;
+        if (value > std.math.maxInt(u32)) return std.math.maxInt(u32);
+        return @intCast(value);
+    }
+
+    fn dipToPixels(dip: u32, dpi: u32) ?i32 {
+        const effective_dpi = if (dpi == 0) 96 else dpi;
+        const value = (@as(u64, dip) * effective_dpi + 48) / 96;
+        if (value == 0 or value > std.math.maxInt(i32)) return null;
+        return @intCast(value);
+    }
+
+    fn moveChild(_: *Backend, child: ?HWND, x: u32, y: u32, width: u32, height: u32, visible: bool, dpi: u32) bool {
+        const window = child orelse return true;
+        const px_x = dipToPixels(x, dpi) orelse return false;
+        const px_y = dipToPixels(y, dpi) orelse return false;
+        const px_width = dipToPixels(@max(width, 1), dpi) orelse return false;
+        const px_height = dipToPixels(@max(height, 1), dpi) orelse return false;
+        if (raw.MoveWindow(window, px_x, px_y, px_width, px_height, 1) == 0) return false;
+        _ = raw.ShowWindow(window, if (visible) sw_show else sw_hide);
+        return true;
+    }
+
+    /// Lay out only compact native affordances.  Coordinates are expressed in
+    /// shared DIP tokens and converted once at the PMv2 window's current DPI;
+    /// the D3D surface remains the large unobscured background.
+    pub fn relayoutControls(self: *Backend, width_px: u32, height_px: u32) bool {
+        const window = self.window orelse return false;
+        const dpi = raw.GetDpiForWindow(window);
+        const width = pixelsToDip(width_px, dpi);
+        const height = pixelsToDip(height_px, dpi);
+        const view = layout.for_window(width, height, false);
+        const gap = layout.spacing_rhythm_dip;
+        const toolbar_y = gap;
+        const toolbar_height = layout.compact_control_max_dip;
+        const content_top = toolbar_y + toolbar_height + gap;
+        const label_height = layout.minimum_target_dip;
+        const status_height = layout.status_rail_dip;
+        const label_y = if (height > status_height + gap + label_height)
+            content_top
+        else if (height > label_height + gap)
+            height - status_height - gap - label_height
+        else
+            0;
+
+        if (!self.moveChild(self.open_folder_control, gap, toolbar_y, 120, toolbar_height, true, dpi)) return false;
+        if (!self.moveChild(self.mode_control, gap + 120 + gap, toolbar_y, 116, toolbar_height, true, dpi)) return false;
+        if (!self.moveChild(self.compile_control, gap + 120 + gap + 116 + gap, toolbar_y, 84, toolbar_height, true, dpi)) return false;
+        if (!self.moveChild(self.save_control, gap + 120 + gap + 116 + gap + 84 + gap, toolbar_y, 72, toolbar_height, true, dpi)) return false;
+        var source_x = gap;
+        const divider = layout.visible_divider_dip;
+        var source_width = if (width > gap * 2 + divider) width - gap * 2 - divider else 1;
+        var pdf_x: u32 = 0;
+        var pdf_width: u32 = 1;
+        if (view.mode == .tri_canvas) {
+            const fixed_chrome = gap * 2 + divider * 2;
+            if (layout.allocate_tri_canvas(width, fixed_chrome)) |tri| {
+                source_x = std.math.add(u32, gap + tri.project_dip, divider) catch return false;
+                source_width = tri.source_dip;
+                const source_end = std.math.add(u32, source_x, source_width) catch return false;
+                pdf_x = std.math.add(u32, source_end, divider) catch return false;
+                pdf_width = tri.pdf_dip;
+            }
+        } else if (layout.allocate_source_pdf(source_width)) |panes| {
+            source_width = panes.source_dip;
+            const source_end = std.math.add(u32, source_x, source_width) catch return false;
+            pdf_x = std.math.add(u32, source_end, divider) catch return false;
+            pdf_width = panes.pdf_dip;
+        }
+
+        const label_width = @min(@as(u32, 104), @max(source_width, 1));
+        const project_width = if (view.mode == .tri_canvas) @min(@as(u32, 104), layout.project_min_dip) else 1;
+        if (!self.moveChild(self.project_label, gap, label_y, project_width, label_height, view.project_visible, dpi)) return false;
+        if (!self.moveChild(self.source_label, source_x, label_y, label_width, label_height, view.source_visible, dpi)) return false;
+        if (!self.moveChild(self.pdf_label, pdf_x, label_y, @min(@as(u32, 104), @max(pdf_width, 1)), label_height, view.pdf_visible, dpi)) return false;
+
+        const status_y = if (height > status_height) height - status_height else 0;
+        const recovery_width: u32 = 92;
+        const recovery_x = if (width > recovery_width + gap) width - recovery_width - gap else gap;
+        const status_value_x = gap + 56;
+        const status_value_end = if (self.recovery_visible and recovery_x > status_value_x + gap)
+            recovery_x - gap
+        else if (width > gap)
+            width - gap
+        else
+            status_value_x + 1;
+        const status_value_width = if (status_value_end > status_value_x) status_value_end - status_value_x else 1;
+        if (!self.moveChild(self.status_label, gap, status_y, 48, status_height, true, dpi)) return false;
+        if (!self.moveChild(self.status_value, status_value_x, status_y, status_value_width, status_height, true, dpi)) return false;
+        if (!self.moveChild(self.recovery_control, recovery_x, status_y, recovery_width, status_height, self.recovery_visible, dpi)) return false;
+        return true;
+    }
+
+    pub fn hasShellControls(self: *const Backend) bool {
+        return self.open_folder_control != null and self.mode_control != null and
+            self.compile_control != null and self.save_control != null and
+            self.recovery_control != null and self.project_label != null and
+            self.source_label != null and self.pdf_label != null and
+            self.status_label != null and self.status_value != null and
+            self.accelerators != null;
+    }
+
+    pub fn setRecoveryVisible(self: *Backend, visible: bool) bool {
+        self.recovery_visible = visible;
+        const window = self.window orelse return false;
+        var client: RECT = undefined;
+        if (raw.GetClientRect(window, &client) == 0) return false;
+        return self.relayoutControls(@intCast(@max(client.right - client.left, 0)), @intCast(@max(client.bottom - client.top, 0)));
+    }
+
     pub fn createWindow(self: *Backend) bool {
         const use_default = std.math.minInt(i32); // CW_USEDEFAULT
         self.window = raw.CreateWindowExW(0, class_name, window_title, window_style, use_default, use_default, 960, 640, null, null, self.instance, @ptrCast(self));
@@ -235,17 +531,25 @@ pub const Backend = struct {
             self.window = null;
             return false;
         }
+        if (!self.createShellControls()) {
+            self.forgetShellControls();
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        }
         var device = graphics.Device.create() catch {
             // A visible window without a render device is not an admitted UI
             // state.  Tear it down immediately so callers cannot observe a
             // half-initialized shell or accidentally fall back to GDI.
             _ = raw.DestroyWindow(self.window.?);
+            self.forgetShellControls();
             self.window = null;
             return false;
         };
         var swap_chain = presenter.create(&device, @ptrCast(self.window.?), configuredSwapEffect()) catch {
             device.deinit();
             _ = raw.DestroyWindow(self.window.?);
+            self.forgetShellControls();
             self.window = null;
             return false;
         };
@@ -253,6 +557,7 @@ pub const Backend = struct {
             swap_chain.deinit();
             device.deinit();
             _ = raw.DestroyWindow(self.window.?);
+            self.forgetShellControls();
             self.window = null;
             return false;
         };
@@ -262,6 +567,7 @@ pub const Backend = struct {
         if (!self.renderInitialFrame()) {
             self.releaseFrameResources();
             _ = raw.DestroyWindow(self.window.?);
+            self.forgetShellControls();
             self.window = null;
             return false;
         }
@@ -444,6 +750,7 @@ pub const Backend = struct {
 
     pub fn destroyWindow(self: *Backend) bool {
         self.frame_pending = false;
+        self.destroyShellControls();
         self.releaseFrameResources();
         const window = self.window orelse return true;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
@@ -487,6 +794,7 @@ pub const Backend = struct {
             _ = self.renderFrameSignaled();
             return;
         }
+        if (self.accelerators != null and raw.TranslateAcceleratorW(self.window.?, self.accelerators, &self.message) != 0) return;
         _ = raw.TranslateMessage(&self.message);
         _ = raw.DispatchMessageW(&self.message);
     }
@@ -516,13 +824,23 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
     if (message == wm_size) {
         if (wparam != size_minimized) {
             if (backendForWindow(window)) |backend| {
-                if (backend.hasFrameResources()) {
-                    const size_bits: usize = @as(usize, @bitCast(lparam));
-                    const width: u32 = @intCast(size_bits & 0xffff);
-                    const height: u32 = @intCast((size_bits >> 16) & 0xffff);
-                    if (width != 0 and height != 0) _ = backend.resizeFrame(width, height);
-                    return 0;
-                }
+                const size_bits: usize = @as(usize, @bitCast(lparam));
+                const width: u32 = @intCast(size_bits & 0xffff);
+                const height: u32 = @intCast((size_bits >> 16) & 0xffff);
+                if (backend.hasShellControls() and width != 0 and height != 0) _ = backend.relayoutControls(width, height);
+                if (backend.hasFrameResources() and width != 0 and height != 0) _ = backend.resizeFrame(width, height);
+                return 0;
+            }
+        }
+    }
+    if (message == wm_command) {
+        if (backendForWindow(window)) |backend| {
+            const command_id: u16 = @intCast(wparam & 0xffff);
+            if (command_id >= control_id_open_folder and command_id <= control_id_recovery) {
+                // The command bridge deliberately stays side-effect free in
+                // this slice; future workspace actions consume the stable IDs.
+                backend.requestFrame();
+                return 0;
             }
         }
     }

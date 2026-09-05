@@ -473,6 +473,8 @@ pub fn build(b: *std.Build) void {
     shell_native_module.addImport("windows_com", windows_com_module);
     shell_native_module.addImport("ui_entry", ui_entry_module);
     shell_native_module.addImport("app_role", app_role_module);
+    shell_native_module.addImport("app_layout", app_layout_module);
+    shell_native_module.addImport("app_strings", app_strings_module);
     shell_native_module.addImport("graphics", graphics_module);
     shell_native_module.addImport("presenter_native", presenter_native_module);
     if (target.result.os.tag == .windows) {

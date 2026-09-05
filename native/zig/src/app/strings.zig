@@ -65,6 +65,13 @@ pub fn lookup_english(key: Key) ?[]const u8 {
     return null;
 }
 
+/// Compile-time access for native resource consumers.  A missing entry is a
+/// build error rather than a runtime fallback, keeping control captions
+/// aligned with the authenticated resource table.
+pub fn literal(comptime key: Key) []const u8 {
+    return lookup_english(key) orelse @compileError("missing English resource literal");
+}
+
 pub const lookupEnglish = lookup_english;
 
 pub fn lookup_name(locale: []const u8, name: []const u8) ![]const u8 {

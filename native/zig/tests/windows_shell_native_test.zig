@@ -179,14 +179,18 @@ test "real native backend creates and presents its first frame before showing" {
     defer _ = backend.unregisterClass();
     try std.testing.expect(backend.createWindow());
     defer _ = backend.destroyWindow();
+    try std.testing.expect(backend.hasShellControls());
     try std.testing.expect(backend.hasFrameResources());
     try std.testing.expect(backend.renderFrame());
     backend.showWindow();
     try std.testing.expect(!backend.frameTimerActive());
     try std.testing.expect(backend.tickFrame());
+    try std.testing.expect(backend.setRecoveryVisible(true));
+    try std.testing.expect(backend.setRecoveryVisible(false));
     try std.testing.expect(backend.resizeFrame(640, 480));
     try std.testing.expect(backend.rebuildFrameResources());
     try std.testing.expect(backend.destroyWindow());
+    try std.testing.expect(!backend.hasShellControls());
     try std.testing.expect(!backend.hasFrameResources());
 }
 

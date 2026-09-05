@@ -1420,3 +1420,39 @@ reintroducing a periodic timer.
 
 This is still a bounded T0.2c runtime seam; full UIA/capture/ETW/physical-matrix
 admission remains open.
+
+## T0.2c native shell controls (2026-09-06)
+
+This increment binds the existing deterministic shell resource/layout contract
+to real standard Win32 child controls. The UI thread creates five named
+`BUTTON` controls (Open Folder, Render mode, Compile, Save, Recover) and five
+named `STATIC` controls (Project, Source, PDF, Status, Ready). Captions are
+compile-time UTF-16 literals derived from `app/strings.zig`; no feature prose is
+duplicated in the native adapter. Buttons have tab-stop styles and a copied
+`ACCEL` table for Ctrl+O, Ctrl+M, Ctrl+B, Ctrl+S, and recovery shortcuts; Ctrl+C
+is intentionally left available for the future editor. The hidden recovery
+button is only shown through the explicit `setRecoveryVisible` seam.
+
+Geometry is computed from `app/layout.zig` in DIPs, converted once using the
+current PMv2 `GetDpiForWindow` value, and moved with checked `MoveWindow` calls.
+Project/PDF visibility follows the shared tri-canvas/dual-pane/focus-switcher
+breakpoints; only compact labels and the status rail sit above the D3D surface.
+Child HWNDs and the accelerator table are owned by the UI backend and are
+released before/with parent teardown; partial creation is discarded before the
+window failure is returned.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The new separate-process child enumeration test first ran against the previous product and reported `11 pass, 1 fail`; the failure was exactly `real GUI process exposes named native shell controls`. | The runtime contract preceded the implementation. |
+| Native Debug | `t0-2c-shell-native-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug -j1 --summary all`: `12/12` passed, including real create/present/resize/rebuild, control ownership, recovery visibility toggle, and cleanup. | The controls and lifetime seams work on the native Windows lane. |
+| Native ReleaseSafe | Same step with `-Doptimize=ReleaseSafe`: `12/12` passed. | Optimized-safe ABI and cleanup behavior remain green. |
+| Product black-box | `t0-2c-product-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe -j1 --summary all`: `12/12` passed. The independent process enumerated exact `BUTTON`/`STATIC` classes, names, five/five counts, hidden recovery, tab stops, PMv2/caption/close, and malformed-argument exits. | Real product admission and the named-control surface are green. |
+| PE import closure | The product oracle now requires `MoveWindow`, `GetDpiForWindow`, `CreateAcceleratorTableW`, `DestroyAcceleratorTable`, and `TranslateAcceleratorW`; the same `12/12` product run passed. | The new native APIs are explicit and remain inside the narrow system DLL allowlist. |
+| Linux portability | `t0-2c-shell-native-check` and `t0-2c-models-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1 --summary all` passed as compile-only lanes. | No Linux runtime claim is made from this Windows host. |
+| Aggregate regression | `t0-2c-models-test` Windows Debug and ReleaseSafe each passed `149/152` with the same three documented skips; `t0-2c-product-build` ReleaseSafe passed. | Existing T0.2c model/product edges remain green. |
+| Hygiene/review | `zig fmt --check` and `git diff --check` passed. Root review checked standard-control ABI/lifetime, accelerator ownership, DPI conversion, checked coordinate arithmetic, breakpoint/divider margins, hidden recovery, resource-literal routing, and no Ctrl+C theft. The requested Luna reviewer stream ended `adapter_eof`, so no external verdict is claimed. | Current quality streak for this bounded slice is `1/1`; no Medium+ root finding remains. |
+
+Browser QA is not applicable: this slice changes only native Win32/D3D child
+HWND composition. Browser evidence cannot substitute for the separate native
+UIA, DWM-visible capture, ETW, DPI/occlusion/device-loss matrix, and Task 7
+black-box obligations. Full T0.2c admission therefore remains open.

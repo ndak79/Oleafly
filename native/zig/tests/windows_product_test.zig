@@ -544,7 +544,8 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
     try std.testing.expect((try read(u32, bytes, pe + 24 + 16)) != 0);
     const required = [_][]const u8{
         "GetCommandLineW",  "CommandLineToArgvW", "SetDefaultDllDirectories", "SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual",
-        "CoInitializeEx",   "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",               "SetWindowTextW",               "ShowWindow",                   "GetMessageW",
+        "CoInitializeEx",   "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",               "SetWindowTextW",               "ShowWindow",
+        "MoveWindow",       "GetDpiForWindow",    "CreateAcceleratorTableW",  "DestroyAcceleratorTable",       "TranslateAcceleratorW",        "GetMessageW",
         "TranslateMessage", "DispatchMessageW",   "DestroyWindow",            "UnregisterClassW",              "BCryptGenRandom",              "D3D11CreateDevice",
     };
     var found = [_]bool{false} ** required.len;
@@ -777,6 +778,7 @@ const raw = struct {
     extern "kernel32" fn GetExitCodeProcess(windows.HANDLE, *u32) callconv(.winapi) i32;
     extern "kernel32" fn TerminateProcess(windows.HANDLE, u32) callconv(.winapi) i32;
     extern "user32" fn EnumWindows(*const fn (*anyopaque, isize) callconv(.winapi) i32, isize) callconv(.winapi) i32;
+    extern "user32" fn EnumChildWindows(*anyopaque, *const fn (*anyopaque, isize) callconv(.winapi) i32, isize) callconv(.winapi) i32;
     extern "user32" fn GetWindowThreadProcessId(*anyopaque, *u32) callconv(.winapi) u32;
     extern "user32" fn GetClassNameW(*anyopaque, [*]u16, i32) callconv(.winapi) i32;
     extern "user32" fn GetWindowTextW(*anyopaque, [*]u16, i32) callconv(.winapi) i32;
@@ -865,6 +867,93 @@ test "real GUI process shows exact title class standard caption PMv2 and closes"
         try std.testing.expect(raw.PostMessageW(hwnd, 0x10, 0, 0) != 0); // WM_CLOSE
         try std.testing.expectEqual(@as(u32, 0), try child.exitCode());
     }
+}
+
+const ChildControlSearch = struct {
+    open_folder: bool = false,
+    mode: bool = false,
+    compile: bool = false,
+    save: bool = false,
+    recovery: bool = false,
+    recovery_hidden: bool = false,
+    project: bool = false,
+    source: bool = false,
+    pdf: bool = false,
+    status: bool = false,
+    ready: bool = false,
+    button_count: u8 = 0,
+    static_count: u8 = 0,
+    buttons_tabstop: bool = true,
+
+    fn callback(hwnd: *anyopaque, context: isize) callconv(.winapi) i32 {
+        const self: *ChildControlSearch = @ptrFromInt(@as(usize, @bitCast(context)));
+        var text: [128]u16 = undefined;
+        const length = raw.GetWindowTextW(hwnd, &text, text.len);
+        if (length <= 0) return 1;
+        const value = text[0..@intCast(length)];
+        var class_name: [32]u16 = undefined;
+        const class_length = raw.GetClassNameW(hwnd, &class_name, class_name.len);
+        if (class_length <= 0) return 1;
+        const class_value = class_name[0..@intCast(class_length)];
+        const is_button = utf16EqualsAscii(class_value, "Button");
+        const is_static = utf16EqualsAscii(class_value, "Static");
+        if (is_button) self.button_count += 1;
+        if (is_static) self.static_count += 1;
+        const style = raw.GetWindowLongPtrW(hwnd, -16);
+        const tabstop = (style & @as(isize, 0x00010000)) != 0;
+        if (is_button and !tabstop) self.buttons_tabstop = false;
+        if (utf16EqualsAscii(value, "Open Folder")) self.open_folder = self.open_folder or is_button;
+        if (utf16EqualsAscii(value, "Render mode")) self.mode = self.mode or is_button;
+        if (utf16EqualsAscii(value, "Compile")) self.compile = self.compile or is_button;
+        if (utf16EqualsAscii(value, "Save")) self.save = self.save or is_button;
+        if (utf16EqualsAscii(value, "Recover")) {
+            self.recovery = self.recovery or is_button;
+            self.recovery_hidden = self.recovery_hidden or (is_button and raw.IsWindowVisible(hwnd) == 0);
+        }
+        if (utf16EqualsAscii(value, "Project")) self.project = self.project or is_static;
+        if (utf16EqualsAscii(value, "Source")) self.source = self.source or is_static;
+        if (utf16EqualsAscii(value, "PDF")) self.pdf = self.pdf or is_static;
+        if (utf16EqualsAscii(value, "Status")) self.status = self.status or is_static;
+        if (utf16EqualsAscii(value, "Ready")) self.ready = self.ready or is_static;
+        return 1;
+    }
+};
+
+fn utf16EqualsAscii(value: []const u16, expected: []const u8) bool {
+    if (value.len != expected.len) return false;
+    for (value, expected) |unit, byte| if (unit != byte) return false;
+    return true;
+}
+
+test "real GUI process exposes named native shell controls" {
+    if (!supported) return error.SkipZigTest;
+    var child = try launch(&.{"--trace-trial=00112233445566778899aabbccddeeff"});
+    defer child.deinit();
+    var search: Search = .{ .pid = child.process.dwProcessId };
+    for (0..250) |_| {
+        _ = raw.EnumWindows(Search.callback, @bitCast(@intFromPtr(&search)));
+        if (search.window != null) break;
+        if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
+    }
+    const hwnd = search.window orelse return error.NoProductWindow;
+    var controls: ChildControlSearch = .{};
+    try std.testing.expect(raw.EnumChildWindows(hwnd, ChildControlSearch.callback, @bitCast(@intFromPtr(&controls))) != 0);
+    try std.testing.expect(controls.open_folder);
+    try std.testing.expect(controls.mode);
+    try std.testing.expect(controls.compile);
+    try std.testing.expect(controls.save);
+    try std.testing.expect(controls.recovery);
+    try std.testing.expect(controls.recovery_hidden);
+    try std.testing.expect(controls.project);
+    try std.testing.expect(controls.source);
+    try std.testing.expect(controls.pdf);
+    try std.testing.expect(controls.status);
+    try std.testing.expect(controls.ready);
+    try std.testing.expectEqual(@as(u8, 5), controls.button_count);
+    try std.testing.expectEqual(@as(u8, 5), controls.static_count);
+    try std.testing.expect(controls.buttons_tabstop);
+    try std.testing.expect(raw.PostMessageW(hwnd, 0x10, 0, 0) != 0); // WM_CLOSE
+    try std.testing.expectEqual(@as(u32, 0), try child.exitCode());
 }
 
 test "real product rejects worker probe bootstrap malformed and unknown arguments" {
