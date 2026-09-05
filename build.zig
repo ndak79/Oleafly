@@ -709,6 +709,28 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     unicode_module.addImport("unicode_data", unicode_data_module);
+    const source_set_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/source_set.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    source_set_module.addImport("unicode", unicode_module);
+    const source_set_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/source_set_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    source_set_tests.root_module.addImport("source_set", source_set_module);
+    source_set_tests.root_module.addImport("app_build_identity", app_build_identity_module);
+    const run_source_set_tests = b.addRunArtifact(source_set_tests);
+    const source_set_test_step = b.step("t0-2c-source-set-test", "Run canonical source-set digest model tests");
+    source_set_test_step.dependOn(&run_source_set_tests.step);
+    const source_set_check_step = b.step("t0-2c-source-set-check", "Compile canonical source-set digest model tests");
+    source_set_check_step.dependOn(&source_set_tests.step);
+    t0_2c_models_test.dependOn(&run_source_set_tests.step);
+    t0_2c_models_check.dependOn(&source_set_tests.step);
     const unicode_archive_security_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),

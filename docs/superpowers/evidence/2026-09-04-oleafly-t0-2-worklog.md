@@ -518,3 +518,35 @@ No browser QA applies to this native parser-only increment. The real UI entry
 binding must later connect this contract before Win32 initialization and add
 native inherited-handle/command-line decoding evidence; this slice does not
 claim GUI shell, worker isolation, or full Task 3 acceptance.
+
+## T0.2c bounded canonical source-set v2 evidence (2026-09-05)
+
+This increment adds a pure-Zig canonical source-set v2 digest model. Callers
+provide already byte-sorted raw Git-style paths, exact `100644`/`100755` modes,
+u64 content lengths, and 32-byte blob SHA-256 values. The wire identity is
+`SHA-256("texflow:source-set:v2\0" || count_u64_le || entries)` with raw UTF-8
+path bytes preserved. Unicode-17 NFD/full case folding is used only to reject
+portable collisions, including file-vs-directory prefix conflicts; it never
+changes the bytes hashed. Git enumeration, content hashing/verification,
+controller wiring, and runtime build identity collection remain later work.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t0-2c-source-set-test` initially failed with `FileNotFound` for the absent module; prefix regressions then failed `3` cases before the P2 repair. | The implementation and the security regression were both proven non-vacuous. |
+| Windows Debug | `zig build t0-2c-source-set-test -Doptimize=Debug -j1 --summary all`: `7/7` steps, `14/14` tests passed. | Canonical vectors, path/mode validation, Unicode collisions, prefix checks, and OOM cleanup are green. |
+| Windows ReleaseSafe | `zig build t0-2c-source-set-test -Doptimize=ReleaseSafe -j1 --summary all`: `7/7` steps, `14/14` tests passed. | Safe optimized behavior remains deterministic. |
+| Windows ReleaseFast | `zig build t0-2c-source-set-test -Doptimize=ReleaseFast -j1 --summary all`: `7/7` steps, `14/14` tests passed. | Fast optimized behavior preserves the same contract. |
+| Linux portability | `zig build t0-2c-source-set-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1 --summary all`: `6/6` compile steps passed; full-model Linux compile was `14/14`. | The model and Unicode-17 dependency compile without Windows-only APIs; Linux runtime is not claimed. |
+| Combined model regression | `zig build t0-2c-models-test -Doptimize=ReleaseSafe -j1 --summary all`: `23/23` steps, `72/72` tests passed. | Source-set wiring does not regress role, identity, scheduler, lifecycle, theme/layout, strings, presenter, or entry models. |
+| Baseline/product regression | `zig build test -Doptimize=ReleaseSafe -j1 --summary all`: `13/13` steps, `10/10` tests; product `zig build -Doptimize=ReleaseSafe -j1`: `3/3` steps. | Existing baseline checks and the installed placeholder executable remain green. |
+| Install reachability | Fresh ReleaseSafe prefix contained exactly `bin\texflow.exe`; no source-set test or Unicode fixture artifact was installed. | The new model stays outside the default product install graph. |
+| Independent digest vectors | Six fixed answers (empty, single, multi-entry, Unicode raw-byte, u64-max length, and build-identity composition) match independently generated values. | The encoder is not merely self-consistent. |
+| Adversarial falsification | One-bit count mutations killed `4` checks; Unicode-fold bypass killed `4`; prefix-check bypass killed `3`; OOM sweep covers success, canonical collision, and prefix collision paths. | The tests detect plausible wire-format, portability, and cleanup regressions. |
+| GPT-6 review | First review found P2 file-vs-directory prefix collision; after repair, `gpt-6-astra` max read-only review returned `CLEAN` with no Medium+ findings. | Quality streak reset on the P2 and is now `1/1` clean for this slice. |
+| Formatting/diff | Full-path `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
+
+No browser QA applies to this pure native model-only increment; browser/native
+black-box evidence is required once the real TExFlow UI/HTML/live-render lane
+exists. This slice does not enumerate Git, hash files, validate a checkout,
+connect `build_identity.compute` to runtime artifacts, or claim full
+reproducibility/Task 3 closure.
