@@ -1318,3 +1318,32 @@ Browser QA is not applicable: T1.1b is a portable native editor model with no
 HTML/browser surface. Scintilla attachment, filesystem save/atomic replacement,
 ReadDirectoryChangesW overflow recovery, and three-way external merge remain
 explicit later T1.1 slices.
+
+## T0.2c bounded shell UIA contract and telemetry evidence (2026-09-05)
+
+This increment adds the missing deterministic contract layer for the native
+shell's future UIA provider and render diagnostics. `app/uia_shell.zig` builds a
+fixed-capacity, revisioned root tree for Project/Source/PDF/status/splitter/mode
+and recovery controls from the existing layout, theme, and resource tables.
+Interactive nodes carry explicit control patterns, accelerators, state, and
+touch/keyboard hit-target bounds; document/status text is not incorrectly
+treated as an invoke target. `platform/windows/telemetry.zig` provides a
+fixed-width 64-byte schema containing only trial ID, process/thread ownership,
+QPC, adapter LUID, render path, dimensions, dirty pixels, and schema version.
+It rejects invalid dimensions/owners/clocks, all-zero trial IDs, overlarge dirty
+regions, and uppercase/non-hex trial IDs.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED/repair | Initial focused run found a typed fallback mismatch, a too-narrow splitter hit target, an incorrect unsupported-width fixture, a touch-mode status target, and a telemetry test expectation error; each was repaired before the green pass. | The tests exercised real failure surfaces rather than only the happy path. |
+| Windows Debug | `t0-2c-shell-uia-test t0-2c-telemetry-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug -j1`: all tests passed. | Tree/resource/geometry/state and fixed-schema telemetry are green on the Windows lane. |
+| Windows ReleaseSafe | Same focused steps with `-Doptimize=ReleaseSafe`: all tests passed. | Safe optimized behavior remains deterministic. |
+| Linux portability | `t0-2c-shell-uia-check t0-2c-telemetry-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1`: compile-only passed. | The contract modules remain free of Windows runtime imports. |
+| Aggregate regression | `t0-2c-models-test` Windows Debug and ReleaseSafe, `t0-2c-models-check` Linux ReleaseSafe, and `t0-2c-product-build` Windows ReleaseSafe all passed. | Existing T0.2c models and the TExFlow product build remain green. |
+| Hygiene | `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
+| Review state | Root review found and repaired the geometry/interactive-target issues above. The requested Luna max reviewer stream terminated with `adapter_eof`; it is not counted as external clean review. | Current quality streak for this bounded slice is `1/1`; no Medium+ root finding remains. |
+
+This is a bounded contract slice, not full T0.2c admission. It does not claim
+COM UIA provider registration, native child controls, ETW provider registration,
+screen capture, or Task 7's physical-matrix campaign; those runtime obligations
+remain open and must consume this contract rather than reimplement it.

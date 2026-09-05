@@ -202,6 +202,19 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const app_uia_shell_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/uia_shell.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_uia_shell_module.addImport("app_layout", app_layout_module);
+    app_uia_shell_module.addImport("app_strings", app_strings_module);
+    app_uia_shell_module.addImport("app_theme", app_theme_module);
+    const windows_telemetry_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/telemetry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const app_workspace_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/app/workspace.zig"),
         .target = target,
@@ -256,6 +269,38 @@ pub fn build(b: *std.Build) void {
     editor_buffer_check_step.dependOn(&editor_buffer_tests.step);
     t0_2c_models_test.dependOn(&run_editor_buffer_tests.step);
     t0_2c_models_check.dependOn(&editor_buffer_tests.step);
+    const uia_shell_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/uia_shell_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    uia_shell_tests.root_module.addImport("app_uia_shell", app_uia_shell_module);
+    uia_shell_tests.root_module.addImport("app_strings", app_strings_module);
+    uia_shell_tests.root_module.addImport("app_theme", app_theme_module);
+    const run_uia_shell_tests = b.addRunArtifact(uia_shell_tests);
+    const uia_shell_test_step = b.step("t0-2c-shell-uia-test", "Run deterministic shell accessibility-tree contract tests");
+    uia_shell_test_step.dependOn(&run_uia_shell_tests.step);
+    const uia_shell_check_step = b.step("t0-2c-shell-uia-check", "Compile shell accessibility-tree contract tests");
+    uia_shell_check_step.dependOn(&uia_shell_tests.step);
+    t0_2c_models_test.dependOn(&run_uia_shell_tests.step);
+    t0_2c_models_check.dependOn(&uia_shell_tests.step);
+    const telemetry_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/telemetry_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    telemetry_tests.root_module.addImport("windows_telemetry", windows_telemetry_module);
+    const run_telemetry_tests = b.addRunArtifact(telemetry_tests);
+    const telemetry_test_step = b.step("t0-2c-telemetry-test", "Run fixed-schema native render telemetry tests");
+    telemetry_test_step.dependOn(&run_telemetry_tests.step);
+    const telemetry_check_step = b.step("t0-2c-telemetry-check", "Compile fixed-schema native render telemetry tests");
+    telemetry_check_step.dependOn(&telemetry_tests.step);
+    t0_2c_models_test.dependOn(&run_telemetry_tests.step);
+    t0_2c_models_check.dependOn(&telemetry_tests.step);
     const icon_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/icon_gen_test.zig"),

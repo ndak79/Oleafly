@@ -17,6 +17,10 @@ pub const Key = enum {
     unavailable,
     rebuilding,
     error_status,
+    mode,
+    splitter,
+    status,
+    recovery,
 };
 
 pub const StringKey = Key;
@@ -41,6 +45,10 @@ pub const english_table = [_]Entry{
     .{ .key = .unavailable, .name = "unavailable", .value = "Unavailable" },
     .{ .key = .rebuilding, .name = "rebuilding", .value = "Rebuilding" },
     .{ .key = .error_status, .name = "error_status", .value = "Error" },
+    .{ .key = .mode, .name = "mode", .value = "Render mode" },
+    .{ .key = .splitter, .name = "splitter", .value = "Resize panes" },
+    .{ .key = .status, .name = "status", .value = "Status" },
+    .{ .key = .recovery, .name = "recovery", .value = "Recover" },
 };
 
 pub fn lookup(locale: []const u8, key: Key) ![]const u8 {
