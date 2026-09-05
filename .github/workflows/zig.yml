@@ -78,6 +78,13 @@ jobs:
           # keep the verified owner-only cache under the runner profile.
           $depsRoot = Join-Path $env:USERPROFILE "TExFlow-native-deps"
           New-Item -ItemType Directory -Force -Path $depsRoot | Out-Null
+          # Elevated hosted-runner tokens can stamp a new directory with the
+          # Administrators group as owner. The cache verifier intentionally
+          # requires the current token user, so normalize ownership before the
+          # Zig ACL boundary runs.
+          $owner = "${env:USERDOMAIN}\${env:USERNAME}"
+          icacls $depsRoot /setowner $owner | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Unable to set native dependency cache owner to $owner" }
           $env:TEXFLOW_NATIVE_DEPS_ROOT = $depsRoot
           "TEXFLOW_NATIVE_DEPS_ROOT=$depsRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           # deps-fetch is the only ordinary network acquisition lane. It

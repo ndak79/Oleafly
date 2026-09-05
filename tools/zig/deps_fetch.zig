@@ -3054,7 +3054,10 @@ fn acquireCacheLock(
     const lock = cache_root.openFile(io, ".lock", .{
         .mode = .read_write,
         .allow_directory = false,
-        .path_only = true,
+        // Linux cannot apply flock/fcntl locks to an O_PATH descriptor;
+        // Windows keeps the path-only handle because LockFileEx accepts it
+        // and the ACL verifier needs the already-pinned identity.
+        .path_only = builtin.os.tag == .windows,
         .follow_symlinks = false,
         .resolve_beneath = true,
     }) catch |err| switch (err) {
@@ -3078,7 +3081,9 @@ fn acquireReadOnlyCacheLock(
     const lock = cache_root.openFile(io, ".lock", .{
         .mode = .read_only,
         .allow_directory = false,
-        .path_only = true,
+        // See acquireCacheLock: POSIX flock requires a real file descriptor,
+        // while the Windows path-only identity remains valid for LockFileEx.
+        .path_only = builtin.os.tag == .windows,
         .follow_symlinks = false,
         .resolve_beneath = true,
     }) catch |err| switch (err) {
