@@ -18,6 +18,7 @@
         "tools/zig/native-deps.json",
         "tools/zig/package_probe.zig",
         "tools/zig/sqlite_probe.zig",
+        "tools/zig/scintilla_probe.zig",
         "tools/zig/toolchain.json",
         "tools/zig/unicode_gen.zig",
         "docs/development.md",

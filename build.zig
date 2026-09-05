@@ -247,6 +247,89 @@ pub fn build(b: *std.Build) void {
         .target = host_target,
         .optimize = .ReleaseSafe,
     });
+    const scintilla_probe_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/scintilla_probe.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    scintilla_probe_module.addImport("deps", deps_module);
+    const scintilla_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/source_inventory_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    scintilla_tests.root_module.addImport("scintilla_probe", scintilla_probe_module);
+    const scintilla_contract = b.addOptions();
+    const scintilla_archive = b.option([]const u8, "scintilla-archive", "Absolute path to the exact Scintilla 5.6.6 archive (offline only)") orelse
+        b.pathFromRoot("tools/zig/.cache/native-deps/.v2/scintilla/generations/g-0c7dc920040326b993b39ff6/archive.bin");
+    scintilla_contract.addOption([]const u8, "archive_path", scintilla_archive);
+    const scintilla_probe = b.addExecutable(.{
+        .name = "texflow-scintilla-source-probe",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/scintilla_probe.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    scintilla_probe.root_module.addImport("deps", deps_host_module);
+    const scintilla_snapshot = b.addRunArtifact(scintilla_probe);
+    scintilla_snapshot.addArgs(&.{ "snapshot", scintilla_archive });
+    scintilla_snapshot.has_side_effects = true;
+    const scintilla_root = scintilla_snapshot.addOutputDirectoryArg("scintilla-5.6.6-verified").path(b, "payload/scintilla");
+    scintilla_contract.addOptionPath("source_root", scintilla_root);
+    const scintilla_inventory = @import("tools/zig/scintilla_probe.zig");
+    const scintilla_flags = switch (optimize) {
+        inline else => |mode| scintilla_inventory.cxxFlags(mode),
+    };
+    const scintilla_winrt_include = b.option([]const u8, "scintilla-winrt-include", "Absolute Windows SDK WinRT include directory containing wrl.h; default: installed SDK discovery");
+    // This local artifact belongs solely to the unshipped UI feasibility lane.
+    // No install, product, worker, Lexilla, download, or dependency-fetch edge.
+    const scintilla_library: ?*std.Build.Step.Compile = if (target.result.os.tag == .windows) library: {
+        const library = b.addLibrary(.{
+            .name = "scintilla-ui-t0-2b-unshipped",
+            .linkage = .static,
+            .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+        });
+        library.root_module.addIncludePath(scintilla_root.path(b, "include"));
+        library.root_module.addIncludePath(scintilla_root.path(b, "src"));
+        // Zig discovers MSVC/SDK C headers, but not the WRL headers used by
+        // upstream Scintilla. Use the installed SDK's matching WinRT tree.
+        if (scintilla_winrt_include) |path| {
+            if (!std.fs.path.isAbsolute(path)) @panic("scintilla-winrt-include must be absolute");
+            library.root_module.addSystemIncludePath(.{ .cwd_relative = path });
+        } else if (host_target.result.os.tag == .windows) {
+            if (std.zig.WindowsSdk.find(b.allocator, b.graph.io, target.result.cpu.arch, &b.graph.environ_map)) |sdk| {
+                if (sdk.windows10sdk) |windows_sdk| library.root_module.addSystemIncludePath(.{
+                    .cwd_relative = b.pathJoin(&.{ windows_sdk.path, "Include", windows_sdk.version, "winrt" }),
+                });
+            } else |_| {}
+        }
+        library.root_module.addCSourceFiles(.{ .root = scintilla_root, .files = &scintilla_inventory.sources, .flags = scintilla_flags });
+        _ = library.getEmittedBin();
+        break :library library;
+    } else null;
+    const scintilla_build = b.step("t0-2b-scintilla-build", "Compile the unshipped Win32 Scintilla static library; no runtime probe");
+    if (scintilla_library) |library| {
+        scintilla_build.dependOn(&library.step);
+        // Read the actual compiler input, not a second self-reported list.
+        const inputs = library.root_module.link_objects.items[0].c_source_files;
+        scintilla_contract.addOption([]const []const u8, "source_files", inputs.files);
+        scintilla_contract.addOption([]const []const u8, "cxx_flags", inputs.flags);
+        scintilla_contract.addOption([]const u8, "artifact_kind", @tagName(library.kind));
+        scintilla_contract.addOption([]const u8, "artifact_linkage", @tagName(library.linkage.?));
+    } else {
+        scintilla_build.dependOn(&b.addFail("Scintilla's Win32 static library requires a Windows target; t0-2b-scintilla-check compiles only the contract tests on Linux.").step);
+        scintilla_contract.addOption([]const []const u8, "source_files", &scintilla_inventory.sources);
+        scintilla_contract.addOption([]const []const u8, "cxx_flags", scintilla_flags);
+        scintilla_contract.addOption([]const u8, "artifact_kind", "absent");
+        scintilla_contract.addOption([]const u8, "artifact_linkage", "absent");
+    }
+    scintilla_contract.addOption(bool, "library_created", scintilla_library != null);
+    scintilla_tests.root_module.addOptions("scintilla_contract", scintilla_contract);
+    b.step("t0-2b-scintilla-test", "Run the unshipped Scintilla source and build contract tests").dependOn(&b.addRunArtifact(scintilla_tests).step);
+    b.step("t0-2b-scintilla-check", "Compile Scintilla contract tests only; no Win32 C++ compilation on Linux").dependOn(&scintilla_tests.step);
     const deps_tool = b.addExecutable(.{
         .name = "texflow-deps",
         .root_module = b.createModule(.{
@@ -657,6 +740,39 @@ pub fn build(b: *std.Build) void {
     deps_audit_step.dependOn(&run_attestation_audit.step);
     deps_audit_step.dependOn(&run_zigwin32_cache_tests.step);
     deps_audit_step.dependOn(unicode_audit_step);
+    scintilla_contract.addOption(bool, "install_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, b.getInstallStep(), library) else false);
+    scintilla_contract.addOption(bool, "product_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, &executable.step, library) else false);
+}
+
+// Inspect actual build steps and transitive module/library edges. Checking only
+// direct Step.dependencies during build() misses linkLibrary dependencies that
+// Zig expands later. The visited sets also handle shared modules and cycles.
+fn buildReachesLibrary(b: *std.Build, root: *std.Build.Step, library: *std.Build.Step.Compile) bool {
+    var steps: std.AutoArrayHashMapUnmanaged(*std.Build.Step, void) = .empty;
+    var modules: std.AutoArrayHashMapUnmanaged(*std.Build.Module, void) = .empty;
+    steps.put(b.allocator, root, {}) catch @panic("OOM");
+    var step_index: usize = 0;
+    var module_index: usize = 0;
+    while (step_index < steps.count() or module_index < modules.count()) {
+        while (step_index < steps.count()) : (step_index += 1) {
+            const step = steps.keys()[step_index];
+            if (step == &library.step) return true;
+            for (step.dependencies.items) |dependency| steps.put(b.allocator, dependency, {}) catch @panic("OOM");
+            if (step.id == .compile) {
+                const compile: *std.Build.Step.Compile = @fieldParentPtr("step", step);
+                modules.put(b.allocator, compile.root_module, {}) catch @panic("OOM");
+            }
+        }
+        while (module_index < modules.count()) : (module_index += 1) {
+            const module = modules.keys()[module_index];
+            for (module.import_table.values()) |dependency| modules.put(b.allocator, dependency, {}) catch @panic("OOM");
+            for (module.link_objects.items) |object| switch (object) {
+                .other_step => |dependency| steps.put(b.allocator, &dependency.step, {}) catch @panic("OOM"),
+                else => {},
+            };
+        }
+    }
+    return false;
 }
 
 // Generated Run outputs may be relative to the build runner's CWD. Resolve the

@@ -265,3 +265,41 @@ ledger durability, and disposable FTS search semantics belong to Task 6.
 No browser QA is applicable to this native/CLI-only slice; browser evidence is
 required when the TExFlow UI/HTML evidence lane exists. Linux runtime and
 product integration remain unverified and out of scope here.
+
+## T0.2b bounded Scintilla static source/build contract evidence (2026-09-05)
+
+This increment verifies the exact cached Scintilla 5.6.6 source and builds its
+upstream Win32 static editor component as an isolated, uninstalled feasibility
+artifact. The 39 C++ inputs are the upstream `SRC_OBJS + COMPONENT_OBJS`
+inventory from `win32/scintilla.mak`: 33 `src/` units plus six Win32 units.
+DLL-only `ScintillaDLL.cxx`/resources, Lexilla, its catalogue, and every worker
+or product-install edge are excluded. The source snapshot is rehashed and
+published atomically; an existing complete snapshot is reused and corruption
+is refused.
+
+The portable contract test and the Windows C++ build are intentionally separate
+named steps: `t0-2b-scintilla-test` checks the source/graph contract, while
+`t0-2b-scintilla-build` compiles the Win32 static archive. The acceptance
+evidence below reports them together where both are required; Linux
+`t0-2b-scintilla-check` remains compile-only and never attempts Win32 C++.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED (inventory/flags/path contract) | Three expected missing-contract failures, followed by four archive/snapshot/build-contract failures before implementation. | The tests detect absent source identity, platform inventory, snapshot, and build-graph boundaries. |
+| Boundary falsification | Injecting a transitive product edge caused the install/product reachability test to fail (`8/9`); removing it restored `9/9`. | The static library remains uninstalled and unreachable from the baseline product executable. |
+| Windows Debug | Combined `t0-2b-scintilla-test` + `t0-2b-scintilla-build`: `9/9` tests and `8/8` steps; actual static archive built. | Exact source snapshot, inventory, flags, and Win32 C++ compilation are green. |
+| Windows ReleaseSafe | Same combined lane: `9/9` tests; static archive built. | Safe optimized static contract is green. |
+| Windows ReleaseFast | Same combined lane: `9/9` tests; static archive built. | Fast optimized static contract is green. |
+| Archive-member audit | Each produced `.lib` contains exactly 39 objects and no `ScintillaDLL`, `ScintRes`, Lexilla, or catalogue member. | The DLL/resource and test-only lexer surfaces are absent from the product-static artifact. |
+| Linux portability | `t0-2b-scintilla-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe`: `5/5` compile steps; a Win32 static-build request fails with an explicit target diagnostic. | Contract compilation is portable; Linux runtime and Win32 library execution are not claimed. |
+| Source/input negatives | Missing archive is rejected with `FileNotFound`; relative archive/output paths are rejected before touching files; altered archive, extra member, missing source, corruption, duplicate, DLL-only, and wrong-platform paths fail closed. | No fallback, fetch, or silent source substitution exists in this lane. |
+| Local compiler/SDK evidence | Actual build used MSVC headers 14.51.36231 and Windows SDK 10.0.26100.0; WRL include is discovered or supplied through an absolute `-Dscintilla-winrt-include` path. | This proves local static feasibility only; the approved SDK/toolchain identity and executable/import closure remain later admission work. |
+| Independent gpt-6 reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | Inventory, archive identity, atomic publication, SDK include use, C++ flags, member set, target split, and reachability were reviewed clean. |
+
+All upstream warning flags (`-Wall -Wextra -Wpedantic`) and C++17 are retained;
+no TExFlow C++ shim or source/header patch was introduced. The static archive
+is not linked into `TExFlow.exe` yet, and the window-class/direct-function,
+document lifecycle, null/container lexer, notification, and batched-style
+runtime probe remain a later UI/editor slice. No browser QA applies to this
+native/CLI-only source/build contract; browser evidence is required once the
+real TExFlow UI or HTML evidence lane is implemented.
