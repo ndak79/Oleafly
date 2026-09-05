@@ -1105,3 +1105,31 @@ HRESULT classes, release ordering, owner-empty failure states, test vacuity,
 Linux portability, and scope with no Medium+ finding. The quality streak is
 `1/1` under the current policy; unavailable external-review evidence is stated
 explicitly rather than represented as a clean pass.
+
+## T0.2c unbind-before-release barrier (2026-09-05)
+
+Before adding any native clear/draw primitive, this slice closes the lifetime
+hazard between a bound D3D11 output-merger target and the existing Present1 /
+ResizeBuffers ownership transitions. The production presenter now carries the
+immediate-context handle, calls `ID3D11DeviceContext::OMSetRenderTargets(0,
+null, null)` before releasing the current RTV/resource pair, and rejects a
+malformed device with no immediate context before mutating the owner. The
+deterministic Present and Resize backends expose an optional unbind callback so
+the release ordering is observable without importing the Windows ABI into
+portable tests; production Windows paths always install the callback.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The focused Windows Debug build first failed on the intentionally missing `ResizeBackend.unbind` field. | The new release-safety contract was exercised before implementation. |
+| Seam ordering | Resize success records `u,r,r,z,a`; device-loss records `u,r,r,z` and leaves the owner empty; rebind failure records `u,r,r,z,a` and leaves the owner empty. Present success also records exactly one unbind; occlusion records none. | OM unbind happens before any COM release and only after a successful Present outcome. |
+| Preflight | A real-shaped Windows `graphics.Device` with a valid device pointer but null immediate context returns `InvalidDeviceContext` and preserves both owner references. | Missing context cannot trigger a backend call or stale-owner mutation. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test`: `32` passed, `1` expected non-Windows skip in each mode. | Real x64 runtime paths remain green for both swap effects after adding the barrier. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded per mode for `x86_64-linux-gnu`. | The portable target remains compile-only and does not claim native runtime support. |
+| Formatting/scope | `zig fmt --check` and `git diff --check` passed; no generated facade/build/dependency files changed. | The safety barrier is isolated to the presenter adapter, tests, and evidence. |
+
+Browser QA is not applicable because this is a native Windows API lifetime
+barrier with no HTML/browser surface. The external Luna max reviewer was not
+available (`adapter_eof`); a root-agent review checked ABI context plumbing,
+unbind ordering, occlusion behavior, preflight preservation, test-vacuity,
+portable compilation, and scope with no Medium+ finding. The current quality
+streak remains `1/1`.

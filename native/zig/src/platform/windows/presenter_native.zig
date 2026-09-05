@@ -60,6 +60,7 @@ pub const BackBufferError = error{
 pub const PresentError = error{
     InvalidBackBuffer,
     InvalidDevice,
+    InvalidDeviceContext,
     InvalidPresentRequest,
     InvalidSwapChain,
     PartialPresentUnsupported,
@@ -71,6 +72,7 @@ pub const PresentError = error{
 pub const ResizeError = error{
     InvalidBackBuffer,
     InvalidDevice,
+    InvalidDeviceContext,
     InvalidSwapChain,
     RebindFailed,
     ResizeFailed,
@@ -231,10 +233,13 @@ const PresentFn = *const fn (
     ?*const Rect,
 ) callconv(.c) u32;
 
+const UnbindFn = *const fn (?*anyopaque) callconv(.c) void;
+
 const PresentBackendImpl = struct {
     present: PresentFn,
     release: BackBufferReleaseFn,
     acquire: *const fn (?*anyopaque, u32) BackBufferError!BackBuffer,
+    unbind: ?UnbindFn = null,
 };
 
 const ResizeFn = *const fn (?*anyopaque, u32, u32) callconv(.c) u32;
@@ -243,11 +248,13 @@ const ResizeBackendImpl = struct {
     resize: ResizeFn,
     release: BackBufferReleaseFn,
     acquire: *const fn (?*anyopaque, u32) BackBufferError!BackBuffer,
+    unbind: ?UnbindFn = null,
 };
 
 const WindowsAcquireContext = struct {
     device_handle: *anyopaque,
     swap_chain_handle: *anyopaque,
+    context_handle: ?*anyopaque = null,
 };
 
 /// Owns the two COM references returned by `SwapChain.acquireBackBuffer`.
@@ -318,10 +325,12 @@ pub const SwapChain = struct {
         if (builtin.os.tag != .windows) return error.UnsupportedTarget;
         const device_value = device orelse return error.InvalidDevice;
         const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const context_handle = device_value.contextHandle() orelse return error.InvalidDeviceContext;
         const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
         var context = WindowsAcquireContext{
             .device_handle = device_handle,
             .swap_chain_handle = @ptrCast(swap_chain),
+            .context_handle = context_handle,
         };
         return presentAndRebindWithImpl(
             self,
@@ -333,6 +342,7 @@ pub const SwapChain = struct {
                 .present = present1Windows,
                 .release = releaseBackBufferInterface,
                 .acquire = acquireBackBufferWindowsFromContext,
+                .unbind = unbindRenderTargetWindows,
             },
             @ptrCast(&context),
         );
@@ -347,10 +357,12 @@ pub const SwapChain = struct {
         if (builtin.os.tag != .windows) return error.UnsupportedTarget;
         const device_value = device orelse return error.InvalidDevice;
         const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const context_handle = device_value.contextHandle() orelse return error.InvalidDeviceContext;
         const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
         var context = WindowsAcquireContext{
             .device_handle = device_handle,
             .swap_chain_handle = @ptrCast(swap_chain),
+            .context_handle = context_handle,
         };
         return resizeAndRebindWithImpl(
             self,
@@ -362,6 +374,7 @@ pub const SwapChain = struct {
                 .resize = resizeBuffersWindows,
                 .release = releaseBackBufferInterface,
                 .acquire = acquireBackBufferWindowsFromContext,
+                .unbind = unbindRenderTargetWindows,
             },
             @ptrCast(&context),
         );
@@ -458,6 +471,7 @@ fn presentAndRebindWithImpl(
     if (outcome != .presented) return outcome;
 
     const next_index: u32 = 0;
+    if (backend.unbind) |unbind| unbind(context);
     deinitBackBufferWithImpl(buffer, context, backend.release);
     const rebound = backend.acquire(context, next_index) catch {
         return error.RebindFailed;
@@ -483,6 +497,7 @@ fn resizeAndRebindWithImpl(
     // DXGI requires every reference to an old back buffer to be released
     // before ResizeBuffers.  The owner intentionally stays empty until the
     // new canonical buffer (index zero) has been acquired successfully.
+    if (backend.unbind) |unbind| unbind(context);
     deinitBackBufferWithImpl(buffer, context, backend.release);
     const outcome = try mapResizeResult(backend.resize(context, request.width, request.height));
     if (outcome != .resized) return outcome;
@@ -525,6 +540,14 @@ fn releaseBackBufferInterface(
             _ = resource.IUnknown.Release();
         },
     }
+}
+
+fn unbindRenderTargetWindows(context: ?*anyopaque) callconv(.c) void {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const context_handle = windows_context.context_handle orelse unreachable;
+    const immediate_context: *api.d3d11.ID3D11DeviceContext = @ptrCast(@alignCast(context_handle));
+    immediate_context.OMSetRenderTargets(0, null, null);
 }
 
 fn acquireBackBufferWithImpl(
@@ -682,9 +705,9 @@ fn acquireBackBufferWindows(
     );
 }
 
-/// Test-build-only access to wait, back-buffer, and Present1 seams. Production
-/// callers use the corresponding `SwapChain` methods; this export is an empty
-/// struct in non-test builds.
+/// Test-build-only access to wait, ownership, Present1, resize, and unbind
+/// seams. Production callers use the corresponding `SwapChain` methods; this
+/// export is an empty struct in non-test builds.
 pub const testing = if (builtin.is_test) struct {
     pub const ReleaseKind = BackBufferReleaseKind;
     pub const Backend = BackBufferBackend;

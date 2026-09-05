@@ -95,6 +95,7 @@ const RebindStub = struct {
     present_state: PresentStub = .{},
     release_calls: usize = 0,
     acquire_calls: usize = 0,
+    unbind_calls: usize = 0,
     acquire_fails: bool = false,
     events: [4]u8 = undefined,
 
@@ -120,6 +121,11 @@ const RebindStub = struct {
         };
     }
 
+    fn unbind(context: ?*anyopaque) callconv(.c) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.unbind_calls += 1;
+    }
+
     fn presentCall(
         context: ?*anyopaque,
         sync_interval: u32,
@@ -142,6 +148,7 @@ const RebindStub = struct {
             .present = presentCall,
             .release = release,
             .acquire = acquire,
+            .unbind = unbind,
         };
     }
 };
@@ -153,16 +160,23 @@ const ResizeStub = struct {
     last_height: u32 = undefined,
     release_calls: usize = 0,
     acquire_calls: usize = 0,
+    unbind_calls: usize = 0,
     acquire_fails: bool = false,
-    events: [4]u8 = undefined,
+    events: [5]u8 = undefined,
 
     fn resize(context: ?*anyopaque, width: u32, height: u32) callconv(.c) u32 {
         const self: *@This() = @ptrCast(@alignCast(context.?));
-        self.events[self.release_calls + self.resize_calls + self.acquire_calls] = 'z';
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls + self.unbind_calls] = 'z';
         self.resize_calls += 1;
         self.last_width = width;
         self.last_height = height;
         return self.result;
+    }
+
+    fn unbind(context: ?*anyopaque) callconv(.c) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls + self.unbind_calls] = 'u';
+        self.unbind_calls += 1;
     }
 
     fn release(
@@ -171,13 +185,13 @@ const ResizeStub = struct {
         _: *anyopaque,
     ) callconv(.c) void {
         const self: *@This() = @ptrCast(@alignCast(context.?));
-        self.events[self.release_calls + self.resize_calls + self.acquire_calls] = 'r';
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls + self.unbind_calls] = 'r';
         self.release_calls += 1;
     }
 
     fn acquire(context: ?*anyopaque, index: u32) native.BackBufferError!native.BackBuffer {
         const self: *@This() = @ptrCast(@alignCast(context.?));
-        self.events[self.release_calls + self.resize_calls + self.acquire_calls] = 'a';
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls + self.unbind_calls] = 'a';
         self.acquire_calls += 1;
         if (self.acquire_fails) return error.BackBufferAcquisitionFailed;
         return .{
@@ -192,6 +206,7 @@ const ResizeStub = struct {
             .resize = resize,
             .release = release,
             .acquire = acquire,
+            .unbind = unbind,
         };
     }
 };
@@ -433,7 +448,9 @@ test "resize seam releases the old buffer before resizing and reacquires buffer 
     try std.testing.expectEqual(@as(u32, 720), stub.last_height);
     try std.testing.expectEqual(@as(usize, 2), stub.release_calls);
     try std.testing.expectEqual(@as(usize, 1), stub.acquire_calls);
-    try std.testing.expectEqualSlices(u8, "rrza", stub.events[0..]);
+    try std.testing.expectEqual(@as(usize, 1), stub.unbind_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.unbind_calls);
+    try std.testing.expectEqualSlices(u8, "urrza", stub.events[0..]);
     try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
     try std.testing.expect(buffer.resource != null);
     try std.testing.expect(buffer.render_target_view != null);
@@ -466,6 +483,8 @@ test "resize device loss empties ownership and invalid inputs stop before callba
     try std.testing.expectEqual(@as(usize, 1), stub.resize_calls);
     try std.testing.expectEqual(@as(usize, 2), stub.release_calls);
     try std.testing.expectEqual(@as(usize, 0), stub.acquire_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.unbind_calls);
+    try std.testing.expectEqualSlices(u8, "urrz", stub.events[0..4]);
     try std.testing.expect(buffer.resource == null);
     try std.testing.expect(buffer.render_target_view == null);
 
@@ -533,9 +552,32 @@ test "resize rebind failure leaves the owner empty after the new buffers exist" 
             context,
         ),
     );
-    try std.testing.expectEqualSlices(u8, "rrza", stub.events[0..]);
+    try std.testing.expectEqual(@as(usize, 1), stub.unbind_calls);
+    try std.testing.expectEqualSlices(u8, "urrza", stub.events[0..]);
     try std.testing.expect(buffer.resource == null);
     try std.testing.expect(buffer.render_target_view == null);
+}
+
+test "native resize rejects a device without an immediate context before callbacks" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var device = graphics.Device{
+        .path = .hardware,
+        .feature_level = graphics.minimum_feature_level,
+        .device = @ptrFromInt(0x3000),
+        .context = null,
+    };
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x5000) };
+    var buffer = native.BackBuffer{
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+
+    try std.testing.expectError(
+        error.InvalidDeviceContext,
+        chain.resizeAndRebind(&device, &buffer, .{}),
+    );
+    try std.testing.expect(buffer.resource != null);
+    try std.testing.expect(buffer.render_target_view != null);
 }
 
 test "present seam always supplies non-null parameters and preserves dirty metadata" {
@@ -652,6 +694,7 @@ test "present and rebind keeps ownership on occlusion and empties on rebind fail
     );
     try std.testing.expectEqual(native.PresentOutcome.occluded, outcome);
     try std.testing.expectEqual(@as(usize, 0), stub.release_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.unbind_calls);
     try std.testing.expect(buffer.resource != null);
 
     stub.present_state.result = native.present_s_ok;
@@ -670,6 +713,7 @@ test "present and rebind keeps ownership on occlusion and empties on rebind fail
     );
     try std.testing.expect(buffer.resource == null);
     try std.testing.expect(buffer.render_target_view == null);
+    try std.testing.expectEqual(@as(usize, 1), stub.unbind_calls);
 }
 
 test "kernel32 facade exposes only the wait entry point" {
