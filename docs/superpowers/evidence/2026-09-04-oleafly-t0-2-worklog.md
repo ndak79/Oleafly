@@ -861,3 +861,17 @@ the ACL comment; it was corrected without changing behavior.
 Browser QA remains not applicable because this is a native Windows build/API
 increment with no HTML surface. Linux remains a compile-only CI guard and is
 not a supported product target.
+
+## T0.2c remote CI closure (2026-09-05)
+
+The first post-push workflow run (`33975936373`) completed the Linux lane but
+the initial Windows cold-cache acquisition hit HTTP `403` for the upstream
+Scintilla archive before any compile/test step. The failed job was rerun once;
+the same workflow then completed cleanly. This was recorded as an upstream
+transport transient, not suppressed as a test failure.
+
+| Remote evidence | Result |
+| --- | --- |
+| Windows x64 rerun | Job `101334175547` passed in 17m08s: acquisition, dependency/ACL, formatting/C layout, Debug/Safe, ABI/miscompile/SIMD, toolchain smoke, resource/graphics/presenter/native-shell/product, and two clean ReleaseSafe hashes. | The shipping Windows lane is green on the pushed commit `ded15d0f`. |
+| Linux compile guard | Job `101334176218` passed in 11m36s across the full portable lane, including presenter compile checks and empty install proofs. | Linux remains CI portability evidence only; no Linux product artifact is emitted. |
+| Remote quality status | Rerun green after the one documented upstream 403; no code change was needed. | Quality streak remains `1/1` for this bounded increment. |
