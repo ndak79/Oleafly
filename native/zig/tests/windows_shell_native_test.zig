@@ -155,3 +155,34 @@ test "real COM changed-mode failure preserves the callers existing MTA" {
     try std.testing.expectEqual(@as(i32, 0), raw.CoGetApartmentType(&apartment, &qualifier));
     try std.testing.expectEqual(@as(i32, 1), apartment);
 }
+
+test "native backend owns the first-frame render resources" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    try std.testing.expect(@hasField(native.Backend, "swap_chain"));
+    try std.testing.expect(@hasField(native.Backend, "back_buffer"));
+}
+
+test "real native backend creates and presents its first frame before showing" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    const raw = struct {
+        extern "kernel32" fn GetModuleHandleW(?[*:0]const u16) callconv(.winapi) ?*anyopaque;
+    };
+    const instance = raw.GetModuleHandleW(null) orelse return error.SkipZigTest;
+    var backend: native.Backend = .{ .instance = @ptrCast(instance), .show = 0 };
+    try std.testing.expect(backend.registerClass());
+    defer _ = backend.unregisterClass();
+    try std.testing.expect(backend.createWindow());
+    defer _ = backend.destroyWindow();
+    try std.testing.expect(backend.hasFrameResources());
+    try std.testing.expect(backend.renderFrame());
+    try std.testing.expect(backend.destroyWindow());
+    try std.testing.expect(!backend.hasFrameResources());
+}
+
+test "native frame admission rejects device-loss present outcomes" {
+    try std.testing.expect(native.renderOutcomeUsable(.presented));
+    try std.testing.expect(native.renderOutcomeUsable(.occluded));
+    try std.testing.expect(!native.renderOutcomeUsable(.device_removed));
+    try std.testing.expect(!native.renderOutcomeUsable(.device_reset));
+    try std.testing.expect(!native.renderOutcomeUsable(.device_hung));
+}

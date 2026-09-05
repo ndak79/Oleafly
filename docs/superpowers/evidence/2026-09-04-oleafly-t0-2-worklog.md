@@ -1189,3 +1189,28 @@ HTML/browser surface. External Luna max review remains unavailable due to
 `adapter_eof`; root review checked path selection, feature-floor preservation,
 fallback semantics, partial cleanup, portability, and scope with no Medium+
 finding. Current quality streak: `1/1`.
+
+## T0.2c shell first-frame render bridge (2026-09-05)
+
+The Windows shell now owns the first real product render boundary: after the
+HWND and D3D11 device are admitted, it creates a `FLIP_DISCARD` waitable
+swap-chain, acquires buffer zero, clears the hidden client area with the
+TExFlow initial color, and presents/rebinds before the window is shown. Cleanup
+is explicit and reverse-ordered—back buffer, swap-chain, then device—on both
+normal destruction and every creation failure. `renderFrame` treats only
+`presented` and `occluded` as usable; device-removed/reset/hung outcomes fail
+the frame instead of being silently reported as success. Continuous redraw,
+resize-message routing, D2D/DirectWrite composition, and full device rebuild
+remain later slices.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED/GREEN | The new shell-native owner test first failed because `Backend` had no swap-chain/back-buffer; after implementation the focused test passed. A falsification test then failed on the missing render-outcome classifier and passed after the device-loss guard was added. | The bridge and its critical failure classification were exercised test-first. |
+| Real Windows shell runtime | `t0-2c-shell-native-test` created a real hidden Win32 window, D3D11 device, swap-chain, buffer/RTV, first clear+Present, a second render, and explicit cleanup; all assertions passed. | The product shell reaches a real first-frame boundary, not only a mocked seam. |
+| Windows matrix | `t0-2c-shell-native-test`: Debug, ReleaseSafe, and ReleaseFast all passed; presenter/graphics ReleaseSafe regressions passed. | The new build-graph edge and render owner remain green across optimization modes. |
+| Linux portability | `t0-2c-shell-native-check -Dtarget=x86_64-linux -Doptimize=Debug` passed. | Presenter import remains compile-only outside Windows. |
+| Product build/smoke | `t0-2c-product-build -Dtarget=x86_64-windows -Doptimize=ReleaseSafe` and ReleaseFast passed. A hidden `TExFlow.exe` process stayed alive for a 2-second smoke window before controlled termination. | The executable links the bridge and enters its message loop without immediate crash. |
+| Falsification/review | `git diff --check` passed. External Luna max review terminated with `adapter_eof` and is not counted as clean; root review checked ownership, cleanup, ABI/library edges, Present outcome handling, test quality, and scope with no Medium+ finding. | Review evidence is explicit; no unsupported external clean-review claim is made. |
+
+Browser QA is not applicable: this increment is native Windows/D3D11 with no
+HTML/browser surface. Current quality streak is `1/1` under the user's policy.

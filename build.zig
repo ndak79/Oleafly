@@ -370,8 +370,9 @@ pub fn build(b: *std.Build) void {
     shell_native_module.addImport("ui_entry", ui_entry_module);
     shell_native_module.addImport("app_role", app_role_module);
     shell_native_module.addImport("graphics", graphics_module);
+    shell_native_module.addImport("presenter_native", presenter_native_module);
     if (target.result.os.tag == .windows) {
-        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "d3d11" }) |library| shell_native_module.linkSystemLibrary(library, .{});
+        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "d3d11", "dxgi" }) |library| shell_native_module.linkSystemLibrary(library, .{});
     }
     const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
     if (product_target) {

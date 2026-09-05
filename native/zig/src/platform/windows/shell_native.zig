@@ -2,13 +2,15 @@
 //! DWORD/BOOL/HRESULT and callback ABI; no generated "everything" binding.
 //! Entry-time DLL policy governs subsequent loads, not the OS's pre-entry image
 //! loader. Resource and manifest identity are supplied by the product build;
-//! this adapter owns no renderer, worker, database or network seams.
+//! this adapter owns only the first native render bridge, not worker, database
+//! or network seams.
 const std = @import("std");
 const shell = @import("windows_shell");
 const com = @import("windows_com");
 const entry = @import("ui_entry");
 const role = @import("app_role");
 const graphics = @import("graphics");
+const presenter = @import("presenter_native");
 
 pub const HINSTANCE = *opaque {};
 pub const HWND = *opaque {};
@@ -35,12 +37,22 @@ pub const MSG = extern struct {
     time: u32,
     pt: extern struct { x: i32, y: i32 },
 };
+pub const RECT = extern struct {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+};
 
 pub const dll_search_flags: u32 = 0x800; // LOAD_LIBRARY_SEARCH_SYSTEM32
 pub const window_style: u32 = 0xcf0000; // WS_OVERLAPPEDWINDOW, system caption
 pub const dpi_pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.machine_class);
 const window_title = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.product_name);
+
+pub fn renderOutcomeUsable(outcome: presenter.PresentOutcome) bool {
+    return outcome == .presented or outcome == .occluded;
+}
 
 const raw = struct {
     extern "kernel32" fn GetCommandLineW() callconv(.winapi) [*:0]const u16;
@@ -58,6 +70,7 @@ const raw = struct {
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
     extern "user32" fn IsWindow(HWND) callconv(.winapi) i32;
     extern "user32" fn DestroyWindow(HWND) callconv(.winapi) i32;
+    extern "user32" fn GetClientRect(HWND, *RECT) callconv(.winapi) i32;
     extern "user32" fn GetMessageW(*MSG, ?HWND, u32, u32) callconv(.winapi) i32;
     extern "user32" fn TranslateMessage(*const MSG) callconv(.winapi) i32;
     extern "user32" fn DispatchMessageW(*const MSG) callconv(.winapi) isize;
@@ -106,7 +119,11 @@ pub const Backend = struct {
     show: i32,
     window: ?HWND = null,
     graphics_device: ?graphics.Device = null,
+    swap_chain: ?presenter.SwapChain = null,
+    back_buffer: ?presenter.BackBuffer = null,
     message: MSG = undefined,
+
+    pub const initial_clear_color: [4]f32 = .{ 0.035, 0.055, 0.09, 1.0 };
 
     pub fn restrictDllSearch(_: *Backend) bool {
         // No application/CWD/PATH/user-added directory is admitted in this slice.
@@ -156,7 +173,7 @@ pub const Backend = struct {
         const use_default = std.math.minInt(i32); // CW_USEDEFAULT
         self.window = raw.CreateWindowExW(0, class_name, window_title, window_style, use_default, use_default, 960, 640, null, null, self.instance, null);
         if (self.window == null) return false;
-        self.graphics_device = graphics.Device.create() catch {
+        var device = graphics.Device.create() catch {
             // A visible window without a render device is not an admitted UI
             // state.  Tear it down immediately so callers cannot observe a
             // half-initialized shell or accidentally fall back to GDI.
@@ -164,13 +181,80 @@ pub const Backend = struct {
             self.window = null;
             return false;
         };
+        var swap_chain = presenter.create(&device, @ptrCast(self.window.?), .flip_discard) catch {
+            device.deinit();
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        };
+        const back_buffer = swap_chain.acquireBackBuffer(&device, 0) catch {
+            swap_chain.deinit();
+            device.deinit();
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        };
+        self.graphics_device = device;
+        self.swap_chain = swap_chain;
+        self.back_buffer = back_buffer;
+        if (!self.renderFrame()) {
+            self.releaseFrameResources();
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        }
         return true;
     }
-    pub fn destroyWindow(self: *Backend) bool {
+
+    /// The first-frame bridge is synchronous: a hidden window receives a
+    /// complete clear + Present before it becomes visible, so the shell never
+    /// exposes an uninitialized back buffer.
+    pub fn renderFrame(self: *Backend) bool {
+        const window = self.window orelse return false;
+        var client: RECT = undefined;
+        if (raw.GetClientRect(window, &client) == 0) return false;
+        const width_i = client.right - client.left;
+        const height_i = client.bottom - client.top;
+        if (width_i <= 0 or height_i <= 0) return false;
+        const width: u32 = @intCast(width_i);
+        const height: u32 = @intCast(height_i);
+        if (self.graphics_device) |*device| {
+            if (self.swap_chain) |*swap_chain| {
+                if (self.back_buffer) |*buffer| {
+                    _ = swap_chain.renderClear(device, buffer, .{
+                        .width = width,
+                        .height = height,
+                        .clear_color = Backend.initial_clear_color,
+                    }) catch return false;
+                    const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch return false;
+                    return renderOutcomeUsable(outcome);
+                }
+            }
+        }
+        return false;
+    }
+
+    pub fn hasFrameResources(self: *const Backend) bool {
+        return self.graphics_device != null and self.swap_chain != null and self.back_buffer != null;
+    }
+
+    fn releaseFrameResources(self: *Backend) void {
+        if (self.back_buffer) |*buffer| {
+            buffer.deinit();
+            self.back_buffer = null;
+        }
+        if (self.swap_chain) |*swap_chain| {
+            swap_chain.deinit();
+            self.swap_chain = null;
+        }
         if (self.graphics_device) |*device| {
             device.deinit();
             self.graphics_device = null;
         }
+    }
+
+    pub fn destroyWindow(self: *Backend) bool {
+        self.releaseFrameResources();
         const window = self.window orelse return true;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
         if (raw.IsWindow(window) != 0 and raw.DestroyWindow(window) == 0) return false;
