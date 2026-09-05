@@ -8,6 +8,11 @@ const root_sentinel_name = ".texflow-deps-fixture-root";
 const root_sentinel_prefix = "texflow-deps-fixture-v1:";
 const fixture_v1 = "fixture dependency payload version one\n";
 const fixture_v2 = "fixture dependency payload version two\n";
+// The process fixture is executed only by Windows ACL/reparse tests, but the
+// test executable is still compiled on the Linux portability lane. Keep the
+// handle-shaped API portable and make every Win32 mutation helper compile out
+// on non-Windows targets.
+const FixtureHandle = if (builtin.os.tag == .windows) std.os.windows.HANDLE else std.Io.File.Handle;
 
 const Pause = enum {
     none,
@@ -160,6 +165,7 @@ fn seedFixtureCache(
     nonce: []const u8,
     fault: SeedFault,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedPlatform;
     _ = nonce; // main already validated the fixture root and its nonce.
     // Acquire the baseline through production, then clone its verified bytes
     // into an unpublished fixture-owned generation. No descendant handle is
@@ -240,6 +246,7 @@ fn tamperQuarantineEvidence(
     absolute_root: []const u8,
     command: []const u8,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedPlatform;
     var root = try std.Io.Dir.openDirAbsolute(io, absolute_root, .{ .iterate = true, .follow_symlinks = false });
     defer root.close(io);
     var quarantine = try root.openDir(io, ".v2/presentmon/quarantine", .{ .iterate = true, .follow_symlinks = false });
@@ -309,6 +316,7 @@ fn copySeedGeneration(
     fault: SeedFault,
     reparse_target: []const u8,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedPlatform;
     try deps.validateCacheGenerationName(name);
     var generation: std.Io.Dir = .{
         .handle = try createChildHandle(generations.handle, name, true),
@@ -370,6 +378,7 @@ fn copySeedFile(
     tamper: bool,
     broad_acl: bool,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedPlatform;
     const bytes = try source.readFileAlloc(io, source_path, allocator, .limited(4096));
     defer allocator.free(bytes);
     if (tamper) {
@@ -522,8 +531,8 @@ fn observe(context_opaque: ?*anyopaque, event: deps_fetch.FixtureEvent) !void {
     _ = try input.interface.takeByte();
 }
 
-fn applyBroadAcl(handle: std.os.windows.HANDLE) !void {
-    if (builtin.os.tag != .windows) return error.TestAclWriteFailed;
+fn applyBroadAcl(handle: FixtureHandle) !void {
+    if (comptime builtin.os.tag != .windows) return error.TestAclWriteFailed;
     var descriptor: ?*anyopaque = null;
     if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
         std.unicode.utf8ToUtf16LeStringLiteral("D:P(A;;FA;;;OW)(A;;GW;;;WD)"),
@@ -542,10 +551,11 @@ fn applyBroadAcl(handle: std.os.windows.HANDLE) !void {
 }
 
 fn setOwnerAcl(
-    handle: std.os.windows.HANDLE,
+    handle: FixtureHandle,
     directory: bool,
     read_execute: bool,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.TestAclWriteFailed;
     const sddl = if (read_execute)
         if (directory)
             std.unicode.utf8ToUtf16LeStringLiteral("D:P(A;OICI;FRGX;;;OW)")
@@ -571,10 +581,11 @@ fn setOwnerAcl(
 }
 
 fn createChildHandle(
-    parent: std.os.windows.HANDLE,
+    parent: FixtureHandle,
     name: []const u8,
     directory: bool,
-) !std.os.windows.HANDLE {
+) !FixtureHandle {
+    if (comptime builtin.os.tag != .windows) return error.TestFileMutationFailed;
     const windows = std.os.windows;
     const name_w = try std.unicode.utf8ToUtf16LeAllocZ(std.heap.page_allocator, name);
     defer std.heap.page_allocator.free(name_w);
@@ -632,7 +643,8 @@ fn createChildHandle(
     };
 }
 
-fn injectUnexpectedChild(parent: std.os.windows.HANDLE) !void {
+fn injectUnexpectedChild(parent: FixtureHandle) !void {
+    if (comptime builtin.os.tag != .windows) return error.TestFileMutationFailed;
     try setOwnerAcl(parent, true, false);
     var restored = false;
     defer if (!restored) setOwnerAcl(parent, true, true) catch {};
@@ -645,9 +657,10 @@ fn injectUnexpectedChild(parent: std.os.windows.HANDLE) !void {
 
 fn injectPayloadReparse(
     allocator: std.mem.Allocator,
-    payload: std.os.windows.HANDLE,
+    payload: FixtureHandle,
     target_path: []const u8,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.TestFileMutationFailed;
     try setOwnerAcl(payload, true, false);
     var restored = false;
     defer if (!restored) setOwnerAcl(payload, true, true) catch {};
@@ -661,9 +674,10 @@ fn injectPayloadReparse(
 
 fn setDirectoryJunction(
     allocator: std.mem.Allocator,
-    handle: std.os.windows.HANDLE,
+    handle: FixtureHandle,
     target_path: []const u8,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.TestFileMutationFailed;
     const substitute_utf8 = try std.fmt.allocPrint(allocator, "\\??\\{s}", .{target_path});
     defer allocator.free(substitute_utf8);
     const substitute = try std.unicode.utf8ToUtf16LeAlloc(allocator, substitute_utf8);
@@ -724,6 +738,7 @@ fn observeExclusiveContention(
     io: std.Io,
     absolute_path: []const u8,
 ) !void {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedPlatform;
     const lock_path = try std.fs.path.join(allocator, &.{ absolute_path, ".lock" });
     defer allocator.free(lock_path);
     const lock_path_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, lock_path);
