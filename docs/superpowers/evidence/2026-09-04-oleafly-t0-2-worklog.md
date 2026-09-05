@@ -550,3 +550,32 @@ black-box evidence is required once the real TExFlow UI/HTML/live-render lane
 exists. This slice does not enumerate Git, hash files, validate a checkout,
 connect `build_identity.compute` to runtime artifacts, or claim full
 reproducibility/Task 3 closure.
+
+## T0.2c bounded shell orchestration evidence (2026-09-05)
+
+This increment adds the portable startup/teardown contract that the future
+native UI adapter must satisfy. UTF-16 arguments are converted and fully
+admitted before any DLL, DPI, COM, class, or HWND operation. Successful setup
+is released in reverse ownership order; `GetMessageW`-style `-1` is an error,
+`0` is a clean quit, and the first operational error is preserved over cleanup
+failures. The narrow COM binding accepts only successful `S_OK`/`S_FALSE`
+HRESULTs and never claims activation or interface ownership. Native entry,
+Win32 adapter, product install cutover, resources, D3D, workers, and the full
+UI surface remain later slices.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t0-2c-shell-test` initially failed because `shell.zig` was absent. | The portable orchestration oracle was proven non-vacuous. |
+| Windows Debug | `zig build t0-2c-shell-test -Doptimize=Debug -j1 --summary all`: `3/3` steps, `8/8` tests passed. | Admission ordering, cleanup, message statuses, COM HRESULT semantics, and UTF-16 allocation handling are green. |
+| Windows ReleaseSafe | `zig build t0-2c-shell-test -Doptimize=ReleaseSafe -j1 --summary all`: `3/3` steps, `8/8` tests passed. | Safe optimized orchestration remains deterministic. |
+| Windows ReleaseFast | `zig build t0-2c-shell-test -Doptimize=ReleaseFast -j1 --summary all`: `3/3` steps, `8/8` tests passed. | Fast optimized orchestration preserves the contract. |
+| Linux portability | `zig build t0-2c-shell-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1 --summary all`: `2/2` compile steps passed; full-model Linux compile was `15/15`. | The model compiles without Windows-only link execution; Linux runtime is not claimed. |
+| Combined model regression | `zig build t0-2c-models-test -Doptimize=ReleaseSafe -j1 --summary all`: `25/25` steps, `80/80` tests passed. | Shell orchestration integrates without regressing source-set, presenter, entry, lifecycle, rendering, theme/layout, strings, role, or identity models. |
+| Adversarial falsification | A skipped-COM-cleanup mutant killed `4` tests; a `GetMessage(-1)` mutant killed `2`; an `S_FALSE`-handling mutant killed `1`; scratch mutations were restored. | Resource ownership, message error handling, and COM success semantics are actively detected. |
+| GPT-6 review | `gpt-6-astra` max read-only review: `CLEAN`, no Medium+ or P3 evidence findings. | Quality streak for this bounded slice is `1/1` clean. |
+| Formatting/diff | Full-path `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
+
+No browser QA applies to this native orchestration-only increment; browser
+evidence becomes relevant only if a later slice emits an HTML artifact or
+browser-visible surface. This commit must not be represented as a real
+Win32/DPI/COM/UIA/D3D shell or as Task 3 completion.

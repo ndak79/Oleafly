@@ -233,6 +233,32 @@ pub fn build(b: *std.Build) void {
     ui_entry_check_step.dependOn(&ui_entry_tests.step);
     t0_2c_models_test.dependOn(&run_ui_entry_tests.step);
     t0_2c_models_check.dependOn(&ui_entry_tests.step);
+    const windows_shell_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/shell.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    windows_shell_module.addImport("ui_entry", ui_entry_module);
+    const windows_com_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/com.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const windows_shell_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/windows_shell_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    windows_shell_tests.root_module.addImport("windows_shell", windows_shell_module);
+    windows_shell_tests.root_module.addImport("ui_entry", ui_entry_module);
+    windows_shell_tests.root_module.addImport("windows_com", windows_com_module);
+    const run_windows_shell_tests = b.addRunArtifact(windows_shell_tests);
+    b.step("t0-2c-shell-test", "Run portable native-shell sequencing and cleanup tests").dependOn(&run_windows_shell_tests.step);
+    b.step("t0-2c-shell-check", "Compile native-shell model tests").dependOn(&windows_shell_tests.step);
+    t0_2c_models_test.dependOn(&run_windows_shell_tests.step);
+    t0_2c_models_check.dependOn(&windows_shell_tests.step);
     inline for (.{
         "role_test.zig",
         "build_identity_test.zig",
