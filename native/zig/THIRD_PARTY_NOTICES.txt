@@ -1,0 +1,179 @@
+TExFlow
+Copyright 2026 Prajwal Murthy and contributors
+
+This product is licensed under the GNU Affero General Public License,
+Version 3 or later (see LICENSE).
+
+TExFlow is derived from Oleafly. Anyone redistributing TExFlow, Oleafly, or a
+derivative work must retain the attribution
+and license notices required by the AGPL-3.0-or-later license.
+
+-------------------------------------------------------------------------------
+Unicode Character Database 17.0.0 and generated Unicode data tables
+SPDX-License-Identifier: Unicode-3.0
+
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2026 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS.
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+FILES OR SOFTWARE.
+Except as contained in this notice, the name of a copyright holder shall
+not be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written
+authorization of the copyright holder.
+
+-------------------------------------------------------------------------------
+Native source and license contract (T0.2b)
+Lock SHA-256: 58ecebe7665c1624edec379778bda99e25e033ef7ce368a473b442f119ad6e5e
+
+Product-static identifies the selected source role, not completed installation.
+Unicode input archives are build-only; generated data retain the license above.
+This contract does not certify a complete release payload.
+
+Component: scintilla
+Version: 5.6.6
+Role: product-static
+Purpose: product-editor-source
+Source: https://www.scintilla.org/ScintillaDownload.html
+Acquisition: https://www.scintilla.org/scintilla566.tgz?download=1
+SPDX: LicenseRef-Scintilla
+License: https://www.scintilla.org/License.txt
+Identity (archive_sha256): b6b08598c68fac90990d010c1142494d707530602b5320753274d045c2b02189
+
+License for Lexilla, Scintilla, and SciTE
+
+Copyright 1998-2021 by Neil Hodgson <neilh@scintilla.org>
+
+All Rights Reserved
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation.
+
+NEIL HODGSON DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS, IN NO EVENT SHALL NEIL HODGSON BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE
+OR PERFORMANCE OF THIS SOFTWARE.
+
+Component: sqlite
+Version: 3.53.4
+Role: product-static
+Purpose: product-ledger-and-search-amalgamation
+Source: https://www.sqlite.org/download.html
+Acquisition: https://www.sqlite.org/2026/sqlite-autoconf-3530400.tar.gz?download=1
+SPDX: blessing
+License: https://www.sqlite.org/copyright.html
+Identity (archive_sha256): 0e9483900e92cd5de8fd48d16bf9200145a61f7fd5be542a5ac81d8a9516eb9c
+
+SQLite is in the public domain. SPDX identifier: blessing.
+In place of a legal notice, the pinned amalgamation offers this blessing:
+
+May you do good and not evil.
+May you find forgiveness for yourself and forgive others.
+May you share freely, never taking more than you give.
+
+Component: unicode-ucd
+Version: 17.0.0
+Role: build-only-generated-data
+Purpose: build-only-unicode-tables-and-conformance
+Source: https://www.unicode.org/versions/Unicode17.0.0/
+Acquisition: https://www.unicode.org/Public/17.0.0/ucd/UCD.zip
+SPDX: Unicode-3.0
+License: https://www.unicode.org/license.txt
+Identity (archive_sha256): 2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e
+
+Component: zigwin32
+Version: 42.0.39-preview
+Role: product-static
+Purpose: compile-time-win32-declarations
+Source: https://github.com/marlersoft/zigwin32/tree/9f15c276b4e9d05afd34a10d8662a7dfc34647ea
+Acquisition: https://github.com/marlersoft/zigwin32/archive/9f15c276b4e9d05afd34a10d8662a7dfc34647ea.tar.gz?download=1
+SPDX: MIT
+License: https://github.com/marlersoft/zigwin32/blob/9f15c276b4e9d05afd34a10d8662a7dfc34647ea/LICENSE
+Identity (archive_sha256): 6fec64480a16e7797e0a010faef67a5fc22561551a955fcb73a023f0a114f8d7
+
+Copyright 2021 Jonathan Marler
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+PDFium reference provenance (not a shipping runtime)
+PDFium transitive runtime closure: UNVERIFIED
+The lock does not contain a resolved transitive runtime source/license inventory.
+Reconstruction and exact runtime licenses are required before release admission.
+The community reference DLL, root source, and build recipe remain reference-only.
+
+Component: pdfium-build-recipe
+Version: 5453f3afc4785cbad82c05f6ceb4dabea0cb81a0
+Role: reference-only
+Purpose: reviewed-community-build-recipe
+Source: https://github.com/bblanchon/pdfium-binaries/tree/5453f3afc4785cbad82c05f6ceb4dabea0cb81a0
+Acquisition: https://github.com/bblanchon/pdfium-binaries/archive/5453f3afc4785cbad82c05f6ceb4dabea0cb81a0.tar.gz?download=1
+SPDX: Apache-2.0
+License: https://github.com/bblanchon/pdfium-binaries/blob/5453f3afc4785cbad82c05f6ceb4dabea0cb81a0/LICENSE
+Identity (archive_sha256): 00d9ef134460216465b19e11e59cf982dd1a4391d12be0f5ccf94466abcb84e6
+
+Component: pdfium-reference
+Version: 154.0.8035.0
+Role: reference-only
+Purpose: provenance-checked-reference-comparator
+Source: https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium/8035
+Acquisition: https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8035/pdfium-win-x64.tgz?download=1
+SPDX: BSD-3-Clause
+License: https://pdfium.googlesource.com/pdfium/+/6f2272e1f3aaa141305475b83ef4eac2c1f527b8/LICENSE
+Identity (archive_sha256): 61513d611ad200a383456140739be77d156f1e3a2eef22bd89f6c3bda79bdd41
+
+Component: pdfium-root-source
+Version: 6f2272e1f3aaa141305475b83ef4eac2c1f527b8
+Role: reference-only
+Purpose: official-root-source-inventory-anchor
+Source: https://pdfium.googlesource.com/pdfium/
+Acquisition: https://pdfium.googlesource.com/pdfium/+archive/6f2272e1f3aaa141305475b83ef4eac2c1f527b8.tar.gz?download=1
+SPDX: BSD-3-Clause
+License: https://pdfium.googlesource.com/pdfium/+/6f2272e1f3aaa141305475b83ef4eac2c1f527b8/LICENSE
+Identity (canonical_tree_sha256): eb5b5b34b65e795379f55a3109cc31b843395e8e6be737b2d2c35f2725c2e499
+
+Attestation: pdfium-chromium-8035-win-x64
+Subject: pdfium-win-x64.tgz
+Subject SHA-256: 61513d611ad200a383456140739be77d156f1e3a2eef22bd89f6c3bda79bdd41
+Workflow repository: bblanchon/pdfium-binaries
+Build-recipe commit: 5453f3afc4785cbad82c05f6ceb4dabea0cb81a0
+Reference DLL: bin/pdfium.dll
+Reference DLL SHA-256: ccfac1aad9e78624ebfb3f54f3f4ddb77af6db2f52803f150e2f9876beda49fe
+Attested community reference only; excluded from shipping runtime.

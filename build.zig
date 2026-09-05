@@ -247,6 +247,50 @@ pub fn build(b: *std.Build) void {
         .target = host_target,
         .optimize = .ReleaseSafe,
     });
+    const notices_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/notices.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    notices_module.addImport("deps", deps_module);
+    const notices_contract = b.addOptions();
+    notices_contract.addOption([]const u8, "root_notice", @embedFile("NOTICE"));
+    notices_contract.addOption([]const u8, "license", @embedFile("LICENSE"));
+    notices_contract.addOption([]const u8, "shipping_notice", @embedFile("native/zig/THIRD_PARTY_NOTICES.txt"));
+    notices_contract.addOption([]const u8, "zon", @embedFile("build.zig.zon"));
+    notices_contract.addOption([]const u8, "git_attributes", @embedFile(".gitattributes"));
+    const notices_inputs = notices_contract.createModule();
+    notices_module.addImport("notices_contract", notices_inputs);
+    const notices_tool = b.addExecutable(.{ .name = "texflow-notices", .root_module = notices_module });
+    const run_notices = b.addRunArtifact(notices_tool);
+    run_notices.addArgs(b.args orelse &.{"check"});
+    b.step("t0-2b-notices", "Check canonical notices; -- render or -- inventory writes deterministic text").dependOn(&run_notices.step);
+    const notices_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/notices_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    notices_tests.root_module.addImport("notices", notices_module);
+    notices_tests.root_module.addImport("notices_contract", notices_inputs);
+    b.step("t0-2b-notices-test", "Run the offline native notice and source/license contracts").dependOn(&b.addRunArtifact(notices_tests).step);
+    const notices_checkout_contract = b.addOptions();
+    notices_checkout_contract.addOption([]const u8, "git_executable", b.option([]const u8, "notices-git-executable", "Absolute Git executable for the external QA-only notice checkout test; no PATH discovery") orelse "");
+    const notices_checkout_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/notices_checkout_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    notices_checkout_tests.root_module.addImport("notices", notices_module);
+    notices_checkout_tests.root_module.addImport("notices_contract", notices_inputs);
+    notices_checkout_tests.root_module.addOptions("notices_checkout_contract", notices_checkout_contract);
+    b.step("t0-2b-notices-checkout-test", "QA-only fresh checkout with autocrlf=true; requires -Dnotices-git-executable").dependOn(&b.addRunArtifact(notices_checkout_tests).step);
+    const notices_check = b.step("t0-2b-notices-check", "Compile the offline native notice contracts for the selected target");
+    notices_check.dependOn(&notices_tests.step);
+    notices_contract.addOption(bool, "portable_check_has_checkout_edge", std.mem.indexOfScalar(*std.Build.Step, notices_check.dependencies.items, &notices_checkout_tests.step) != null);
     const scintilla_probe_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/scintilla_probe.zig"),
         .target = target,

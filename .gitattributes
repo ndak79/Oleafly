@@ -25,4 +25,5 @@ tools/zig/native-deps.json text eol=lf
 tools/zig/attestations/*.jsonl binary
 tools/zig/attestations/*.snappy binary
 NOTICE text eol=lf
+native/zig/THIRD_PARTY_NOTICES.txt text eol=lf
 docs/development.md text eol=lf

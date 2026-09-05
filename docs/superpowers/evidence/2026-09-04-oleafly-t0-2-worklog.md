@@ -303,3 +303,40 @@ document lifecycle, null/container lexer, notification, and batched-style
 runtime probe remain a later UI/editor slice. No browser QA applies to this
 native/CLI-only source/build contract; browser evidence is required once the
 real TExFlow UI or HTML evidence lane is implemented.
+
+## T0.2b bounded deterministic notices/source-license contract evidence (2026-09-05)
+
+This increment adds the tracked `native/zig/THIRD_PARTY_NOTICES.txt` generated
+from the locked manifest and a Zig renderer/validator for its canonical bytes.
+The inventory covers all twelve locked source identities with explicit roles:
+product-static (Scintilla, SQLite, zigwin32), build-only generated data
+(Unicode), test-only comparator (Lexilla), reference-only PDFium inputs, QA
+tools, and the disposable reconstruction tool. Lexilla is present only in the
+complete source inventory; no Lexilla component record enters the shipping
+notice. The PDFium reference/transitive runtime status is explicitly
+`UNVERIFIED` until source reconstruction and runtime closure are admitted.
+
+The fresh-checkout EOL test is deliberately a separate QA-only step because it
+uses an external Git executable. The ordinary notices test/check path is
+portable and Git-free; checkout QA requires an explicit absolute
+`-Dnotices-git-executable` and typed argv.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Focused notice suite initially failed `0/7`. | Missing renderer, role inventory, legal validator, source-package paths, and canonical notice were detected before implementation. |
+| Validator falsification | Temporarily bypassing source-role, canonical-notice, and exact-LICENSE checks produced four expected failures; code was restored. | Representative provenance, byte, and legal-boundary oracles are active. |
+| Canonical notice | Native check passes; tracked notice is exactly 9,355 bytes, SHA-256 `7cd60c886c1af4c4a4e6608b9adf1586989aaf15038f73e11422bd378c88f241`. | Renderer output and tracked LF bytes are identical. |
+| Inventory/role contract | Windows native notices suite passes `10/10`; all twelve manifest/git-source identities, versions, roles, URLs, license IDs, and digests are checked, including duplicate/missing/unknown/role-confusion mutations. | Source/license provenance is deterministic and cannot silently promote QA/reference/test inputs to shipping runtime. |
+| Legal subset | Exact `LICENSE` plus `THIRD_PARTY_NOTICES.txt` accepted; missing, duplicate, extra, altered, and noncanonical files rejected. | The legal pair is bounded and ready for the later complete-payload oracle; it is not itself an installer/package result. |
+| EOL regression RED→GREEN | Git fixture initially reported `text/eol unspecified`; after adding the exact `.gitattributes` rule `native/zig/THIRD_PARTY_NOTICES.txt text eol=lf`, checkout with `core.autocrlf=true` reproduces identical bytes and passes canonical validation. | Windows checkout cannot silently convert the byte-exact notice to CRLF. No broad repository renormalization was introduced. |
+| Portable build graph | `t0-2b-notices-check` has no checkout-QA dependency and passes without a Git option; Linux `x86_64-linux-gnu` compile-check passes `3/3`. | Default/native compile paths remain offline and independent of ambient Git/PATH. |
+| Explicit checkout QA | `t0-2b-notices-checkout-test -Dnotices-git-executable=<absolute git.exe>` passes `1/1` with `core.autocrlf=true`; canonical check and inventory/render CLI runs pass. | Fresh-checkout behavior is directly evidenced only in this separately authorized QA lane. |
+| Independent gpt-6 reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | EOL attributes, default graph separation, source package inclusion, license hashes, Lexilla/PDFium roles, and no invented owner were reviewed clean. |
+
+The shipping notice retains the existing Oleafly AGPL source-lineage
+attribution and complete Unicode License v3 text. Scintilla and zigwin32
+license sections are hash-checked against the pinned cache; SQLite uses the
+upstream public-domain blessing. The notice records reference provenance and
+license URLs but does not claim a complete installed-payload inventory or
+resolved PDFium transitive runtime closure. No browser QA applies to this
+native/CLI/license slice; browser evidence remains a UI/HTML-lane requirement.
