@@ -990,3 +990,31 @@ Browser QA remains not applicable: there is no HTML/UI surface in this native
 increment. The parent review should treat the malformed non-null COM-pointer
 case as a caller/ABI contract rather than a dynamically probeable state; null
 handles and all in-scope pre-ABI checks are covered.
+
+## T0.2c back-buffer failure-output verification follow-up (2026-09-06)
+
+Astra's medium review identified a verification gap: the original deterministic
+stub coupled callback success with whether an output pointer was populated.
+This follow-up keeps the production acquisition semantics unchanged and extends
+the test stub with independent callback-result/output-write controls. The new
+tests cover GetBuffer failure with a non-null partial resource, GetBuffer
+success with a null resource output, RTV success with a null RTV output, and
+RTV failure with a null RTV output. Each asserts the typed error, callback
+counts, exact released handles, and release order; the existing RTV-failure
+case with a partial view continues to assert view-before-resource cleanup.
+
+The `BackBuffer` API documentation now states its move-like sole-owner COM
+reference contract: copying does not call `AddRef`, only one owner may call
+`deinit`, and the owner must be deinitialized before a future swap-chain resize
+or rebuild. The test-only namespace comment now names both wait and back-buffer
+seams. No facade expansion or new product API was made.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Before adding the independent stub controls, the focused Windows Debug build failed with four expected `no field named` errors for `get_writes_output` and `create_view_writes_output`. | The new failure-output tests were introduced before their test-stub support. |
+| TDD GREEN/refactor | After adding only the test-stub controls and formatting/documentation cleanup, focused Windows Debug passed `20/21` tests (`20` passed, `1` expected non-Windows skip). | The production behavior already satisfied the newly exposed cases; the follow-up closes verification without changing acquisition semantics. |
+| Failure matrix | GetBuffer false+resource released exactly one resource; GetBuffer true+null output made no RTV call/release; RTV true+null output and RTV false+null output each returned `RenderTargetViewCreationFailed` with exactly one resource release; partial RTV failure retained reverse view/resource order. | Callback bool/output independence and all in-scope partial cleanup paths are now directly tested. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test -Dtarget=x86_64-windows-msvc` in each mode: `9/9` steps, `20` passed, `1` expected non-Windows skip (`21` total). | The strengthened presenter suite is green across all requested Windows optimization modes. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check -Dtarget=x86_64-linux-gnu` in each mode: `2/2` compile steps. | Linux remains compile-only portability evidence; no Linux product/runtime support is claimed. |
+| Formatting and diff | `zig fmt --check build.zig build.zig.zon native/zig` and `git diff --check` passed before commit. | The follow-up patch is formatted and whitespace-clean. |
+| Scope and remaining obligations | Only the presenter source/test and this worklog are changed; no Present1, ResizeBuffers, drawing/OMSetRenderTargets, D2D/DWrite, device-loss, resize, or facade work was added. Browser QA remains not applicable. | This is a verification/documentation follow-up to the same bounded native ownership slice. |

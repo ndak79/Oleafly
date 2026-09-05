@@ -144,6 +144,10 @@ const WindowsAcquireContext = struct {
     swap_chain_handle: *anyopaque,
 };
 
+/// Owns the two COM references returned by `SwapChain.acquireBackBuffer`.
+/// This is a move-like value: copying it does not call `AddRef`, so only one
+/// owner may call `deinit`. Call `deinit` before any future swap-chain resize
+/// or rebuild that could invalidate its underlying back buffer.
 pub const BackBuffer = struct {
     resource: if (builtin.os.tag == .windows) ?*api.d3d11.ID3D11Resource else ?*anyopaque = null,
     render_target_view: if (builtin.os.tag == .windows) ?*api.d3d11.ID3D11RenderTargetView else ?*anyopaque = null,
@@ -366,8 +370,9 @@ fn acquireBackBufferWindows(
     );
 }
 
-/// Test-build-only access to the wait seam. Production callers use
-/// `SwapChain.waitForFrame`; this export is an empty struct in non-test builds.
+/// Test-build-only access to the wait and back-buffer seams. Production
+/// callers use `SwapChain.waitForFrame` and `SwapChain.acquireBackBuffer`; this
+/// export is an empty struct in non-test builds.
 pub const testing = if (builtin.is_test) struct {
     pub const ReleaseKind = BackBufferReleaseKind;
     pub const Backend = BackBufferBackend;

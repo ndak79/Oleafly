@@ -14,8 +14,9 @@ const BackBufferStub = struct {
     last_resource: ?*anyopaque = null,
     released_handles: [2]*anyopaque = undefined,
     get_succeeds: bool = true,
+    get_writes_output: bool = true,
     create_view_succeeds: bool = true,
-    return_view_on_failure: bool = false,
+    create_view_writes_output: bool = true,
     resource: ?*anyopaque = @ptrFromInt(0x1000),
     render_target_view: ?*anyopaque = @ptrFromInt(0x2000),
 
@@ -29,9 +30,8 @@ const BackBufferStub = struct {
         self.get_calls += 1;
         self.last_index = index;
         self.last_iid = iid;
-        if (!self.get_succeeds) return false;
-        out_resource.* = self.resource;
-        return true;
+        if (self.get_writes_output) out_resource.* = self.resource;
+        return self.get_succeeds;
     }
 
     fn createRenderTargetView(
@@ -42,12 +42,8 @@ const BackBufferStub = struct {
         const self: *@This() = @ptrCast(@alignCast(context.?));
         self.create_view_calls += 1;
         self.last_resource = resource;
-        if (!self.create_view_succeeds) {
-            if (self.return_view_on_failure) out_view.* = self.render_target_view;
-            return false;
-        }
-        out_view.* = self.render_target_view;
-        return true;
+        if (self.create_view_writes_output) out_view.* = self.render_target_view;
+        return self.create_view_succeeds;
     }
 
     fn release(
@@ -103,7 +99,10 @@ test "back-buffer acquisition rejects invalid inputs before backend calls" {
 }
 
 test "back-buffer acquisition maps GetBuffer failure without creating a view" {
-    var stub = BackBufferStub{ .get_succeeds = false };
+    var stub = BackBufferStub{
+        .get_succeeds = false,
+        .get_writes_output = false,
+    };
     const context = @as(?*anyopaque, @ptrCast(&stub));
     const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
     const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
@@ -120,10 +119,92 @@ test "back-buffer acquisition maps GetBuffer failure without creating a view" {
     try std.testing.expectEqual(@as(usize, 0), stub.release_calls);
 }
 
+test "back-buffer acquisition releases partial resource when GetBuffer fails" {
+    var stub = BackBufferStub{
+        .get_succeeds = false,
+        .get_writes_output = true,
+    };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+    const iid = @as(?*const anyopaque, @ptrFromInt(0x5000));
+
+    try std.testing.expectError(
+        error.BackBufferAcquisitionFailed,
+        native.testing.acquireBackBufferWith(device_handle, chain_handle, 0, iid, BackBufferStub.backend(), context),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.get_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.create_view_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.release_calls);
+    try std.testing.expectEqual(native.testing.ReleaseKind.resource, stub.release_order[0]);
+    try std.testing.expectEqual(stub.resource.?, stub.released_handles[0]);
+}
+
+test "back-buffer acquisition rejects null resource output after GetBuffer success" {
+    var stub = BackBufferStub{
+        .get_writes_output = false,
+    };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+    const iid = @as(?*const anyopaque, @ptrFromInt(0x5000));
+
+    try std.testing.expectError(
+        error.BackBufferAcquisitionFailed,
+        native.testing.acquireBackBufferWith(device_handle, chain_handle, 0, iid, BackBufferStub.backend(), context),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.get_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.create_view_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.release_calls);
+}
+
+test "back-buffer acquisition rejects null RTV output after successful creation" {
+    var stub = BackBufferStub{
+        .create_view_writes_output = false,
+    };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+    const iid = @as(?*const anyopaque, @ptrFromInt(0x5000));
+
+    try std.testing.expectError(
+        error.RenderTargetViewCreationFailed,
+        native.testing.acquireBackBufferWith(device_handle, chain_handle, 0, iid, BackBufferStub.backend(), context),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.get_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.create_view_calls);
+    try std.testing.expectEqual(stub.resource, stub.last_resource);
+    try std.testing.expectEqual(@as(usize, 1), stub.release_calls);
+    try std.testing.expectEqual(native.testing.ReleaseKind.resource, stub.release_order[0]);
+    try std.testing.expectEqual(stub.resource.?, stub.released_handles[0]);
+}
+
+test "back-buffer acquisition releases resource when RTV creation fails without output" {
+    var stub = BackBufferStub{
+        .create_view_succeeds = false,
+        .create_view_writes_output = false,
+    };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+    const iid = @as(?*const anyopaque, @ptrFromInt(0x5000));
+
+    try std.testing.expectError(
+        error.RenderTargetViewCreationFailed,
+        native.testing.acquireBackBufferWith(device_handle, chain_handle, 0, iid, BackBufferStub.backend(), context),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.get_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.create_view_calls);
+    try std.testing.expectEqual(stub.resource, stub.last_resource);
+    try std.testing.expectEqual(@as(usize, 1), stub.release_calls);
+    try std.testing.expectEqual(native.testing.ReleaseKind.resource, stub.release_order[0]);
+    try std.testing.expectEqual(stub.resource.?, stub.released_handles[0]);
+}
+
 test "back-buffer acquisition releases partial interfaces when view creation fails" {
     var stub = BackBufferStub{
         .create_view_succeeds = false,
-        .return_view_on_failure = true,
+        .create_view_writes_output = true,
     };
     const context = @as(?*anyopaque, @ptrCast(&stub));
     const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
