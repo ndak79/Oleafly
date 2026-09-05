@@ -132,3 +132,23 @@ slice; native Windows command evidence is the acceptance oracle here.
 - Retries/flakes: no failed retry was promoted to evidence; all final commands
   listed above completed successfully.
 - Closed-coverage quality streak: `1` (the user-selected streak policy).
+
+## Post-commit delivery evidence (2026-09-05)
+
+The pushed commit was checked from a new local clone at
+`C:\\Users\\Ba Gau\\AppData\\Local\\Temp\\TExFlow-fresh-clone-20260905-115216-final2`.
+The clone resolved to commit `11d2205d`; with the host's `core.autocrlf=true`,
+the exact trusted-root evidence remained binary/CRLF and the development guide
+remained LF as required by their contracts.
+
+| Fresh-clone command | Observed result |
+| --- | --- |
+| `zig build -j1 deps-test --summary all` | Exit 0; `18/18` steps; `149/149` tests passed. |
+| `zig build -j1 test --summary all` | Exit 0; `9/9` steps; `6/6` tests passed. |
+| `zig build -j1 --release=safe run --summary all` | Exit 0; `texflow toolchain ok`; `3/3` steps. |
+| `git ls-remote origin refs/heads/main` | Remote resolves `refs/heads/main` to `11d2205d8c41d7004df9eaf2c1defab86634aeed`. |
+
+The fresh clone intentionally did not run cache-only `unicode-audit` or
+`deps-audit`: the native dependency cache is ignored and must first be seeded
+through the authorized `deps-fetch` lane. Those audits were run successfully in
+the verified workspace, including the absolute `%TEMP%` cache case above.
