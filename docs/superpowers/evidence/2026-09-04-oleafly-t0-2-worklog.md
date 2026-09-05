@@ -875,3 +875,33 @@ transport transient, not suppressed as a test failure.
 | Windows x64 rerun | Job `101334175547` passed in 17m08s: acquisition, dependency/ACL, formatting/C layout, Debug/Safe, ABI/miscompile/SIMD, toolchain smoke, resource/graphics/presenter/native-shell/product, and two clean ReleaseSafe hashes. | The shipping Windows lane is green on the pushed commit `ded15d0f`. |
 | Linux compile guard | Job `101334176218` passed in 11m36s across the full portable lane, including presenter compile checks and empty install proofs. | Linux remains CI portability evidence only; no Linux product artifact is emitted. |
 | Remote quality status | Rerun green after the one documented upstream 403; no code change was needed. | Quality streak remains `1/1` for this bounded increment. |
+
+## T0.2c frame-latency wait primitive (2026-09-05)
+
+This bounded native slice adds `SwapChain.waitForFrame(timeout_ms)` to the
+existing Windows x64 DXGI adapter. `WaitOutcome` exposes only `signaled` and
+`timeout`; null, invalid/closed, abandoned, failed, and unknown wait states
+remain typed errors. A null or invalid handle is rejected before any Win32
+call. The Windows path calls `WaitForSingleObject` through the curated
+`windows_api.kernel32` facade, while non-Windows builds return
+`UnsupportedTarget`. The adapter still owns no `Present1`, `ResizeBuffers`, or
+render-target API, and `deinit` remains idempotent.
+
+The wait result values and frame-latency handle contract follow the official
+Microsoft documentation: [`WaitForSingleObject`](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject),
+[`GetFrameLatencyWaitableObject`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgiswapchain2-getframelatencywaitableobject),
+and [`DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ne-dxgi-dxgi_swap_chain_flag).
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED (reversible counterfactual) | Temporarily removing only the new wait symbols from `presenter_native.zig` made the focused Windows Debug build fail with the expected missing `WaitOutcome` and `waitForFrame` compile errors. | The new tests are non-vacuous and exercise the requested public surface. |
+| Wait mapping tests | The focused test covers `WAIT_OBJECT_0`, `WAIT_TIMEOUT`, `WAIT_ABANDONED`/`WAIT_ABANDONED_0`, `WAIT_FAILED`, and an unknown result, with typed outcomes/errors. | Exact result classes are preserved; unknown values are not hidden as timeouts. |
+| Mapping falsification | Temporarily changing `WAIT_TIMEOUT` to return `signaled` made the Windows Debug run fail with `expected .timeout, found .signaled`; the mapping was restored before the final run. | The timeout assertion detects a plausible regression rather than merely executing the branch. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test`: `5/6` tests passed with one expected non-Windows skip in each mode. Both flip effects created real HWND swap chains, accepted only `signaled`/`timeout` for `waitForFrame(0)`, then verified invalid-handle behavior after deinit and double deinit. | The real x64 Windows wait path and teardown contract are green without an unbounded wait. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded in each mode for `x86_64-linux-gnu`. | Linux is a compile-only portability guard; no Linux runtime or product support is claimed. |
+| Formatting and diff checks | `zig fmt --check` for the three changed Zig files and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
+
+Browser QA is not applicable: this is a native Windows wait/API increment with
+no HTML surface. Present/resize/render-target ownership, visual capture,
+device-loss recovery, and the remaining native runtime obligations remain
+open for their owning slices.

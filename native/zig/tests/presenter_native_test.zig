@@ -4,6 +4,16 @@ const api = @import("windows_api");
 const graphics = @import("graphics");
 const native = @import("presenter_native");
 
+test "frame-latency wait mapping preserves each Win32 result class" {
+    // WAIT_OBJECT_0 and WAIT_ABANDONED_0 are aliases for the same values as
+    // NO_ERROR and WAIT_ABANDONED respectively in the curated facade.
+    try std.testing.expectEqual(native.WaitOutcome.signaled, try native.mapWaitResult(0));
+    try std.testing.expectEqual(native.WaitOutcome.timeout, try native.mapWaitResult(258));
+    try std.testing.expectError(error.FrameLatencyWaitAbandoned, native.mapWaitResult(128));
+    try std.testing.expectError(error.FrameLatencyWaitFailed, native.mapWaitResult(std.math.maxInt(u32)));
+    try std.testing.expectError(error.UnexpectedFrameLatencyWaitResult, native.mapWaitResult(1));
+}
+
 test "native descriptor keeps the admitted two-buffer waitable contract" {
     const descriptor = native.nativeDescriptor(.flip_sequential);
     try std.testing.expectEqual(@as(u32, 0), descriptor.Width);
@@ -43,7 +53,8 @@ test "native descriptor mirror preserves the DXGI ABI footprint" {
 
 test "native swap chain is unsupported outside Windows" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
-    try std.testing.expectError(error.UnsupportedTarget, native.create(null, null, .flip_sequential));
+    var chain: native.SwapChain = undefined;
+    try std.testing.expectError(error.UnsupportedTarget, chain.waitForFrame(0));
 }
 
 const TestWindow = struct {
@@ -133,7 +144,13 @@ test "native swap chain creates both waitable HWND effects and tears down idempo
         var chain = try native.create(&device, window.hwnd, effect);
         try std.testing.expect(chain.waitableHandle() != null);
         try std.testing.expectEqual(@as(u32, 1), chain.maximumFrameLatency());
+
+        switch (try chain.waitForFrame(0)) {
+            .signaled, .timeout => {},
+        }
+
         chain.deinit();
+        try std.testing.expectError(error.InvalidFrameLatencyHandle, chain.waitForFrame(0));
         chain.deinit();
     }
 }

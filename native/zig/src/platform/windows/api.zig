@@ -15,6 +15,7 @@ pub const foundation = if (bound) zigwin32.foundation else struct {};
 pub const com = if (bound) zigwin32.system.com else struct {};
 pub const d3d11_dll = if (bound) zigwin32.d3d11 else struct {};
 pub const dxgi_dll = if (bound) zigwin32.dxgi else struct {};
+pub const kernel32 = if (bound) zigwin32.kernel32 else struct {};
 
 pub const Namespace = enum {
     foundation,

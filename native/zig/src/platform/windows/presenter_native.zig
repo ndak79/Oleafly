@@ -35,6 +35,32 @@ pub const AlphaMode = enum(u32) {
     unspecified = 0,
 };
 
+pub const WaitOutcome = enum {
+    signaled,
+    timeout,
+};
+
+pub const WaitError = error{
+    FrameLatencyWaitAbandoned,
+    FrameLatencyWaitFailed,
+    InvalidFrameLatencyHandle,
+    UnexpectedFrameLatencyWaitResult,
+    UnsupportedTarget,
+};
+
+/// Convert a `WaitForSingleObject` result without hiding failure or unknown
+/// status values as a timeout. `WAIT_ABANDONED` and `WAIT_ABANDONED_0` are
+/// aliases with the same value for a single-object wait.
+pub fn mapWaitResult(result: u32) WaitError!WaitOutcome {
+    return switch (result) {
+        0 => .signaled, // WAIT_OBJECT_0
+        258 => .timeout, // WAIT_TIMEOUT
+        128 => error.FrameLatencyWaitAbandoned, // WAIT_ABANDONED/_0
+        std.math.maxInt(u32) => error.FrameLatencyWaitFailed, // WAIT_FAILED
+        else => error.UnexpectedFrameLatencyWaitResult,
+    };
+}
+
 /// Portable mirror of the DXGI 1.2 descriptor.  It contains no pointers and
 /// is converted to the generated zigwin32 type only at the Windows ABI edge.
 pub const NativeDescriptor = extern struct {
@@ -84,6 +110,17 @@ pub const SwapChain = struct {
 
     pub fn maximumFrameLatency(self: *const SwapChain) u32 {
         return self.maximum_frame_latency;
+    }
+
+    /// Wait for the DXGI frame-latency grant before rendering. The caller must
+    /// use this before the first rendered frame and before every rendered
+    /// frame; this primitive only waits and does not schedule frames.
+    pub fn waitForFrame(self: *const SwapChain, timeout_ms: u32) WaitError!WaitOutcome {
+        if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+        const handle = self.waitable orelse return error.InvalidFrameLatencyHandle;
+        if (handle == std.os.windows.INVALID_HANDLE_VALUE) return error.InvalidFrameLatencyHandle;
+        const result = api.kernel32.WaitForSingleObject(handle, timeout_ms);
+        return mapWaitResult(@intFromEnum(result));
     }
 
     pub fn deinit(self: *SwapChain) void {
