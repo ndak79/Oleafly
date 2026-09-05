@@ -1375,3 +1375,48 @@ caption identity is deterministic on the tested Windows host.
 This correction closes only the bounded baseline/first-frame seam. It does not
 close T0.2c's full capture, ETW runtime, UIA journey, DPI/occlusion matrix, or
 Task 7 admission obligations.
+
+## T0.2c event-driven shell pacing correction (2026-09-05)
+
+The native shell previously installed a 16 ms `WM_TIMER`, which caused periodic
+wake/render work even while the workspace was idle. The timer path is now gone:
+`WM_PAINT` marks a frame pending, `MsgWaitForMultipleObjectsEx` waits atomically
+for the DXGI frame-latency handle or queued input, and a private `WM_APP+1`
+frame-grant message renders exactly one frame after a successful grant. A
+caller-requested frame never treats a timeout as displayed output, and the
+initial hidden frame uses the bounded bootstrap wait so the first visible image
+cannot be an uninitialized buffer.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows Debug/Safe | `t0-2c-shell-native-test` passed in Debug and ReleaseSafe. | Frame-grant routing, no-timer compatibility probe, first-frame/recovery and cleanup paths are green. |
+| Product runtime | `t0-2c-product-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe -j1`: `11/11` passed. | The real GUI still creates, captions, presents, handles close, and rejects malformed startup arguments. |
+| Linux portability | `t0-2c-shell-native-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1` passed. | The event-loop declarations retain a compile-only non-Windows lane. |
+| Hygiene | `zig fmt --check` and `git diff --check` passed. | Formatting and whitespace are clean. |
+| Review/repair | Root review identified the timer as a polling/energy gap and verified the new wait branch, timeout semantics, and pending-frame reset. | The previous streak is reset for the architecture correction; current slice streak is `1/1`. |
+
+This closes only the shell pacing seam. Native child controls/UIA runtime,
+Direct2D/DirectWrite composition, ETW registration, capture oracle, and full
+Task 7 energy/latency evidence remain open for T0.2c admission.
+
+## T0.2c bounded render-grant race correction (2026-09-05)
+
+The first event-driven implementation exposed a timing-sensitive contract bug:
+`renderFrame()` used a zero-timeout grant even for explicit caller requests, so
+a just-created or rebound chain could report failure before DXGI published its
+first grant. The API now uses a bounded one-second wait for explicit
+first/resize/rebuild requests; the event-loop path keeps its zero-timeout check
+and treats an unsignaled grant as an idle/no-op. The hidden initial frame and
+the normal requested frame therefore share the same pacing rule without
+reintroducing a periodic timer.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Falsification | Windows ReleaseSafe native QA reproduced the transient false result; the timeout split was repaired before the next run. | A real timing race was found and closed; the correction reset the quality streak. |
+| Windows Debug/Safe | `t0-2c-shell-native-test` passed in Debug and ReleaseSafe. | Native creation, first render, event grant, resize, rebuild, and cleanup are green. |
+| Product runtime | `t0-2c-product-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe -j1`: `11/11` passed. | GUI caption/class/PMv2, PE imports, startup admission, and close behavior remain green. |
+| Linux portability | `t0-2c-shell-native-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1` passed. | The portable declaration lane remains clean. |
+| Hygiene | `zig fmt --check` and `git diff --check` passed. | Formatting and whitespace are clean. |
+
+This is still a bounded T0.2c runtime seam; full UIA/capture/ETW/physical-matrix
+admission remains open.

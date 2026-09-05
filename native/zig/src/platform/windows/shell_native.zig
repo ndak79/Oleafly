@@ -62,8 +62,7 @@ pub const CREATESTRUCTW = extern struct {
 pub const dll_search_flags: u32 = 0x800; // LOAD_LIBRARY_SEARCH_SYSTEM32
 pub const window_style: u32 = 0xcf0000; // WS_OVERLAPPEDWINDOW, system caption
 pub const dpi_pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
-pub const frame_timer_id: usize = 1;
-pub const frame_timer_period_ms: u32 = 16;
+pub const frame_signal_message: u32 = 0x8001; // WM_APP + 1, private frame grant
 
 /// The build selects the admitted baseline explicitly.  A discard build is a
 /// reproducible challenger and is never chosen from adapter/runtime state.
@@ -75,7 +74,6 @@ const wm_ncdestroy: u32 = 0x0082;
 const wm_destroy: u32 = 0x0002;
 const wm_size: u32 = 0x0005;
 const wm_paint: u32 = 0x000f;
-const wm_timer: u32 = 0x0113;
 const size_minimized: usize = 1;
 const gwlp_userdata: i32 = -21;
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.machine_class);
@@ -100,8 +98,8 @@ pub fn isResizeMessage(message: u32) bool {
     return message == wm_size;
 }
 
-pub fn isFrameTimerMessage(message: u32, timer_id: usize) bool {
-    return message == wm_timer and timer_id == frame_timer_id;
+pub fn isFrameSignalMessage(message: u32) bool {
+    return message == frame_signal_message;
 }
 
 const raw = struct {
@@ -119,14 +117,13 @@ const raw = struct {
     extern "user32" fn CreateWindowExW(u32, [*:0]const u16, [*:0]const u16, u32, i32, i32, i32, i32, ?HWND, ?*anyopaque, HINSTANCE, ?*anyopaque) callconv(.winapi) ?HWND;
     extern "user32" fn SetWindowTextW(HWND, [*:0]const u16) callconv(.winapi) i32;
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
-    extern "user32" fn SetTimer(HWND, usize, u32, ?*anyopaque) callconv(.winapi) usize;
-    extern "user32" fn KillTimer(HWND, usize) callconv(.winapi) i32;
     extern "user32" fn SetWindowLongPtrW(HWND, i32, isize) callconv(.winapi) isize;
     extern "user32" fn GetWindowLongPtrW(HWND, i32) callconv(.winapi) isize;
     extern "user32" fn ValidateRect(HWND, ?*const RECT) callconv(.winapi) i32;
     extern "user32" fn IsWindow(HWND) callconv(.winapi) i32;
     extern "user32" fn DestroyWindow(HWND) callconv(.winapi) i32;
     extern "user32" fn GetClientRect(HWND, *RECT) callconv(.winapi) i32;
+    extern "user32" fn MsgWaitForMultipleObjectsEx(u32, [*]const ?*anyopaque, u32, u32, u32) callconv(.winapi) u32;
     extern "user32" fn GetMessageW(*MSG, ?HWND, u32, u32) callconv(.winapi) i32;
     extern "user32" fn TranslateMessage(*const MSG) callconv(.winapi) i32;
     extern "user32" fn DispatchMessageW(*const MSG) callconv(.winapi) isize;
@@ -177,7 +174,7 @@ pub const Backend = struct {
     graphics_device: ?graphics.Device = null,
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
-    frame_timer: usize = 0,
+    frame_pending: bool = false,
     message: MSG = undefined,
 
     pub const initial_clear_color: [4]f32 = .{ 0.035, 0.055, 0.09, 1.0 };
@@ -268,13 +265,6 @@ pub const Backend = struct {
             self.window = null;
             return false;
         }
-        self.frame_timer = raw.SetTimer(self.window.?, frame_timer_id, frame_timer_period_ms, null);
-        if (self.frame_timer == 0) {
-            self.releaseFrameResources();
-            _ = raw.DestroyWindow(self.window.?);
-            self.window = null;
-            return false;
-        }
         return true;
     }
 
@@ -311,11 +301,11 @@ pub const Backend = struct {
     }
 
     pub fn renderFrame(self: *Backend) bool {
-        // The DXGI frame-latency grant is part of every normal render. The
-        // initial hidden frame uses a bounded bootstrap wait below because
-        // newly-created waitable chains commonly start unsignaled until their
-        // first compositor grant is published.
-        return self.waitAndRender(0, true);
+        // The DXGI frame-latency grant is part of every caller-requested
+        // render. A bounded wait avoids a startup/rebind race where the grant
+        // has not yet been published; the event-loop ticker remains
+        // non-blocking when it is only polling an already-signaled handle.
+        return self.waitAndRender(1_000, true);
     }
 
     fn renderInitialFrame(self: *Backend) bool {
@@ -333,7 +323,10 @@ pub const Backend = struct {
             }
         } else return false;
         return switch (self.renderFrameOnce()) {
-            .presented, .occluded => true,
+            .presented, .occluded => blk: {
+                self.frame_pending = false;
+                break :blk true;
+            },
             .device_lost => if (recover) self.rebuildFrameResources() else false,
             .failed => false,
         };
@@ -346,17 +339,26 @@ pub const Backend = struct {
     pub fn tickFrame(self: *Backend) bool {
         if (self.swap_chain) |*swap_chain| {
             switch (swap_chain.waitForFrame(0) catch return false) {
-                .signaled => return switch (self.renderFrameOnce()) {
-                    .presented, .occluded => true,
-                    .device_lost => self.rebuildFrameResources(),
-                    .failed => false,
-                },
-                // A periodic/posted tick may legitimately find no grant yet;
+                .signaled => return self.renderFrameSignaled(),
+                // A posted/requested tick may legitimately find no grant yet;
                 // keep the message loop alive without rendering stale data.
                 .timeout => return true,
             }
         }
         return false;
+    }
+
+    pub fn requestFrame(self: *Backend) void {
+        self.frame_pending = true;
+    }
+
+    fn renderFrameSignaled(self: *Backend) bool {
+        self.frame_pending = false;
+        return switch (self.renderFrameOnce()) {
+            .presented, .occluded => true,
+            .device_lost => self.rebuildFrameResources(),
+            .failed => false,
+        };
     }
 
     pub fn resizeFrame(self: *Backend, width: u32, height: u32) bool {
@@ -378,8 +380,10 @@ pub const Backend = struct {
         return false;
     }
 
-    pub fn frameTimerActive(self: *const Backend) bool {
-        return self.frame_timer != 0;
+    /// Retained as a compatibility probe for old QA callers.  Rendering is
+    /// now event-driven and owns no periodic timer.
+    pub fn frameTimerActive(_: *const Backend) bool {
+        return false;
     }
 
     /// Retire the current native frame owner and recreate the device, swap
@@ -439,10 +443,7 @@ pub const Backend = struct {
     }
 
     pub fn destroyWindow(self: *Backend) bool {
-        if (self.frame_timer != 0) {
-            if (self.window) |window| _ = raw.KillTimer(window, frame_timer_id);
-            self.frame_timer = 0;
-        }
+        self.frame_pending = false;
         self.releaseFrameResources();
         const window = self.window orelse return true;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
@@ -455,11 +456,37 @@ pub const Backend = struct {
         _ = raw.ShowWindow(self.window.?, self.show);
     }
     pub fn getMessage(self: *Backend) i32 {
+        // When work is pending, wait atomically for either the DXGI grant or
+        // input.  With no pending work we use the same blocking message path;
+        // there is no polling/render timer.
+        if (self.frame_pending) {
+            if (self.swap_chain) |*swap_chain| {
+                if (swap_chain.waitableHandle()) |handle| {
+                    var handles = [_]?*anyopaque{handle};
+                    const wait = raw.MsgWaitForMultipleObjectsEx(
+                        1,
+                        &handles,
+                        std.math.maxInt(u32),
+                        0x04ff, // QS_ALLINPUT
+                        0x0004, // MWMO_INPUTAVAILABLE
+                    );
+                    if (wait == 0) {
+                        self.message = .{ .hwnd = self.window, .message = frame_signal_message, .wParam = 0, .lParam = 0, .time = 0, .pt = .{ .x = 0, .y = 0 } };
+                        return 1;
+                    }
+                    if (wait != 1) return -1;
+                }
+            }
+        }
         // No HWND filter: WM_QUIT remains valid after the main HWND is gone.
         // The portable loop distinguishes -1 (error), 0 (quit), >0 (dispatch).
         return raw.GetMessageW(&self.message, null, 0, 0);
     }
     pub fn dispatchMessage(self: *Backend) void {
+        if (isFrameSignalMessage(self.message.message)) {
+            _ = self.renderFrameSignaled();
+            return;
+        }
         _ = raw.TranslateMessage(&self.message);
         _ = raw.DispatchMessageW(&self.message);
     }
@@ -482,7 +509,7 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
     if (message == wm_paint) {
         if (backendForWindow(window)) |backend| {
             _ = raw.ValidateRect(window, null);
-            _ = backend.tickFrame();
+            backend.requestFrame();
             return 0;
         }
     }
@@ -497,12 +524,6 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
                     return 0;
                 }
             }
-        }
-    }
-    if (message == wm_timer and isFrameTimerMessage(message, wparam)) {
-        if (backendForWindow(window)) |backend| {
-            _ = backend.tickFrame();
-            return 0;
         }
     }
     if (message == wm_destroy) {

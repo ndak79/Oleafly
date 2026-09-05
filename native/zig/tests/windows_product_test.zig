@@ -566,7 +566,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
             try std.testing.expect(name_rva <= std.math.maxInt(u32));
             const name = try peString(bytes, (try rvaOffset(bytes, pe, @intCast(name_rva))) + 2);
             for (required, 0..) |expected, index| found[index] = found[index] or std.mem.eql(u8, name, expected);
-            for ([_][]const u8{ "PeekMessageW", "PeekMessageA", "GetMessageA", "CreateWindowExA", "Sleep" }) |forbidden| {
+            for ([_][]const u8{ "PeekMessageW", "PeekMessageA", "GetMessageA", "CreateWindowExA", "SetTimer", "KillTimer", "Sleep" }) |forbidden| {
                 try std.testing.expect(!std.mem.eql(u8, name, forbidden));
             }
         }
