@@ -77,6 +77,21 @@ test "device admission rejects below-floor hardware and accepts the minimum" {
     try std.testing.expect(graphics.admitsFeatureLevel(@as(i32, @intCast(@intFromEnum(graphics.FeatureLevel.level_11_0)))));
 }
 
+test "explicit WARP device admission is deterministic" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    var device = try graphics.Device.createWithPath(.warp);
+    defer device.deinit();
+    try std.testing.expectEqual(graphics.DevicePath.warp, device.path);
+    try std.testing.expect(device.feature_level >= graphics.minimum_feature_level);
+    try std.testing.expect(device.deviceHandle() != null);
+    try std.testing.expect(device.contextHandle() != null);
+}
+
+test "explicit device-path creation stays unsupported outside Windows" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    try std.testing.expectError(error.UnsupportedTarget, graphics.Device.createWithPath(.warp));
+}
+
 test "device creation is a real hardware-or-WARP D3D11 admission" {
     if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
     var device = try graphics.Device.create();

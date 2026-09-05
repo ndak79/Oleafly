@@ -1162,3 +1162,30 @@ review stream terminated with `adapter_eof`; root review checked binding
 signatures, preflight/order invariants, owner preservation, real runtime
 coverage, portability, and scope with no Medium+ finding. Current quality
 streak: `1/1`.
+
+## T0.2c explicit WARP device-path admission (2026-09-05)
+
+The graphics adapter now exposes `Device.createWithPath(path)` in addition to
+the existing hardware-first `Device.create()`. The normal path preserves the
+admitted policy—try hardware, then WARP—but recovery code can now request WARP
+directly and observe `Device.path == .warp` instead of relying on hidden
+fallback ordering. Both paths use the same BGRA-support flag, feature-level
+floor, immediate-context requirement, and reverse COM cleanup. This is the
+device-admission half of the later complete device-loss rebuild; swap-chain
+retirement/recreation and presentation-state recovery remain open.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The focused graphics Debug build failed first on the missing `Device.createWithPath` API. | Explicit path selection was tested before implementation. |
+| Windows runtime | `createWithPath(.warp)` returned a real `.warp` device with feature level at or above the admitted `10_0` floor and a non-null immediate context. | WARP selection is deterministic and not a label-only branch. |
+| Existing fallback | The original `Device.create()` behavior remains hardware-first with WARP fallback through the refactored single-path helper. | Existing product admission semantics are preserved. |
+| Windows graphics Debug/Safe/Fast | `t0-2c-graphics-test`: `7` passed, `2` expected non-Windows skips per mode. | Descriptor ABI, feature-level policy, hardware/WARP paths, and cleanup remain green. |
+| Linux graphics Debug/Safe/Fast | `t0-2c-graphics-check`: `2/2` compile steps succeeded per mode for `x86_64-linux-gnu`. | Non-Windows remains declaration/compile-only. |
+| Presenter regression | `t0-2c-presenter-native-test -Doptimize=Debug`: `35` passed, `1` skip. | Presenter clear, unbind, resize, Present1, and rebind still compile/run after graphics refactor. |
+| Formatting/scope | `zig fmt --check` and `git diff --check` passed; only graphics adapter/test files changed in this slice. | No build/dependency/facade expansion was introduced. |
+
+Browser QA is not applicable: this is a native D3D11 adapter increment with no
+HTML/browser surface. External Luna max review remains unavailable due to
+`adapter_eof`; root review checked path selection, feature-floor preservation,
+fallback semantics, partial cleanup, portability, and scope with no Medium+
+finding. Current quality streak: `1/1`.

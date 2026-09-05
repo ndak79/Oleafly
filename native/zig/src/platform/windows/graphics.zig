@@ -147,6 +147,14 @@ pub const Device = struct {
         return createWindows();
     }
 
+    /// Create exactly the requested adapter path. The normal `create` method
+    /// remains hardware-first with WARP fallback; recovery code uses this
+    /// explicit form so a WARP retry is observable and deterministic.
+    pub fn createWithPath(path: DevicePath) !Device {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        return createWindowsPath(path);
+    }
+
     pub fn deviceHandle(self: *const Device) ?*anyopaque {
         return self.device;
     }
@@ -175,6 +183,10 @@ pub const Device = struct {
 };
 
 fn createWindows() !Device {
+    return createWindowsPath(.hardware) catch createWindowsPath(.warp);
+}
+
+fn createWindowsPath(path: DevicePath) !Device {
     const levels = [_]api.direct3d.D3D_FEATURE_LEVEL{
         .@"11_0",
         .@"10_1",
@@ -186,9 +198,12 @@ fn createWindows() !Device {
     var context: ?*api.d3d11.ID3D11DeviceContext = null;
     var chosen: api.direct3d.D3D_FEATURE_LEVEL = undefined;
 
-    const hardware_result = api.d3d11_dll.D3D11CreateDevice(
+    const result = api.d3d11_dll.D3D11CreateDevice(
         null,
-        .HARDWARE,
+        switch (path) {
+            .hardware => .HARDWARE,
+            .warp => .WARP,
+        },
         null,
         flags,
         levels[0..].ptr,
@@ -198,11 +213,11 @@ fn createWindows() !Device {
         &chosen,
         @ptrCast(&context),
     );
-    if (!hardware_result.failed and device != null and context != null and
+    if (!result.failed and device != null and context != null and
         admitsNativeFeatureLevel(chosen))
     {
         return .{
-            .path = .hardware,
+            .path = path,
             .feature_level = @intCast(@intFromEnum(chosen)),
             .device = @ptrCast(device.?),
             .context = @ptrCast(context.?),
@@ -210,28 +225,6 @@ fn createWindows() !Device {
     }
     releasePartial(&device, &context);
 
-    const warp_result = api.d3d11_dll.D3D11CreateDevice(
-        null,
-        .WARP,
-        null,
-        flags,
-        levels[0..].ptr,
-        levels.len,
-        api.d3d11.D3D11_SDK_VERSION,
-        @ptrCast(&device),
-        &chosen,
-        @ptrCast(&context),
-    );
-    if (!warp_result.failed and device != null and context != null and
-        admitsNativeFeatureLevel(chosen))
-    {
-        return .{
-            .path = .warp,
-            .feature_level = @intCast(@intFromEnum(chosen)),
-            .device = @ptrCast(device.?),
-            .context = @ptrCast(context.?),
-        };
-    }
     releasePartial(&device, &context);
     return error.DeviceCreationFailed;
 }
