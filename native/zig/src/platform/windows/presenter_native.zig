@@ -48,15 +48,20 @@ pub const WaitError = error{
     UnsupportedTarget,
 };
 
+pub const wait_object_0: u32 = 0;
+pub const wait_abandoned: u32 = 128;
+pub const wait_timeout: u32 = 258;
+pub const wait_failed: u32 = std.math.maxInt(u32);
+
 /// Convert a `WaitForSingleObject` result without hiding failure or unknown
 /// status values as a timeout. `WAIT_ABANDONED` and `WAIT_ABANDONED_0` are
 /// aliases with the same value for a single-object wait.
 pub fn mapWaitResult(result: u32) WaitError!WaitOutcome {
     return switch (result) {
-        0 => .signaled, // WAIT_OBJECT_0
-        258 => .timeout, // WAIT_TIMEOUT
-        128 => error.FrameLatencyWaitAbandoned, // WAIT_ABANDONED/_0
-        std.math.maxInt(u32) => error.FrameLatencyWaitFailed, // WAIT_FAILED
+        wait_object_0 => .signaled, // WAIT_OBJECT_0
+        wait_timeout => .timeout, // WAIT_TIMEOUT
+        wait_abandoned => error.FrameLatencyWaitAbandoned, // WAIT_ABANDONED/_0
+        wait_failed => error.FrameLatencyWaitFailed, // WAIT_FAILED
         else => error.UnexpectedFrameLatencyWaitResult,
     };
 }

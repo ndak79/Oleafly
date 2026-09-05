@@ -929,3 +929,28 @@ struct, so the production API remains `waitForFrame` only.
 Browser QA remains not applicable because this is a native-only Windows API
 correction. Present/resize/render-target ownership and visual/runtime work
 remain open for later slices.
+
+## T0.2c presenter wait sentinel-test follow-up (2026-09-06)
+
+The quality review of `e704f51` identified a Medium test gap: the
+`INVALID_HANDLE_VALUE` branch in the wait seam was not exercised, so a
+regression could have invoked Win32 with that sentinel. The callback seam
+test now checks both a null handle and `std.os.windows.INVALID_HANDLE_VALUE`.
+Each must return `InvalidFrameLatencyHandle` and leave the stub call count
+unchanged after the valid timeout-then-signaled calls. The mapper now uses
+named `wait_object_0`, `wait_timeout`, `wait_abandoned`, and `wait_failed`
+constants; Windows tests cross-check them against the curated foundation
+values. The facade test also requires exactly one declaration named
+`WaitForSingleObject`.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | After adding the named-constant assertions before implementation, the focused Windows Debug build failed on missing `native.wait_object_0`. | The new contract checks were non-vacuous before the production constants were added. |
+| Sentinel falsification | Temporarily removing only the `INVALID_HANDLE_VALUE` guard made the focused Windows Debug run fail with `expected error.InvalidFrameLatencyHandle, found error.UnexpectedFrameLatencyWaitResult`; the guard was restored. | The sentinel assertion detects the invalid-handle regression before the callback result is accepted. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test`: `8/9` tests passed with one expected non-Windows skip in each mode. | Real x64 DXGI smoke, exact mapping, facade allowlist, valid timeout→signaled seam, null/sentinel rejection, invalid-handle teardown, and double deinit are green. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded in each mode for `x86_64-linux-gnu`. | Linux remains a compile-only guard; no Linux runtime/product claim is made. |
+| Formatting/diff | `zig fmt --check` for the changed Zig files and `git diff --check` passed. | The follow-up patch is formatted and whitespace-clean. |
+
+Browser QA remains not applicable because this is a native-only Windows wait
+correction. Present/resize/render-target ownership and visual/runtime work
+remain open for later slices.
