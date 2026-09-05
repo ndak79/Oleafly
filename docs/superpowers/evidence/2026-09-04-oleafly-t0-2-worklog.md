@@ -905,3 +905,27 @@ Browser QA is not applicable: this is a native Windows wait/API increment with
 no HTML surface. Present/resize/render-target ownership, visual capture,
 device-loss recovery, and the remaining native runtime obligations remain
 open for their owning slices.
+
+## T0.2c presenter wait review follow-up (2026-09-05)
+
+The focused review of commit `f1e4557` found two gaps and both were corrected
+without expanding the product surface. `api.zig` now exposes only the
+declaration-level `kernel32.WaitForSingleObject` alias required by
+`presenter_native`; the generated kernel32 module is no longer exported.
+`SwapChain.waitForFrame` delegates handle validation, callback invocation, and
+result mapping to a small helper. Its callback seam is exported only through a
+test-build-gated `native.testing` namespace; non-test builds receive an empty
+struct, so the production API remains `waitForFrame` only.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Before the seam implementation, the focused Windows Debug build failed on the expected missing `native.testing` member. | The deterministic seam test was written before its production helper. |
+| Facade falsification | Temporarily restoring the broad `zigwin32.kernel32` export failed the facade test at `expect(!@hasDecl(api.kernel32, "GetLastError"))` (`6` passed, `1` failed, `1` skipped). | The test detects accidental re-expansion of the Windows API boundary. |
+| Callback falsification | Temporarily bypassing the callback and returning constant `.timeout` failed the seam test with `expected .signaled, found .timeout`. | The valid-handle path must invoke the callback and map each result; a constant timeout cannot pass. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test`: `7/8` tests passed with one expected non-Windows skip in each mode. | Real x64 DXGI smoke tests, exact mapping, facade allowlist, deterministic seam, invalid-handle teardown, and idempotent deinit are green. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded in each mode for `x86_64-linux-gnu`. | Linux remains a compile-only guard; no Linux runtime/product claim is made. |
+| Formatting/diff | `zig fmt --check` for the changed Zig files and `git diff --check` passed. | The follow-up patch is formatted and whitespace-clean. |
+
+Browser QA remains not applicable because this is a native-only Windows API
+correction. Present/resize/render-target ownership and visual/runtime work
+remain open for later slices.

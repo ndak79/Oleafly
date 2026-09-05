@@ -15,7 +15,11 @@ pub const foundation = if (bound) zigwin32.foundation else struct {};
 pub const com = if (bound) zigwin32.system.com else struct {};
 pub const d3d11_dll = if (bound) zigwin32.d3d11 else struct {};
 pub const dxgi_dll = if (bound) zigwin32.dxgi else struct {};
-pub const kernel32 = if (bound) zigwin32.kernel32 else struct {};
+// Keep the kernel32 surface declaration-level narrow: presenter_native only
+// needs this one wait primitive, not the generated DLL namespace.
+pub const kernel32 = if (bound) struct {
+    pub const WaitForSingleObject = zigwin32.kernel32.WaitForSingleObject;
+} else struct {};
 
 pub const Namespace = enum {
     foundation,

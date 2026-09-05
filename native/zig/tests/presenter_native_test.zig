@@ -4,6 +4,13 @@ const api = @import("windows_api");
 const graphics = @import("graphics");
 const native = @import("presenter_native");
 
+test "kernel32 facade exposes only the wait entry point" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    try std.testing.expect(@hasDecl(api.kernel32, "WaitForSingleObject"));
+    try std.testing.expect(!@hasDecl(api.kernel32, "GetLastError"));
+    try std.testing.expect(!@hasDecl(api.kernel32, "CreateEventW"));
+}
+
 test "frame-latency wait mapping preserves each Win32 result class" {
     // WAIT_OBJECT_0 and WAIT_ABANDONED_0 are aliases for the same values as
     // NO_ERROR and WAIT_ABANDONED respectively in the curated facade.
@@ -12,6 +19,47 @@ test "frame-latency wait mapping preserves each Win32 result class" {
     try std.testing.expectError(error.FrameLatencyWaitAbandoned, native.mapWaitResult(128));
     try std.testing.expectError(error.FrameLatencyWaitFailed, native.mapWaitResult(std.math.maxInt(u32)));
     try std.testing.expectError(error.UnexpectedFrameLatencyWaitResult, native.mapWaitResult(1));
+}
+
+test "test-only wait seam invokes callback and maps each returned result" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const Stub = struct {
+        calls: usize = 0,
+        last_handle: std.os.windows.HANDLE = undefined,
+        last_timeout_ms: u32 = undefined,
+
+        fn wait(context: ?*anyopaque, handle: std.os.windows.HANDLE, timeout_ms: u32) callconv(.winapi) u32 {
+            const self: *@This() = @ptrCast(@alignCast(context.?));
+            self.calls += 1;
+            self.last_handle = handle;
+            self.last_timeout_ms = timeout_ms;
+            return switch (self.calls) {
+                1 => 258, // WAIT_TIMEOUT
+                2 => 0, // WAIT_OBJECT_0
+                else => 1, // Unknown, if an unexpected third call occurs.
+            };
+        }
+    };
+
+    var stub = Stub{};
+    var chain: native.SwapChain = .{
+        .effect = .flip_sequential,
+        .waitable = @ptrFromInt(1),
+    };
+    const handle = chain.waitable.?;
+
+    try std.testing.expectEqual(
+        native.WaitOutcome.timeout,
+        try native.testing.waitForFrameWith(&chain, 17, @ptrCast(&stub), Stub.wait),
+    );
+    try std.testing.expectEqual(
+        native.WaitOutcome.signaled,
+        try native.testing.waitForFrameWith(&chain, 23, @ptrCast(&stub), Stub.wait),
+    );
+    try std.testing.expectEqual(@as(usize, 2), stub.calls);
+    try std.testing.expectEqual(handle, stub.last_handle);
+    try std.testing.expectEqual(@as(u32, 23), stub.last_timeout_ms);
 }
 
 test "native descriptor keeps the admitted two-buffer waitable contract" {

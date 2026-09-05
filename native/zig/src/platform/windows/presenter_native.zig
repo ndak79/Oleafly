@@ -61,6 +61,8 @@ pub fn mapWaitResult(result: u32) WaitError!WaitOutcome {
     };
 }
 
+const WaitFn = *const fn (?*anyopaque, std.os.windows.HANDLE, u32) callconv(.winapi) u32;
+
 /// Portable mirror of the DXGI 1.2 descriptor.  It contains no pointers and
 /// is converted to the generated zigwin32 type only at the Windows ABI edge.
 pub const NativeDescriptor = extern struct {
@@ -116,11 +118,7 @@ pub const SwapChain = struct {
     /// use this before the first rendered frame and before every rendered
     /// frame; this primitive only waits and does not schedule frames.
     pub fn waitForFrame(self: *const SwapChain, timeout_ms: u32) WaitError!WaitOutcome {
-        if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
-        const handle = self.waitable orelse return error.InvalidFrameLatencyHandle;
-        if (handle == std.os.windows.INVALID_HANDLE_VALUE) return error.InvalidFrameLatencyHandle;
-        const result = api.kernel32.WaitForSingleObject(handle, timeout_ms);
-        return mapWaitResult(@intFromEnum(result));
+        return waitForFrameWithImpl(self, timeout_ms, null, waitForSingleObject);
     }
 
     pub fn deinit(self: *SwapChain) void {
@@ -144,6 +142,33 @@ pub const SwapChain = struct {
         }
     }
 };
+
+fn waitForSingleObject(
+    _: ?*anyopaque,
+    handle: std.os.windows.HANDLE,
+    timeout_ms: u32,
+) callconv(.winapi) u32 {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    return @intFromEnum(api.kernel32.WaitForSingleObject(handle, timeout_ms));
+}
+
+fn waitForFrameWithImpl(
+    self: *const SwapChain,
+    timeout_ms: u32,
+    context: ?*anyopaque,
+    wait_fn: WaitFn,
+) WaitError!WaitOutcome {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    const handle = self.waitable orelse return error.InvalidFrameLatencyHandle;
+    if (handle == std.os.windows.INVALID_HANDLE_VALUE) return error.InvalidFrameLatencyHandle;
+    return mapWaitResult(wait_fn(context, handle, timeout_ms));
+}
+
+/// Test-build-only access to the wait seam. Production callers use
+/// `SwapChain.waitForFrame`; this export is an empty struct in non-test builds.
+pub const testing = if (builtin.is_test) struct {
+    pub const waitForFrameWith = waitForFrameWithImpl;
+} else struct {};
 
 pub fn create(device: ?*const graphics.Device, hwnd: ?*anyopaque, effect: graphics.SwapEffect) !SwapChain {
     if (builtin.os.tag != .windows) return error.UnsupportedTarget;
