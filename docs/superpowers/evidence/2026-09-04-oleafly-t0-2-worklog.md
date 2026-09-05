@@ -805,3 +805,59 @@ No browser QA applies to this native-only increment. Reviewer result after the
 corrections is `CLEAN`; the required quality streak is now `1/1`. This closes
 only the bounded D3D11 admission/policy increment, not full Task 3 or the
 overall TExFlow roadmap.
+
+## T0.2c native DXGI HWND binding boundary and ACL follow-up (2026-09-05)
+
+This bounded slice keeps the shipping surface Windows x64 only. The new
+`presenter_native.zig` adapter owns the `IDXGISwapChain1`/`IDXGISwapChain2`
+interfaces and the DXGI frame-latency waitable `HANDLE`: it validates the
+admitted two-buffer BGRA8 descriptor, creates an HWND flip-model chain, sets
+and reads back maximum frame latency `1`, obtains the waitable handle, and
+closes/releases each resource exactly once. It intentionally exposes no
+`Present1` or `ResizeBuffers` method yet. Those entry points belong with the
+render-target owner that can enforce wait-before-first/every-draw, release and
+rebind barriers, typed HRESULT/device-loss handling, and occlusion recovery.
+Linux is a compile-only portability guard; no Linux product, UI, or package is
+produced.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The first targeted presenter build failed because `presenter_native.zig` was absent. | The new gate was non-vacuous before implementation. |
+| Adversarial runtime falsification | A temporary `Present1(1, 0, null)` experiment crashed ReleaseSafe in `dxgi.dll`; the SDK marks `pPresentParameters` as required input. A zeroed parameters struct made that call safe, but the partial Present/Resize API was removed from this slice until its lifecycle owner exists. | An unsafe partial API was caught and is not shipped. |
+| Windows native matrix | `t0-2c-presenter-native-test`: `4/5` tests passed with one non-Windows skip in Debug, ReleaseSafe, and ReleaseFast. The x64 runtime test creates both `FLIP_SEQUENTIAL` and `FLIP_DISCARD` HWND chains, verifies a non-null waitable handle and read-back latency `1`, then calls `deinit` twice. | Both admitted binding variants and idempotent teardown are exercised on the real Windows target. |
+| Linux portability | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded in Debug, ReleaseSafe, and ReleaseFast for x86_64-linux-gnu. | The portable declaration surface remains buildable; Linux runtime is not claimed. |
+| Integrated Windows gates | `t0-2c-models-test -Dtarget=x86_64-windows-msvc --release=safe`: `39/39` steps, `103/105` tests with two documented skips; `zig build test`: `13/13` steps, `10/10` tests. | Existing model, shell, graphics, resource, and presenter behavior remain green. |
+| Dependency/ACL regression | `deps-test --summary all -j1`: `18/18` steps, `152/152` tests. The ACL helper now has a positive exact `TokenOwner` path, a host-independent unrelated-group negative path, and the Windows workflow runs the dependency gate. | Effective-token-owner semantics are directly tested and continuously exercised. |
+| Source-package allowlist | `deps-manifest-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug -j1`: `4/4` steps, `17/17` tests after adding both presenter source/test paths to `build.zig.zon`. | A clean source archive retains every build input for this increment. |
+| Formatting/workflow | Full-path `zig fmt --check build.zig native/zig tools/zig`, `git diff --check`, and PyYAML parsing of `.github/workflows/zig.yml` passed. | Source and CI syntax are clean. |
+| Review status | The first presenter review's unsafe Present/Resize findings were addressed by narrowing the public surface to binding/lifetime only; re-review is required before commit. Quality streak is `0/1` until that verdict and one fresh post-review rerun. | This increment does not pre-claim the streak or full Task 3 completion. |
+
+Browser QA is not applicable: this increment has no HTML/browser surface.
+Explorer/Alt-Tab/taskbar visual capture, D3D/DirectWrite render targets,
+wait-before-draw, Present1 parameter/dirty metadata, ResizeBuffers barriers,
+HRESULT/device-loss/occlusion recovery, SyncTeX, and the remaining Task 3
+runtime obligations remain explicitly open for their owning slices.
+
+## T0.2c presenter/ACL final review and post-review clean pass (2026-09-05)
+
+Two independent read-only reviews returned `CLEAN` for this narrowed
+increment. The presenter reviewer verified the generated DXGI signatures,
+descriptor ABI offsets, balanced factory/COM/handle ownership, both runtime
+flip effects, and idempotent teardown. The ACL reviewer verified the aligned
+TokenUser/TokenOwner buffers, exact SID matching, positive/negative helper
+paths, and CI wiring. The only reviewer note was a wording clarification in
+the ACL comment; it was corrected without changing behavior.
+
+| Fresh post-review evidence | Result |
+| --- | --- |
+| Windows presenter runtime | `t0-2c-presenter-native-test -Dtarget=x86_64-windows-msvc --release=safe`: `9/9` steps, `4/5` tests passed, one expected non-Windows skip. | Real x64 Windows creation/latency/handle ownership remains green after review. |
+| Linux presenter guard | `t0-2c-presenter-native-check -Dtarget=x86_64-linux-gnu --release=safe`: `2/2` compile steps. | Only the portable declaration surface is checked; no Linux product/runtime claim. |
+| Source-package contract | `deps-manifest-test --release=safe`: `4/4` steps, `17/17` tests. | The final `build.zig.zon` allowlist contains both new presenter inputs. |
+| Integrated Windows gates | `t0-2c-models-test`: `39/39` steps, `103/105` tests with two documented skips; `zig build test`: `13/13`, `10/10`. | Existing T0.1/T0.2 contracts and this increment remain green. |
+| Dependency/ACL gate | `deps-test --summary all -j1`: `18/18` steps, `152/152` tests. | The effective-owner policy passes the full adversarial dependency suite. |
+| Formatting/workflow | `zig fmt --check`, staged `git diff --check`, and PyYAML workflow parse passed. | No formatting or workflow syntax gap remains. |
+| Quality streak | Reviewer `CLEAN` + fresh post-review rerun: `1/1`. | This bounded increment is clean and ready for commit; full Task 3 remains open. |
+
+Browser QA remains not applicable because this is a native Windows build/API
+increment with no HTML surface. Linux remains a compile-only CI guard and is
+not a supported product target.

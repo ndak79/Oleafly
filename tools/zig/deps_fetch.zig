@@ -3292,6 +3292,7 @@ const file_all_access: u32 = 0x001f_01ff;
 const owner_rights_read_execute_access: u32 = 0x0012_00a9;
 const win_creator_owner_rights_sid: u32 = 71;
 const win_builtin_users_sid: u32 = 27;
+const win_builtin_administrators_sid: u32 = 26;
 const token_query: u32 = 0x0008;
 const token_user_information_class: u32 = 1;
 
@@ -3594,6 +3595,21 @@ const TokenOwner = extern struct {
 
 const token_owner_information_class: u32 = 4;
 
+fn ownerSidMatchesCandidates(
+    owner: *const anyopaque,
+    token_user_sid: ?*const anyopaque,
+    token_owner_sid: ?*const anyopaque,
+) bool {
+    if (builtin.os.tag != .windows) return true;
+    if (token_user_sid) |sid| {
+        if (IsValidSid(sid) != 0 and EqualSid(owner, sid) != 0) return true;
+    }
+    if (token_owner_sid) |sid| {
+        if (IsValidSid(sid) != 0 and EqualSid(owner, sid) != 0) return true;
+    }
+    return false;
+}
+
 fn ownerSidMatchesCurrentToken(owner: *const anyopaque) bool {
     if (builtin.os.tag != .windows) return true;
     var token: std.os.windows.HANDLE = undefined;
@@ -3611,15 +3627,12 @@ fn ownerSidMatchesCurrentToken(owner: *const anyopaque) bool {
         return false;
     }
     const token_user: *const TokenUser = @ptrCast(@alignCast(&buffer));
-    if (IsValidSid(token_user.user.sid) != 0 and EqualSid(owner, token_user.user.sid) != 0) {
-        return true;
-    }
 
     // Elevated Windows tokens may stamp newly-created objects with the
     // token's effective owner group (often BUILTIN\\Administrators) instead
     // of the logon SID returned by TokenUser. Accept that exact token owner as
-    // well; the protected OWNER RIGHTS DACL checked below still denies every
-    // write/WRITE_DAC right, so group ownership cannot widen the cache policy.
+    // well; the OWNER RIGHTS DACL policy checked below is the sole source of
+    // write/WRITE_DAC grants, so group ownership cannot widen the cache policy.
     // A SID can contain up to 15 sub-authorities (68 bytes); leave ample
     // room for the TOKEN_OWNER header plus any SID payload returned inline.
     var owner_buffer: [256]u8 align(@alignOf(TokenOwner)) = undefined;
@@ -3634,7 +3647,7 @@ fn ownerSidMatchesCurrentToken(owner: *const anyopaque) bool {
         return false;
     }
     const token_owner: *const TokenOwner = @ptrCast(@alignCast(&owner_buffer));
-    return IsValidSid(token_owner.owner) != 0 and EqualSid(owner, token_owner.owner) != 0;
+    return ownerSidMatchesCandidates(owner, token_user.user.sid, token_owner.owner);
 }
 
 fn applyOwnerOnlyAcl(
@@ -4157,7 +4170,7 @@ test "ACL verifier policy requires DACL protection" {
     try std.testing.expect(aclControlIsProtected(se_dacl_protected));
 }
 
-test "Windows cache owner predicate rejects a known group SID" {
+test "Windows cache owner predicate rejects an unrelated group SID" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
     var sid_buffer: [128]u8 align(@alignOf(usize)) = undefined;
     var sid_size: u32 = sid_buffer.len;
@@ -4169,7 +4182,56 @@ test "Windows cache owner predicate rejects a known group SID" {
     ) == 0) {
         return error.GroupSidCreationFailed;
     }
-    try std.testing.expect(!ownerSidMatchesCurrentToken(@ptrCast(&sid_buffer)));
+    if (!ownerSidMatchesCurrentToken(@ptrCast(&sid_buffer))) return;
+
+    // The effective owner can legally be BUILTIN\Users on a hardened token.
+    // In that case choose the other well-known group as the unrelated control
+    // instead of asserting a premise about the host token configuration.
+    var alternate_sid: [128]u8 align(@alignOf(usize)) = undefined;
+    var alternate_size: u32 = alternate_sid.len;
+    if (CreateWellKnownSid(
+        win_builtin_administrators_sid,
+        null,
+        &alternate_sid,
+        &alternate_size,
+    ) == 0) {
+        return error.GroupSidCreationFailed;
+    }
+    try std.testing.expect(!ownerSidMatchesCurrentToken(@ptrCast(&alternate_sid)));
+}
+
+test "Windows cache owner predicate accepts an exact effective TokenOwner SID" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var user_sid: [128]u8 align(@alignOf(usize)) = undefined;
+    var user_size: u32 = user_sid.len;
+    if (CreateWellKnownSid(
+        win_builtin_users_sid,
+        null,
+        &user_sid,
+        &user_size,
+    ) == 0) {
+        return error.GroupSidCreationFailed;
+    }
+    var owner_sid: [128]u8 align(@alignOf(usize)) = undefined;
+    var owner_size: u32 = owner_sid.len;
+    if (CreateWellKnownSid(
+        win_builtin_administrators_sid,
+        null,
+        &owner_sid,
+        &owner_size,
+    ) == 0) {
+        return error.GroupSidCreationFailed;
+    }
+    try std.testing.expect(ownerSidMatchesCandidates(
+        @ptrCast(&owner_sid),
+        @ptrCast(&user_sid),
+        @ptrCast(&owner_sid),
+    ));
+    try std.testing.expect(!ownerSidMatchesCandidates(
+        @ptrCast(&owner_sid),
+        @ptrCast(&user_sid),
+        @ptrCast(&user_sid),
+    ));
 }
 
 test "Windows ACL verifier rejects additional trustees" {

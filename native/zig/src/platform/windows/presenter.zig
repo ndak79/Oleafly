@@ -17,10 +17,12 @@
 //! dirty or invalidate uncertain coverage. Flip-discard always redraws fully.
 //!
 //! Last-valid-frame records are logical identity only, not retained GPU pixels.
-//! Preserving actual DWM-visible content, resource lifetime/COM order, thread
-//! ownership, wait handles, HRESULT mapping, DPI messages, WARP creation, ETW,
-//! and authoritative output capture require a later native binding and runtime
-//! evidence. These tests cannot close native presentation/capture acceptance.
+//! Preserving actual DWM-visible content, render-target lifetime/COM order,
+//! thread ownership, HRESULT/device-loss mapping, DPI messages, ETW, and
+//! authoritative output capture require later native rendering/capture
+//! bindings and runtime evidence. The native adapter owns the DXGI waitable
+//! handle and D3D11/WARP device boundary; these pure-model tests cannot close
+//! native presentation/capture acceptance.
 
 const std = @import("std");
 

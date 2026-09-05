@@ -286,6 +286,34 @@ pub fn build(b: *std.Build) void {
     graphics_check_step.dependOn(&graphics_tests.step);
     t0_2c_models_test.dependOn(&run_graphics_tests.step);
     t0_2c_models_check.dependOn(&graphics_tests.step);
+    const presenter_native_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/presenter_native.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    presenter_native_module.addImport("windows_api", windows_api_module);
+    presenter_native_module.addImport("graphics", graphics_module);
+    const presenter_native_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/presenter_native_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    presenter_native_tests.root_module.addImport("presenter_native", presenter_native_module);
+    presenter_native_tests.root_module.addImport("windows_api", windows_api_module);
+    presenter_native_tests.root_module.addImport("graphics", graphics_module);
+    if (target.result.os.tag == .windows) {
+        inline for (.{ "d3d11", "dxgi", "user32", "kernel32" }) |library| presenter_native_module.linkSystemLibrary(library, .{});
+        inline for (.{ "user32", "kernel32" }) |library| presenter_native_tests.root_module.linkSystemLibrary(library, .{});
+    }
+    const run_presenter_native_tests = b.addRunArtifact(presenter_native_tests);
+    const presenter_native_test_step = b.step("t0-2c-presenter-native-test", "Run the native waitable swap-chain binding tests");
+    presenter_native_test_step.dependOn(&run_presenter_native_tests.step);
+    const presenter_native_check_step = b.step("t0-2c-presenter-native-check", "Compile the native waitable swap-chain binding");
+    presenter_native_check_step.dependOn(&presenter_native_tests.step);
+    t0_2c_models_test.dependOn(&run_presenter_native_tests.step);
+    t0_2c_models_check.dependOn(&presenter_native_tests.step);
     const ui_entry_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/platform/windows/ui_entry.zig"),
         .target = target,

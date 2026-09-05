@@ -79,9 +79,9 @@ jobs:
           $depsRoot = Join-Path $env:USERPROFILE "TExFlow-native-deps"
           New-Item -ItemType Directory -Force -Path $depsRoot | Out-Null
           # Elevated hosted-runner tokens can stamp a new directory with the
-          # Administrators group as owner. The cache verifier intentionally
-          # requires the current token user, so normalize ownership before the
-          # Zig ACL boundary runs.
+          # Administrators group as owner. The cache verifier accepts only the
+          # current token user or the exact effective TokenOwner SID, so
+          # normalize ownership before the Zig ACL boundary runs.
           $owner = "${env:USERDOMAIN}\${env:USERNAME}"
           icacls $depsRoot /setowner $owner | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Unable to set native dependency cache owner to $owner" }
@@ -98,6 +98,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
           zig fmt --check build.zig build.zig.zon native/zig
           $translated = Join-Path $env:RUNNER_TEMP "texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h | Out-File -FilePath $translated -Encoding utf8
@@ -132,7 +133,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-1-smoke --summary all
 
-      - name: Run TExFlow resource, native shell, and product gates
+      - name: Run TExFlow resource, graphics, presenter, native shell, and product gates
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -146,6 +147,9 @@ jobs:
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-graphics-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-graphics-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-graphics-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-presenter-native-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-presenter-native-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-presenter-native-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-shell-native-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-shell-native-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-shell-native-test --summary all
@@ -228,6 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
           zig fmt --check build.zig build.zig.zon native/zig
           translated="$RUNNER_TEMP/texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h > "$translated"
@@ -259,7 +264,7 @@ jobs:
           set -euo pipefail
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-1-smoke --summary all
 
-      - name: Run portable TExFlow resource and model gates
+      - name: Run portable TExFlow resource, presenter-compile, and model gates
         shell: bash
         run: |
           set -euo pipefail
@@ -272,6 +277,9 @@ jobs:
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-graphics-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-graphics-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-graphics-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-presenter-native-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-presenter-native-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-presenter-native-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-models-test --summary all
 
       - name: Prove two clean ReleaseSafe Linux install graphs are empty

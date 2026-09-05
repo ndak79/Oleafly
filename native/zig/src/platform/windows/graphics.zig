@@ -1,10 +1,10 @@
 //! Native graphics admission surface for the TExFlow UI.
 //!
-//! This first native slice deliberately stops at the device boundary and the
-//! immutable HWND swap-chain descriptor.  It creates a real D3D11 device on
-//! Windows (hardware first, WARP fallback) and owns the COM releases.  The
-//! presenter state machine remains the policy oracle until a later slice can
-//! bind an HWND swap chain, D2D/DWrite targets, and a waitable frame handle.
+//! This device-admission module owns the real D3D11 device on Windows
+//! (hardware first, WARP fallback) and its COM releases.  The separate
+//! `presenter_native.zig` adapter binds the admitted HWND swap-chain
+//! descriptor and waitable frame handle; render targets, D2D/DWrite
+//! composition, and device-loss recovery remain later native slices.
 const builtin = @import("builtin");
 const api = @import("windows_api");
 
