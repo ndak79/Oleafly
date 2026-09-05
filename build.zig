@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
+    const host_target = b.graph.host;
     // Zig 0.16's preferred_optimize_mode intentionally maps every release
     // request to the preferred mode, so it cannot expose a real ReleaseFast
     // comparison lane. Resolve the explicit enum option first, then map the
@@ -17,7 +18,7 @@ pub fn build(b: *std.Build) void {
     };
 
     const executable = b.addExecutable(.{
-        .name = "oleafly-t0.1",
+        .name = "texflow",
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/src/main.zig"),
             .target = target,
@@ -42,7 +43,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(abi_library);
 
     const run_executable = b.addRunArtifact(executable);
-    const run_step = b.step("run", "Run the T0.1 executable");
+    const run_step = b.step("run", "Run the TExFlow executable");
     run_step.dependOn(&run_executable.step);
 
     const abi_tests = b.addTest(.{
@@ -87,4 +88,458 @@ pub fn build(b: *std.Build) void {
 
     const simd_step = b.step("simd-corpus", "Run deterministic SIMD answers");
     simd_step.dependOn(&run_simd_tests.step);
+
+    const deps_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/deps.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const deps_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/deps.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    const deps_tool = b.addExecutable(.{
+        .name = "texflow-deps",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/deps.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    const audit_ucd = b.addRunArtifact(deps_tool);
+    audit_ucd.addArg("audit-ucd");
+    const audit_pdfium_evidence = b.addRunArtifact(deps_tool);
+    audit_pdfium_evidence.addArg("audit-evidence");
+    const deps_manifest_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/deps_manifest_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    deps_manifest_tests.root_module.addImport("deps", deps_module);
+    const package_contract = b.addOptions();
+    package_contract.addOption([]const u8, "notice", @embedFile("NOTICE"));
+    package_contract.addOption([]const u8, "zon", @embedFile("build.zig.zon"));
+    package_contract.addOption(
+        []const u8,
+        "development_guide",
+        @embedFile("docs/development.md"),
+    );
+    deps_manifest_tests.root_module.addOptions("package_contract", package_contract);
+    const run_deps_manifest_tests = b.addRunArtifact(deps_manifest_tests);
+
+    const archive_security_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    archive_security_tests.root_module.addImport("deps", deps_module);
+    const portable_collision_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/tests/portable_collision.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    archive_security_tests.root_module.addImport("unicode", portable_collision_module);
+    const run_archive_security_tests = b.addRunArtifact(archive_security_tests);
+
+    const attestation_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/attestation_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    attestation_tests.root_module.addImport("deps", deps_module);
+    const run_attestation_tests = b.addRunArtifact(attestation_tests);
+
+    const unicode_generator_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/unicode_gen.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    const run_unicode_generator_tests = b.addRunArtifact(unicode_generator_tests);
+
+    const unicode_generator = b.addExecutable(.{
+        .name = "texflow-unicode-gen",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/unicode_gen.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    const ascii_collision_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/ascii_collision.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    ascii_collision_module.addImport("deps", deps_host_module);
+    const deps_fetch_bootstrap = b.addExecutable(.{
+        .name = "texflow-deps-bootstrap",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/deps_fetch.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    deps_fetch_bootstrap.root_module.addImport("deps", deps_host_module);
+    deps_fetch_bootstrap.root_module.addImport("collision", ascii_collision_module);
+    if (host_target.result.os.tag == .windows) {
+        deps_fetch_bootstrap.root_module.linkSystemLibrary("advapi32", .{});
+    }
+    const run_deps_fetch_bootstrap = b.addRunArtifact(deps_fetch_bootstrap);
+    run_deps_fetch_bootstrap.addArgs(&.{
+        "bootstrap",
+        "tools/zig/.cache/native-deps",
+    });
+
+    // Fetch may create the UCD generation, but every consumer receives an
+    // independently materialized, rehashed build-cache snapshot. A distinct
+    // read-only export is used by audit so `zig build deps-audit` never gains a
+    // dependency on the mutating bootstrap step.
+    const export_ucd_for_fetch = b.addRunArtifact(deps_fetch_bootstrap);
+    export_ucd_for_fetch.addArgs(&.{ "export-ucd", "tools/zig/.cache/native-deps" });
+    const ucd_export_for_fetch = export_ucd_for_fetch.addOutputDirectoryArg(
+        "unicode-ucd-fetch-snapshot",
+    );
+    export_ucd_for_fetch.step.dependOn(&run_deps_fetch_bootstrap.step);
+    const ucd_root_for_fetch = ucd_export_for_fetch.path(b, "payload");
+
+    const export_ucd_for_audit = b.addRunArtifact(deps_fetch_bootstrap);
+    export_ucd_for_audit.addArgs(&.{ "export-ucd", "tools/zig/.cache/native-deps" });
+    const ucd_export_for_audit = export_ucd_for_audit.addOutputDirectoryArg(
+        "unicode-ucd-audit-snapshot",
+    );
+    const ucd_root_for_audit = ucd_export_for_audit.path(b, "payload");
+    audit_ucd.addFileArg(ucd_export_for_audit.path(b, "archive.bin"));
+
+    const generate_unicode_for_fetch = b.addRunArtifact(unicode_generator);
+    generate_unicode_for_fetch.addArg("generate");
+    generate_unicode_for_fetch.addDirectoryArg(ucd_root_for_fetch);
+    const generated_unicode_for_fetch = generate_unicode_for_fetch.addOutputFileArg(
+        "unicode-data-fetch.zig",
+    );
+
+    const generate_unicode_a = b.addRunArtifact(unicode_generator);
+    generate_unicode_a.addArg("generate");
+    generate_unicode_a.addDirectoryArg(ucd_root_for_audit);
+    const generated_unicode_a = generate_unicode_a.addOutputFileArg("unicode-data-a.zig");
+    const generate_unicode_b = b.addRunArtifact(unicode_generator);
+    generate_unicode_b.addArg("generate");
+    generate_unicode_b.addDirectoryArg(ucd_root_for_audit);
+    const generated_unicode_b = generate_unicode_b.addOutputFileArg("unicode-data-b.zig");
+    const compare_unicode = b.addRunArtifact(unicode_generator);
+    compare_unicode.addArg("compare");
+    compare_unicode.addFileArg(generated_unicode_a);
+    compare_unicode.addFileArg(generated_unicode_b);
+    _ = compare_unicode.addOutputFileArg("unicode-receipt.txt");
+
+    const unicode_data_module = b.createModule(.{
+        .root_source_file = generated_unicode_a,
+        .target = target,
+        .optimize = optimize,
+    });
+    const unicode_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/text/unicode.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    unicode_module.addImport("unicode_data", unicode_data_module);
+    const unicode_archive_security_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    unicode_archive_security_tests.root_module.addImport("deps", deps_module);
+    unicode_archive_security_tests.root_module.addImport("unicode", unicode_module);
+    const run_unicode_archive_security_tests = b.addRunArtifact(
+        unicode_archive_security_tests,
+    );
+
+    const unicode_fetch_data_module = b.createModule(.{
+        .root_source_file = generated_unicode_for_fetch,
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    const unicode_fetch_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/text/unicode.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    unicode_fetch_module.addImport("unicode_data", unicode_fetch_data_module);
+    const ucd_contract_for_fetch = b.addOptions();
+    ucd_contract_for_fetch.addOptionPath("root", ucd_root_for_fetch);
+    const unicode_fetch_conformance_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/unicode_data_test.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    unicode_fetch_conformance_tests.root_module.addImport("deps", deps_host_module);
+    unicode_fetch_conformance_tests.root_module.addImport("unicode", unicode_fetch_module);
+    unicode_fetch_conformance_tests.root_module.addImport(
+        "unicode_data",
+        unicode_fetch_data_module,
+    );
+    unicode_fetch_conformance_tests.root_module.addOptions(
+        "ucd_contract",
+        ucd_contract_for_fetch,
+    );
+    const run_unicode_fetch_conformance_tests = b.addRunArtifact(
+        unicode_fetch_conformance_tests,
+    );
+    const deps_fetch_tool = b.addExecutable(.{
+        .name = "texflow-deps-fetch",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/deps_fetch.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    deps_fetch_tool.root_module.addImport("deps", deps_host_module);
+    deps_fetch_tool.root_module.addImport("collision", unicode_fetch_module);
+    if (host_target.result.os.tag == .windows) {
+        deps_fetch_tool.root_module.linkSystemLibrary("advapi32", .{});
+    }
+    const run_deps_fetch = b.addRunArtifact(deps_fetch_tool);
+    run_deps_fetch.addArgs(&.{ "all", "tools/zig/.cache/native-deps" });
+    // The Unicode collision implementation is trusted for artifact two and
+    // later only after all pinned official conformance vectors pass.
+    run_deps_fetch.step.dependOn(&run_unicode_fetch_conformance_tests.step);
+
+    const unicode_audit_host_data_module = b.createModule(.{
+        .root_source_file = generated_unicode_a,
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    const unicode_audit_host_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/text/unicode.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    unicode_audit_host_module.addImport("unicode_data", unicode_audit_host_data_module);
+    const deps_cache_audit_tool = b.addExecutable(.{
+        .name = "texflow-deps-cache-audit",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/deps_fetch.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    deps_cache_audit_tool.root_module.addImport("deps", deps_host_module);
+    deps_cache_audit_tool.root_module.addImport("collision", unicode_audit_host_module);
+    if (host_target.result.os.tag == .windows) {
+        deps_cache_audit_tool.root_module.linkSystemLibrary("advapi32", .{});
+    }
+    const run_deps_cache_audit = b.addRunArtifact(deps_cache_audit_tool);
+    run_deps_cache_audit.addArgs(&.{ "audit", "tools/zig/.cache/native-deps" });
+
+    const export_zigwin32 = b.addRunArtifact(deps_cache_audit_tool);
+    export_zigwin32.addArgs(&.{ "export-zigwin32", "tools/zig/.cache/native-deps" });
+    const zigwin32_export = export_zigwin32.addOutputDirectoryArg("zigwin32-snapshot");
+    const zigwin32_cache_module = b.createModule(.{
+        .root_source_file = zigwin32_export.path(
+            b,
+            "zigwin32-9f15c276b4e9d05afd34a10d8662a7dfc34647ea/win32.zig",
+        ),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+
+    const export_attestation_inputs = b.addRunArtifact(deps_cache_audit_tool);
+    export_attestation_inputs.addArgs(&.{
+        "export-attestation-inputs",
+        "tools/zig/.cache/native-deps",
+    });
+    const attestation_inputs = AbsoluteAuditInputs.create(
+        b,
+        export_attestation_inputs.addOutputDirectoryArg("attestation-inputs"),
+    );
+
+    const attestation_audit_tool = b.addExecutable(.{
+        .name = "texflow-attestation-audit",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/attestation_verify.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    attestation_audit_tool.root_module.addImport("deps", deps_host_module);
+    const run_attestation_audit = b.addRunArtifact(attestation_audit_tool);
+    run_attestation_audit.addArg("verify");
+    run_attestation_audit.addDirectoryArg(attestation_inputs);
+    run_attestation_audit.addFileArg(attestation_inputs.path(b, "github-cli/payload/bin/gh.exe"));
+    run_attestation_audit.addFileArg(attestation_inputs.path(b, "pdfium-reference/archive.bin"));
+    run_attestation_audit.addFileArg(
+        b.path("tools/zig/attestations/pdfium-chromium-8035-win-x64.jsonl"),
+    );
+    run_attestation_audit.addFileArg(
+        b.path("tools/zig/attestations/github-attestation-trusted-root-2026-09-04.jsonl"),
+    );
+    run_attestation_audit.step.dependOn(&run_deps_cache_audit.step);
+
+    const deps_fetch_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/deps_fetch.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    deps_fetch_tests.root_module.addImport("deps", deps_host_module);
+    deps_fetch_tests.root_module.addImport("collision", ascii_collision_module);
+    if (host_target.result.os.tag == .windows) {
+        deps_fetch_tests.root_module.linkSystemLibrary("advapi32", .{});
+    }
+    const run_deps_fetch_tests = b.addRunArtifact(deps_fetch_tests);
+    const deps_fetch_fixture_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/deps_fetch.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    deps_fetch_fixture_module.addImport("deps", deps_host_module);
+    deps_fetch_fixture_module.addImport("collision", ascii_collision_module);
+    const deps_fetch_fixture_worker = b.addExecutable(.{
+        .name = "texflow-deps-fetch-fixture-worker",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/deps_fetch_fixture_worker.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    deps_fetch_fixture_worker.root_module.addImport("deps", deps_host_module);
+    deps_fetch_fixture_worker.root_module.addImport("deps_fetch", deps_fetch_fixture_module);
+    if (host_target.result.os.tag == .windows) {
+        deps_fetch_fixture_worker.root_module.linkSystemLibrary("advapi32", .{});
+    }
+    const fixture_options = b.addOptions();
+    fixture_options.addOptionPath("worker_path", deps_fetch_fixture_worker.getEmittedBin());
+    const deps_fetch_integration_tests = b.addTest(.{
+        .filters = if (b.option([]const u8, "deps-fetch-test-filter", "Run only dependency cache integration tests matching this text")) |filter| &.{filter} else &.{},
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/deps_fetch_integration_test.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    deps_fetch_integration_tests.root_module.addImport("deps", deps_host_module);
+    deps_fetch_integration_tests.root_module.addImport("deps_fetch", deps_fetch_fixture_module);
+    deps_fetch_integration_tests.root_module.addOptions("fixture_options", fixture_options);
+    if (host_target.result.os.tag == .windows) {
+        deps_fetch_integration_tests.root_module.linkSystemLibrary("advapi32", .{});
+    }
+    const run_deps_fetch_integration_tests = b.addRunArtifact(deps_fetch_integration_tests);
+    const deps_fetch_integration_test_step = b.step(
+        "deps-fetch-integration-test",
+        "Run deterministic dependency cache process integration tests",
+    );
+    deps_fetch_integration_test_step.dependOn(&run_deps_fetch_integration_tests.step);
+    const attestation_audit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/attestation_verify.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    attestation_audit_tests.root_module.addImport("deps", deps_host_module);
+    const run_attestation_audit_tests = b.addRunArtifact(attestation_audit_tests);
+    const zigwin32_cache_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/zigwin32_cache_test.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    zigwin32_cache_tests.root_module.addImport("zigwin32", zigwin32_cache_module);
+    // The generated LazyPath makes export and its locked verification a hard
+    // prerequisite; the compiler never imports from the dependency cache.
+    const run_zigwin32_cache_tests = b.addRunArtifact(zigwin32_cache_tests);
+    const unicode_data_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/unicode_data_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    unicode_data_tests.root_module.addImport("unicode", unicode_module);
+    unicode_data_tests.root_module.addImport("unicode_data", unicode_data_module);
+    unicode_data_tests.root_module.addImport("deps", deps_module);
+    const ucd_contract_for_audit = b.addOptions();
+    ucd_contract_for_audit.addOptionPath("root", ucd_root_for_audit);
+    unicode_data_tests.root_module.addOptions("ucd_contract", ucd_contract_for_audit);
+    const run_unicode_data_tests = b.addRunArtifact(unicode_data_tests);
+
+    const deps_test_step = b.step("deps-test", "Run native dependency manifest and acquisition tests");
+    deps_test_step.dependOn(&run_deps_manifest_tests.step);
+    deps_test_step.dependOn(&run_archive_security_tests.step);
+    deps_test_step.dependOn(&run_attestation_tests.step);
+    deps_test_step.dependOn(&run_unicode_generator_tests.step);
+    deps_test_step.dependOn(&run_deps_fetch_tests.step);
+    deps_test_step.dependOn(&run_deps_fetch_integration_tests.step);
+    deps_test_step.dependOn(&run_attestation_audit_tests.step);
+
+    const deps_fetch_step = b.step(
+        "deps-fetch",
+        "Acquire locked native dependencies into the verified local cache",
+    );
+    deps_fetch_step.dependOn(&run_deps_fetch.step);
+
+    const unicode_audit_step = b.step(
+        "unicode-audit",
+        "Regenerate and verify deterministic Unicode 17 tables and conformance",
+    );
+    unicode_audit_step.dependOn(&compare_unicode.step);
+    unicode_audit_step.dependOn(&run_unicode_data_tests.step);
+    unicode_audit_step.dependOn(&run_unicode_archive_security_tests.step);
+
+    const deps_audit_step = b.step(
+        "deps-audit",
+        "Audit locked archives, Unicode tables, and offline attestation evidence",
+    );
+    deps_audit_step.dependOn(&audit_ucd.step);
+    deps_audit_step.dependOn(&audit_pdfium_evidence.step);
+    deps_audit_step.dependOn(&run_deps_cache_audit.step);
+    deps_audit_step.dependOn(&run_attestation_audit.step);
+    deps_audit_step.dependOn(&run_zigwin32_cache_tests.step);
+    deps_audit_step.dependOn(unicode_audit_step);
 }
+
+// Generated Run outputs may be relative to the build runner's CWD. Resolve the
+// audit snapshot only after its export finishes, retaining the LazyPath edge
+// while satisfying the verifier's strict absolute-input contract.
+const AbsoluteAuditInputs = struct {
+    step: std.Build.Step,
+    input: std.Build.LazyPath,
+    output: std.Build.GeneratedFile,
+
+    fn create(b: *std.Build, input: std.Build.LazyPath) std.Build.LazyPath {
+        const adapter = b.allocator.create(AbsoluteAuditInputs) catch @panic("OOM");
+        adapter.* = .{
+            .step = .init(.{
+                .id = .custom,
+                .name = "resolve absolute attestation inputs",
+                .owner = b,
+                .makeFn = make,
+            }),
+            .input = input.dupe(b),
+            .output = .{ .step = &adapter.step },
+        };
+        input.addStepDependencies(&adapter.step);
+        return .{ .generated = .{ .file = &adapter.output } };
+    }
+
+    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
+        const adapter: *AbsoluteAuditInputs = @fieldParentPtr("step", step);
+        const b = step.owner;
+        const input_path = try adapter.input.getPath4(b, step);
+        const path = try input_path.toString(b.allocator);
+        adapter.output.path = b.pathResolve(&.{ b.graph.cache.cwd, path });
+    }
+};

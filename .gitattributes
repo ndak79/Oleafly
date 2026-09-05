@@ -19,3 +19,10 @@
 *.zig text eol=lf
 *.zon text eol=lf
 tools/zig/toolchain.json text eol=lf
+tools/zig/native-deps.json text eol=lf
+# Attestation JSONL is evidence, not source: preserve the exact upstream bytes
+# (including the locked trusted-root line endings) across Windows checkouts.
+tools/zig/attestations/*.jsonl binary
+tools/zig/attestations/*.snappy binary
+NOTICE text eol=lf
+docs/development.md text eol=lf

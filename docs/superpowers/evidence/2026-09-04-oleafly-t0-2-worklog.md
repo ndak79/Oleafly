@@ -1,0 +1,134 @@
+# TExFlow T0.2 Worklog
+
+This tracked file is an append-only operational log for the sequential T0.2
+slices. The `oleafly` segment in its filename is a historical repository
+locator; the product and new native graph are named TExFlow. Entries distinguish
+observed evidence from claims that remain unverified. Raw and generated evidence
+stays in ignored local output directories or approved durable stores; this log
+records digests and locations rather than embedding binary output.
+
+## T0.2a: lock and acquire native sources safely
+
+### Interim observed command evidence
+
+The active T0.2a implementation lane reported the first three build results
+from the current working tree on 2026-09-04; this documentation slice did not
+retain a separate raw transcript for them. The remaining manifest and ignore
+checks were run directly in this slice. All rows are observed command summaries,
+not final acceptance or a clean-streak pass.
+
+| Command | Observed result | Interpretation |
+| --- | --- | --- |
+| `zig build deps-fetch --summary all` | Exit 0; `7/7` summary; every ordinary locked artifact reported acquired. | The explicit ordinary acquisition path completed and activated verified local cache entries. It does not prove later replay was network-isolated. |
+| `zig build deps-test --summary all` | Exit 0; `54/54` tests passed. | The current portable lock, fetcher, archive-security, Unicode-generator, and attestation test portfolio passed this run. |
+| `zig build deps-audit --summary all` | Exit 0; `15/15` summary. The PDFium bundle contained 45 subjects and exactly 1 matched the locked archive. The external verifier reported GitHub CLI 2.100.0. | The current cache, Unicode inputs, committed bundle/root, and locked external verifier passed the aggregate audit. The verifier's fail-fast proxy configuration is not detached-NIC evidence. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build --help` after renaming the package to `.texflow` | Initial exit 1 rejected the legacy fingerprint and supplied `0x675417cd87a146a4` as the required fingerprint for the renamed package. | The manifest fingerprint is part of package identity. The tool-derived replacement was applied; this failed probe is not a product-test failure and does not count toward a streak. |
+| Fresh pinned-Zig `build --help` rerun with `.texflow` and fingerprint `0x675417cd87a146a4` | Exit 0; the build graph listed `deps-fetch`, `deps-test`, `unicode-audit`, and `deps-audit`. | The renamed package manifest and its source-path allowlist parse successfully under Zig 0.16.0. |
+| Pinned-Zig `build --fetch=all` and a manifest path scan | Exit 0; all 17 declared paths existed and zero declared paths named a dependency cache, Zig cache, install output, or raw/generated evidence directory. | The source package includes the current T0.2a tools, tests, lock, attestations, and developer/ADR inputs without admitting generated caches. |
+| `git check-ignore -v` plus `git ls-files` for local T0.2a outputs | Exit 0; `/.superpowers/`, `tools/zig/.cache/`, and the generated/raw evidence directories matched ignore rules; no file below those probes was tracked. | Local agent state, dependency/cache payloads, and raw/generated evidence stay outside the tracked source set. |
+
+`deps-audit` includes the Unicode audit dependency in this aggregate run. A
+separate standalone `zig build unicode-audit --summary all` transcript has not
+yet been recorded here.
+
+### Claims and limitations
+
+- `deps-fetch` is the sole ordinary dependency-download step. Normal build,
+  test, `deps-test`, `unicode-audit`, and `deps-audit` paths are required to use
+  only locked tracked inputs and owner-only local caches. The separately gated
+  PDFium reconstruction lane is exceptional and outside T0.2a's ordinary path.
+- The cached `gh.exe` 2.100.0, committed PDFium bundle, and committed dated
+  trusted root are verified as exact locked inputs before and after the
+  external `gh attestation verify` process. The audit uses explicit paths and a
+  scrubbed empty profile rather than `PATH`, user configuration, credentials,
+  or an ambient trust cache.
+- The PDFium attestation proves that the locked archive digest was emitted by
+  the named community GitHub workflow and builder commit. It does not prove an
+  independent source reconstruction from the official PDFium commit. The
+  contained community DLL is unsigned reference evidence, not an admitted or
+  shipping TExFlow runtime. Other unsigned upstream archives likewise have
+  integrity/inventory locks, not blanket publisher authentication.
+- Build-generated Unicode tables and receipts, downloaded archives, extracted
+  dependency payloads, test/audit executables, and raw evidence are cache-only.
+  They are ignored and must not be committed or included in a product package.
+
+### Explicitly unverified and incomplete evidence
+
+- No authorized sealed Windows VM with its virtual NIC detached, and no
+  authorized Linux container/network namespace with network mode `none`, has a
+  recorded isolation receipt for this run. Status:
+  `UNVERIFIED-NETWORK-ISOLATION`.
+- The `network=proxy-denied` verifier result demonstrates scrubbed environment
+  and fail-fast proxy settings only. It does not prove the host lacked another
+  usable route and is not an offline-pass claim.
+- The standalone `unicode-audit` summary/exit-code transcript, fresh-profile
+  and cache identities, a dedicated real-filesystem read-only-cache receipt,
+  raw-log locations and digests, final source commit and tree, remote CI
+  run/job IDs, and durable evidence-copy receipts are not yet recorded.
+- No final closed-coverage review or post-repair quality streak has been
+  completed. The three command results above are interim only and count as zero
+  final streak passes.
+- PDFium independent source reconstruction, admitted-runtime equivalence, and
+  protected signed shipping qualification belong to later gates and remain
+  unverified by T0.2a.
+
+### Findings and streak state
+
+- Package-identity transition: pinned Zig 0.16.0 correctly rejected the legacy
+  `.oleafly` fingerprint after the `.texflow` rename. The manifest now uses the
+  exact replacement fingerprint emitted by the pinned tool. A successful
+  validation rerun is required before this entry is closed.
+- Package-identity transition closure: the immediate pinned-Zig rerun exited 0;
+  this manifest-only finding is closed and does not create a streak pass.
+- Medium-or-higher findings: final review not yet performed; no closure claim.
+- Retries/flakes: no raw transcript was provided to this documentation slice,
+  so retry and flake status remains unverified rather than inferred from the
+  passing summaries.
+- Interim streak state: `0` final closed-coverage passes.
+
+## T0.2a final closure evidence (2026-09-05)
+
+The final QA pass deliberately exercised the two portability defects found
+during review before closure. First, the GitHub CLI timestamp parser rejected
+the same Sigstore instant on non-Bangkok hosts; the parser now accepts only a
+strict whole-second RFC3339 value (`Z` or a known `+/-HH:MM` offset), converts it
+to UTC, and compares it with the locked bundle `integratedTime`. Second, the
+attestation preflight treated the entire `%TEMP%` parent as overlapping a
+generated cache descendant; it now canonicalizes the random profile candidate
+(`parent + validated basename`) and checks that candidate against each locked
+input, preserving true overlap and collision rejection while allowing a sibling
+cache under `%TEMP%`.
+
+| Command / review | Observed result | Interpretation |
+| --- | --- | --- |
+| `zig build -j1 deps-test --summary all` | Exit 0; `18/18` steps; `149/149` tests passed. | Final dependency lock, parser, archive, Unicode, ACL, cache, and process-integration portfolio is green. |
+| `zig build -j1 deps-fetch-integration-test --summary all` | Exit 0; `5/5` steps; `19/19` tests passed. | Crash/recovery, cache publication, ACL, transport, bounded-resource, and fixture process scenarios passed. |
+| `zig build -j1 test --summary all` | Exit 0; `9/9` steps; `6/6` tests passed. | Existing portable ABI/native smoke tests remain green. |
+| `zig build -j1 unicode-audit --summary all` | Exit 0; `12/12` steps; `44/44` tests passed. | Deterministic Unicode generation and audit remain green after the final changes. |
+| `zig build -j1 deps-audit --summary all` | Exit 0; `25/25` steps; `45/45` tests passed; `subjects=45 matching=1 cli=2.100.0 negative=10`; `network-isolation=unverified`. | Default-cache audit passed with locked bundle/root, real `gh.exe`, strict metadata, and all negative cases. |
+| `zig build -j1 --cache-dir <absolute path under %TEMP%> deps-audit --summary all` | Two consecutive exit-0 runs; each `25/25` steps and `45/45` tests with the same real positive/10-negative attestation result. | Explicit absolute-cache and TEMP-ancestor path contract is now verified. |
+| `zig build -j1 --release=safe run --summary all` | Exit 0; `texflow toolchain ok`; `3/3` steps. | TExFlow executable naming and release smoke path are green. |
+| `zig fmt --check build.zig build.zig.zon native/zig tools/zig` and `git diff --check` | Exit 0; only Git LF/CRLF normalization notices. | Formatting and whitespace gate is clean. |
+| Fresh gpt-6 reviewer pass | No actionable Medium+ findings; quality streak `1`. | Candidate-path overlap, timestamp portability, Windows pinning, ACL/recovery/publication, transport, CI, and TExFlow naming reviewed clean. |
+
+The observed red-to-green regressions were: (1) equivalent UTC timestamp
+before the RFC3339 instant fix, and (2) absolute `%TEMP%` cache before the
+candidate-path preflight fix. No temporary audit profiles or falsification
+files remain. The browser lane is not applicable to this native-only T0.2a
+slice; native Windows command evidence is the acceptance oracle here.
+
+### Final limitations
+
+- No authorized detached-NIC Windows VM or network-namespace `none` run was
+  available, so network isolation remains `UNVERIFIED-NETWORK-ISOLATION`.
+- Remote GitHub Actions job IDs and a fresh-clone receipt are not yet recorded
+  in this worklog; those are post-commit/repository-delivery checks.
+- PDFium source reconstruction, admitted runtime equivalence, and signed
+  shipping qualification remain later T0.2/T1 gates.
+
+### Final streak state
+
+- Medium-or-higher findings in the final review: none.
+- Retries/flakes: no failed retry was promoted to evidence; all final commands
+  listed above completed successfully.
+- Closed-coverage quality streak: `1` (the user-selected streak policy).

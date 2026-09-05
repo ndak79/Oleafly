@@ -106,24 +106,24 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           zig build -Dtarget=x86_64-windows-msvc --release=safe --summary all
-          $output = (& .\zig-out\bin\oleafly-t0.1.exe 2>&1 | Out-String).Trim()
-          if ($output -ne "oleafly-t0.1 toolchain ok") { throw "unexpected smoke output: $output" }
+          $output = (& .\zig-out\bin\texflow.exe 2>&1 | Out-String).Trim()
+          if ($output -ne "texflow toolchain ok") { throw "unexpected smoke output: $output" }
 
       - name: Prove two clean ReleaseSafe hashes
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          $outA = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-out-a"
-          $outB = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-out-b"
-          $cacheA = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-cache-a"
-          $cacheB = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-cache-b"
-          $globalA = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-global-a"
-          $globalB = Join-Path $env:RUNNER_TEMP "oleafly-t0.1-global-b"
+          $outA = Join-Path $env:RUNNER_TEMP "texflow-out-a"
+          $outB = Join-Path $env:RUNNER_TEMP "texflow-out-b"
+          $cacheA = Join-Path $env:RUNNER_TEMP "texflow-cache-a"
+          $cacheB = Join-Path $env:RUNNER_TEMP "texflow-cache-b"
+          $globalA = Join-Path $env:RUNNER_TEMP "texflow-global-a"
+          $globalB = Join-Path $env:RUNNER_TEMP "texflow-global-b"
           zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outA --cache-dir $cacheA --global-cache-dir $globalA --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outB --cache-dir $cacheB --global-cache-dir $globalB --summary all
-          $hashA = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outA "bin\oleafly-t0.1.exe")).Hash.ToLowerInvariant()
-          $hashB = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outB "bin\oleafly-t0.1.exe")).Hash.ToLowerInvariant()
+          $hashA = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outA "bin\texflow.exe")).Hash.ToLowerInvariant()
+          $hashB = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outB "bin\texflow.exe")).Hash.ToLowerInvariant()
           if ($hashA -ne $hashB) { throw "ReleaseSafe build is not reproducible: $hashA != $hashB" }
           Write-Output "ReleaseSafe SHA-256: $hashA"
 
@@ -198,21 +198,21 @@ jobs:
         run: |
           set -euo pipefail
           zig build -Dtarget=x86_64-linux-gnu --release=safe --summary all
-          test "$(./zig-out/bin/oleafly-t0.1 2>&1)" = "oleafly-t0.1 toolchain ok"
+          test "$(./zig-out/bin/texflow 2>&1)" = "texflow toolchain ok"
 
       - name: Prove two clean ReleaseSafe hashes
         shell: bash
         run: |
           set -euo pipefail
-          out_a="$RUNNER_TEMP/oleafly-t0.1-out-a"
-          out_b="$RUNNER_TEMP/oleafly-t0.1-out-b"
-          cache_a="$RUNNER_TEMP/oleafly-t0.1-cache-a"
-          cache_b="$RUNNER_TEMP/oleafly-t0.1-cache-b"
-          global_a="$RUNNER_TEMP/oleafly-t0.1-global-a"
-          global_b="$RUNNER_TEMP/oleafly-t0.1-global-b"
+          out_a="$RUNNER_TEMP/texflow-out-a"
+          out_b="$RUNNER_TEMP/texflow-out-b"
+          cache_a="$RUNNER_TEMP/texflow-cache-a"
+          cache_b="$RUNNER_TEMP/texflow-cache-b"
+          global_a="$RUNNER_TEMP/texflow-global-a"
+          global_b="$RUNNER_TEMP/texflow-global-b"
           zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_a" --cache-dir "$cache_a" --global-cache-dir "$global_a" --summary all
           zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_b" --cache-dir "$cache_b" --global-cache-dir "$global_b" --summary all
-          hash_a="$(sha256sum "$out_a/bin/oleafly-t0.1" | cut -d' ' -f1)"
-          hash_b="$(sha256sum "$out_b/bin/oleafly-t0.1" | cut -d' ' -f1)"
+          hash_a="$(sha256sum "$out_a/bin/texflow" | cut -d' ' -f1)"
+          hash_b="$(sha256sum "$out_b/bin/texflow" | cut -d' ' -f1)"
           test "$hash_a" = "$hash_b"
           echo "ReleaseSafe SHA-256: $hash_a"

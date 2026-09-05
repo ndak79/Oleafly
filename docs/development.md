@@ -1,11 +1,15 @@
 # Development
 
-What you need to work on Oleafly. The app is a [Tauri 2](https://tauri.app) project: a React + TypeScript + Vite frontend that talks over IPC to a Rust backend. Rust selects a compiler through the `DocumentEngine` interface. LaTeX and Typst use shipped CLI sidecars. Markdown uses a discovered or on-demand Pandoc executable with the shipped Tectonic executable as Pandoc's PDF engine.
+What you need to work on TExFlow. The native rewrite lives in `native/zig/` and
+uses the root Zig build. The existing Oleafly [Tauri 2](https://tauri.app)
+React, TypeScript, and Rust application remains a development oracle while the
+rewrite is staged. Its retained names describe repository lineage and legacy
+paths; the product and all new native identities are named TExFlow.
 
 ## Repo layout
 
 ```
-oleafly-desktop/
+TExFlow/
 ├── crates/
 │   ├── oleafly-core/       shared Rust project, path, and build-directory policy
 │   ├── oleafly-cli/        oleaflyc commands and native compiler adapter
@@ -44,7 +48,7 @@ covers the port pattern, the contribution registry, and the alias wiring.
 - [Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
 - Optional during setup: [pandoc](https://pandoc.org/installing.html) for Markdown PDF compilation and document export (the app can install its pinned build on demand)
 
-## Zig walking skeleton (T0.1)
+## TExFlow Zig walking skeleton (T0.1)
 
 The rewrite starts in native/zig/ while the existing Tauri/React/Rust tree
 remains a development oracle. The root build.zig and build.zig.zon are the
@@ -58,7 +62,7 @@ Linux runners.
 
 ```
 zig version
-zig fmt --check build.zig build.zig.zon native/zig
+zig fmt --check build.zig build.zig.zon native/zig tools/zig
 zig build --fetch=all
 zig build -Doptimize=Debug test --summary all
 zig build --release=safe test --summary all
@@ -70,11 +74,142 @@ zig build --release=fast simd-corpus --summary all
 zig build --release=safe run --summary all
 ```
 
-The final command prints oleafly-t0.1 toolchain ok. ReleaseSafe is the
-shipping default; ReleaseFast is used only to expose optimizer-dependent ABI,
-FNV, or SIMD known-answer regressions. The full application, native Windows UI, editor,
+The last command runs the native `texflow` executable and prints
+`texflow toolchain ok`, preserving the T0.1 smoke check under the product's
+current executable identity. ReleaseSafe is the shipping
+default; ReleaseFast is used only to expose optimizer-dependent ABI, FNV, or
+SIMD known-answer regressions. The full application, native Windows UI, editor,
 compiler workers, research ledger, and publishing pipeline remain future
 bounded slices.
+
+## Native dependency workflow (T0.2a)
+
+The T0.2a dependency lock is `tools/zig/native-deps.json`. These are the stable
+operator commands:
+
+```text
+zig build deps-fetch --summary all
+zig build deps-test --summary all
+zig build unicode-audit --summary all
+zig build deps-audit --summary all
+```
+
+`deps-fetch` is the sole ordinary command allowed to acquire native dependency
+bytes from the network. It first acquires the locked Unicode input needed for
+path-collision checks, then acquires the remaining ordinary artifacts. It does
+not install the operator-provisioned Accessibility Insights package. A future
+PDFium source-reconstruction command is a separately authorized, disposable
+machine lane and is not an alternative routine fetch path. `zig build
+--fetch=all` concerns Zig package dependencies only and must not be used as a
+substitute for `deps-fetch`.
+
+The other three commands are cache-only:
+
+- `deps-test` runs the portable manifest, downloader, archive, attestation, and
+  hostile-input tests without initializing the acquisition path.
+- `unicode-audit` regenerates the locked Unicode 17 tables twice, compares
+  exact bytes, checks the table-size bound and official conformance data, and
+  writes only Zig build-cache outputs.
+- `deps-audit` revalidates every locked cache entry and the Unicode inputs, then
+  performs the Windows PDFium provenance check using the exact cached
+  `github-cli` executable plus the committed attestation bundle and trusted
+  root. The full attestation lane is Windows-native.
+
+Treat `tools/zig/.cache/native-deps/` as one opaque cache root. New acquisitions
+are immutable generations below
+`.v2/<artifact-id>/generations/g-<24-lowercase-hex>/`; the artifact's strict
+`current` selector names the active generation. Each generation contains the
+locked `archive.bin`, extracted `payload/`, and `.complete.json` receipt. The
+fetcher may read a valid legacy `<artifact-id>/` entry when no V2 store exists
+for that artifact, but it never creates or silently migrates a legacy entry;
+once an artifact has a V2 store, V2 is authoritative. Never copy an individual
+generation, rewrite `current`, or hand-edit this layout. Generated Unicode
+modules, test executables, and audit executables live in the Zig cache selected
+by `--cache-dir` (the repository default is `.zig-cache/`). None of these
+commands installs a product or writes a dependency artifact to `zig-out/`.
+These cache and raw-evidence locations are ignored and must remain uncommitted.
+The fetcher protects the dependency cache, every retained generation, and each
+staging directory with an owner-only ACL on Windows; on POSIX hosts it creates
+private directories and files with modes `0700` and `0600`.
+
+Exclusive repair preserves a corrupted sealed generation in the artifact's
+`quarantine/` directory instead of recursively deleting immutable descendants.
+Only ordinary, reparse-free trees with exact read/execute OWNER RIGHTS ACLs and
+valid original receipt metadata qualify. Each `g-<24-lowercase-hex>` directory
+has an immutable JSON sidecar recording artifact/version/generation identity
+and the actual archive, payload, and original-receipt hashes and sizes.
+Quarantine never participates in selection, rollback, or export. Audit checks
+its complete structure, exact ACLs, and evidence hashes; it rejects unknown
+entries, missing/malformed evidence, changed content, and more than 64 items.
+After interruption between directory rename and evidence publication, audit
+fails closed; the next exclusive fetch verifies the orphan tree and completes
+its evidence without downloading again. Known partial sidecar stages are
+removed only after ordinary-file and owner-only ACL checks. A malformed original
+receipt or unsafe tree remains an error. No command deletes sealed quarantine
+content or silently rewrites an existing evidence record.
+
+Publication keeps the stage root and all descendants at exact read/execute
+OWNER RIGHTS ACLs while Windows child handles close for the native rename.
+The held root handle supplies its previously granted rename permission; the
+published tree and content are checked before selector activation. An exclusive
+fetch also moves a complete frozen interrupted root stage into quarantine,
+preserving its ACLs and evidence. Audit leaves that interrupted stage untouched
+and reports failure. Unicode bootstrap uses the same reconciliation rules
+before schema validation and after replacing a stale selection, so the later
+cache-only Unicode export sees a fully reconciled cache.
+A stage interrupted partway through freezing has mixed ACLs; both audit and
+fetch reject it without deleting or altering its children.
+Earlier mutable stages remain recoverable: the root must have its protected
+full-control ACL, and every descendant must have exactly one current-owner
+OWNER RIGHTS full-control grant, either protected or inherited from creation.
+Fetch verifies the whole ordinary tree before deletion and never rewrites ACLs
+to make a failed cleanup pass. Audit always leaves interrupted stages untouched.
+
+An audit never repairs a missing or tampered artifact from the network. Treat
+that result as a fail-closed cache miss. On a host explicitly authorized for
+ordinary acquisition, run `zig build deps-fetch --summary all`, preserve the
+owner-only boundary, and then rerun the three cache-only commands. On an
+offline or read-only runner, report the failure and move the entire separately
+prefilled and verified opaque cache root as one unit; do not omit an inactive
+generation or selector, broaden an ACL, make the cache writable, or hand-edit a
+receipt merely to obtain a passing result. The receiving host must preserve the
+owner-only boundary and rerun `deps-audit`. A cold cache without an authorized
+acquisition lane is expected to remain unavailable.
+
+The external GitHub attestation check does not trust `PATH`, an ambient GitHub
+login, or the user's GitHub CLI cache. It invokes the cached `gh.exe` 2.100.0
+whose SHA-256 is
+`2ae2b350c227a618f2d8965b1900aeee13446ff42e17ef0bd5a0b6405c593cfb`,
+passes the committed
+`tools/zig/attestations/pdfium-chromium-8035-win-x64.jsonl` bundle (SHA-256
+`1f84f3d920a8c3ad5dc480899631eef877c43f99d1e85b634af55570f51e2ee6`),
+and passes the committed dated trusted root (SHA-256
+`db07310827da2ae2798ec7eefc5daf8432506ce458d5bc30cd2feba03708d239`).
+The verifier checks all three locked inputs before use, runs `gh attestation
+verify` with an empty scrubbed profile, explicit bundle/root/repository and
+workflow identity arguments, and rechecks the inputs afterward. It parses the
+bounded JSON result and requires exactly one matching PDFium subject among the
+45 attested subjects. It never downloads an attestation or trusted root during
+the audit.
+
+Digest, inventory, and provenance checks do not make every upstream archive
+publisher-authenticated. Several locked archives are unsigned. In particular,
+the PDFium attestation binds the archive digest to the named community workflow
+and builder commit, but it does not prove an independent rebuild from the
+official PDFium source commit. The community DLL remains reference evidence and
+is not an admitted or shipping runtime. Follow the
+[native dependency update ADR](superpowers/2026-09-04-native-dependency-update-adr.md)
+for every lock change; dependencies never float to a newer release.
+
+A scrubbed profile and fail-fast loopback proxy settings are defense in depth,
+not proof that the host had no network route. Admission-grade offline evidence
+requires an authorized sealed disposable runner: a Windows VM with its virtual
+NIC detached, or a Linux container/network namespace with network mode `none`,
+plus the isolation preflight and a zero-byte negative-fetch canary. Do not
+disable a developer workstation's adapter or firewall to manufacture this
+evidence. When no qualifying runner and receipt are available, record the exact
+status `UNVERIFIED-NETWORK-ISOLATION`; a successful local audit must not be
+reported as an offline pass.
 
 ## First run
 
