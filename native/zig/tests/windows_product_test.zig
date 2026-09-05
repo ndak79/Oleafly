@@ -6,6 +6,7 @@ const contract = @import("product_contract");
 const argv = @import("windows_argv");
 const resources = @import("resource_assets");
 const version_resource = @import("app_version_resource");
+const icon = @import("texflow_icon");
 const windows = std.os.windows;
 const w = std.unicode.utf8ToUtf16LeStringLiteral;
 const supported = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64;
@@ -58,6 +59,11 @@ const ResourceSpan = struct {
     end: usize,
     rva: u32,
     size: u32,
+};
+
+const ResourceType = struct {
+    span: ResourceSpan,
+    target: ResourceTarget,
 };
 
 fn resourceSpan(bytes: []const u8, pe: usize) !ResourceSpan {
@@ -113,39 +119,79 @@ fn resourceOnlyChild(bytes: []const u8, root: usize, resource_end: usize, direct
     };
 }
 
-fn resourceData(bytes: []const u8, pe: usize, wanted_type: u32) ![]const u8 {
+fn resourceType(bytes: []const u8, pe: usize, wanted_type: u32) !ResourceType {
     const span = try resourceSpan(bytes, pe);
+    const root_named = try resourceRead(u16, bytes, span.end, span.root + 12);
+    const root_ids = try resourceRead(u16, bytes, span.end, span.root + 14);
+    if (root_named != 0 or root_ids != 4) return error.UnexpectedResourceCount;
+    var seen_icon = false;
+    var seen_group_icon = false;
+    var seen_version = false;
+    var seen_manifest = false;
+    var wanted: ?ResourceTarget = null;
+    for (0..root_ids) |index| {
+        const entry = span.root + 16 + index * 8;
+        const id = try resourceRead(u32, bytes, span.end, entry);
+        if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
+        switch (id) {
+            3 => {
+                if (seen_icon) return error.DuplicateResource;
+                seen_icon = true;
+            },
+            14 => {
+                if (seen_group_icon) return error.DuplicateResource;
+                seen_group_icon = true;
+            },
+            16 => {
+                if (seen_version) return error.DuplicateResource;
+                seen_version = true;
+            },
+            24 => {
+                if (seen_manifest) return error.DuplicateResource;
+                seen_manifest = true;
+            },
+            else => return error.UnexpectedResourceType,
+        }
+        if (id == wanted_type) {
+            const target = try resourceRead(u32, bytes, span.end, entry + 4);
+            wanted = .{ .relative_offset = target & 0x7fff_ffff, .is_directory = (target & 0x8000_0000) != 0 };
+        }
+    }
+    if (!seen_icon or !seen_group_icon or !seen_version or !seen_manifest) return error.MissingResource;
+    return .{ .span = span, .target = wanted orelse return error.MissingResource };
+}
+
+fn validateNamedResourceIds(wanted_type: u32, ids: []const u32) !void {
+    const expected_count: usize = switch (wanted_type) {
+        3 => icon.sizes.len,
+        14 => 1,
+        else => return error.UnexpectedResourceType,
+    };
+    if (ids.len != expected_count) return error.UnexpectedResourceCount;
+    var seen_icons = [_]bool{false} ** icon.sizes.len;
+    for (ids) |id| {
+        if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
+        switch (wanted_type) {
+            3 => {
+                if (id == 0 or id > @as(u32, @intCast(icon.sizes.len))) return error.UnexpectedResourceType;
+                const icon_index: usize = @intCast(id - 1);
+                if (seen_icons[icon_index]) return error.DuplicateResource;
+                seen_icons[icon_index] = true;
+            },
+            14 => if (id != 1) return error.UnexpectedResourceType,
+            else => unreachable,
+        }
+    }
+}
+
+fn resourceData(bytes: []const u8, pe: usize, wanted_type: u32) ![]const u8 {
+    const typed = try resourceType(bytes, pe, wanted_type);
+    const span = typed.span;
     const resource_rva = span.rva;
     const resource_size = span.size;
     const resource_root = span.root;
     const resource_end = span.end;
-    const root_named = try resourceRead(u16, bytes, resource_end, resource_root + 12);
-    const root_ids = try resourceRead(u16, bytes, resource_end, resource_root + 14);
-    if (root_named != 0 or root_ids != 2) return error.UnexpectedResourceCount;
-    var seen_version = false;
-    var seen_manifest = false;
-    var wanted_target: ?ResourceTarget = null;
-    for (0..root_ids) |index| {
-        const entry = resource_root + 16 + index * 8;
-        const id = try resourceRead(u32, bytes, resource_end, entry);
-        if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
-        if (id == 16) {
-            if (seen_version) return error.DuplicateResource;
-            seen_version = true;
-        } else if (id == 24) {
-            if (seen_manifest) return error.DuplicateResource;
-            seen_manifest = true;
-        } else return error.UnexpectedResourceType;
-        if (id == wanted_type) {
-            const target = try resourceRead(u32, bytes, resource_end, entry + 4);
-            wanted_target = .{
-                .relative_offset = target & 0x7fff_ffff,
-                .is_directory = (target & 0x8000_0000) != 0,
-            };
-        }
-    }
-    if (!seen_version or !seen_manifest) return error.MissingResource;
-    const type_target = wanted_target orelse return error.MissingResource;
+    const type_target = typed.target;
     if (!type_target.is_directory) return error.InvalidResourceTree;
     const name = try resourceChild(bytes, resource_root, resource_end, type_target.relative_offset, 1);
     if (!name.is_directory) return error.InvalidResourceTree;
@@ -164,13 +210,75 @@ fn resourceData(bytes: []const u8, pe: usize, wanted_type: u32) ![]const u8 {
     return bytes[data_offset .. data_offset + @as(usize, data_size)];
 }
 
+fn resourceNamedData(bytes: []const u8, pe: usize, wanted_type: u32, wanted_name: u32) ![]const u8 {
+    const typed = try resourceType(bytes, pe, wanted_type);
+    const span = typed.span;
+    if (!typed.target.is_directory) return error.InvalidResourceTree;
+    const type_directory = try resourceOffset(bytes, span.root, span.end, typed.target.relative_offset);
+    const named_count = try resourceRead(u16, bytes, span.end, type_directory + 12);
+    const id_count = try resourceRead(u16, bytes, span.end, type_directory + 14);
+    if (named_count != 0) return error.UnexpectedResourceCount;
+    var ids = [_]u32{0} ** icon.sizes.len;
+    if (id_count > ids.len) return error.UnexpectedResourceCount;
+    for (0..id_count) |index| ids[index] = try resourceRead(u32, bytes, span.end, type_directory + 16 + index * 8);
+    try validateNamedResourceIds(wanted_type, ids[0..id_count]);
+    var selected: ?[]const u8 = null;
+    for (0..id_count) |index| {
+        const entry = type_directory + 16 + index * 8;
+        const id = ids[index];
+        const target_value = try resourceRead(u32, bytes, span.end, entry + 4);
+        const target = ResourceTarget{
+            .relative_offset = target_value & 0x7fff_ffff,
+            .is_directory = (target_value & 0x8000_0000) != 0,
+        };
+        if (!target.is_directory) return error.InvalidResourceTree;
+        const language = try resourceOnlyChild(bytes, span.root, span.end, target.relative_offset, version_resource.language);
+        if (language.is_directory) return error.InvalidResourceTree;
+        const data_entry = try resourceOffset(bytes, span.root, span.end, language.relative_offset);
+        const data_rva = try resourceRead(u32, bytes, span.end, data_entry);
+        const data_size = try resourceRead(u32, bytes, span.end, data_entry + 4);
+        _ = try resourceRead(u32, bytes, span.end, data_entry + 8);
+        _ = try resourceRead(u32, bytes, span.end, data_entry + 12);
+        if (data_rva < span.rva) return error.InvalidResourceTree;
+        const relative_data_rva = data_rva - span.rva;
+        if (relative_data_rva > span.size or data_size > span.size - relative_data_rva) return error.InvalidResourceTree;
+        const data_offset = try rvaOffset(bytes, pe, data_rva);
+        if (@as(usize, data_size) > bytes.len - data_offset) return error.TruncatedPe;
+        if (id == wanted_name) {
+            if (selected != null) return error.DuplicateResource;
+            selected = bytes[data_offset .. data_offset + @as(usize, data_size)];
+        }
+    }
+    return selected orelse return error.MissingResource;
+}
+
+test "resource icon contracts reject extra, missing, duplicate, and named IDs" {
+    const exact = [_]u32{ 1, 2, 3, 4, 5 };
+    try validateNamedResourceIds(3, &exact);
+
+    const extra = [_]u32{ 1, 2, 3, 4, 5, 6 };
+    try std.testing.expectError(error.UnexpectedResourceCount, validateNamedResourceIds(3, &extra));
+
+    const missing = [_]u32{ 1, 2, 3, 4 };
+    try std.testing.expectError(error.UnexpectedResourceCount, validateNamedResourceIds(3, &missing));
+
+    const duplicate = [_]u32{ 1, 2, 3, 4, 4 };
+    try std.testing.expectError(error.DuplicateResource, validateNamedResourceIds(3, &duplicate));
+
+    const named = [_]u32{ 1, 2, 3, 4, 0x8000_0005 };
+    try std.testing.expectError(error.UnexpectedNamedResource, validateNamedResourceIds(3, &named));
+
+    const wrong_group = [_]u32{2};
+    try std.testing.expectError(error.UnexpectedResourceType, validateNamedResourceIds(14, &wrong_group));
+}
+
 fn resourceLanguageIdOffset(bytes: []const u8, pe: usize, wanted_type: u32) !usize {
     const span = try resourceSpan(bytes, pe);
     const resource_root = span.root;
     const resource_end = span.end;
     const root_named = try resourceRead(u16, bytes, resource_end, resource_root + 12);
     const root_ids = try resourceRead(u16, bytes, resource_end, resource_root + 14);
-    if (root_named != 0 or root_ids != 2) return error.UnexpectedResourceCount;
+    if (root_named != 0 or root_ids != 4) return error.UnexpectedResourceCount;
     var type_target: ?ResourceTarget = null;
     for (0..root_ids) |index| {
         const entry = resource_root + 16 + index * 8;
@@ -474,6 +582,66 @@ test "actual product PE round-trips the manifest and exact VERSIONINFO contract"
     const manifest = try resourceData(bytes, pe, 24);
     try std.testing.expectEqualSlices(u8, resources.manifest_source, manifest);
     try parseVersionResource(try resourceData(bytes, pe, 16));
+}
+
+fn expectCanonicalIconImage(expected: []const u8, actual: []const u8) !void {
+    if (!std.mem.eql(u8, expected, actual)) return error.NonCanonicalIcon;
+}
+
+test "actual product PE embeds the canonical multi-resolution TExFlow mark" {
+    if (!supported) return error.SkipZigTest;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, contract.path, std.testing.allocator, .limited(32 * 1024 * 1024));
+    defer std.testing.allocator.free(bytes);
+    const pe = try read(u32, bytes, 0x3c);
+    const canonical_ico = try icon.renderIco(std.testing.allocator);
+    defer std.testing.allocator.free(canonical_ico);
+    try icon.validateIco(canonical_ico);
+    const group = try resourceNamedData(bytes, pe, 14, 1);
+    try std.testing.expectEqual(6 + icon.sizes.len * 14, group.len);
+    try std.testing.expectEqual(@as(u16, 0), std.mem.readInt(u16, group[0..2], .little));
+    try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, group[2..4], .little));
+    try std.testing.expectEqual(@as(u16, icon.sizes.len), std.mem.readInt(u16, group[4..6], .little));
+    for (icon.sizes, 0..) |size, index| {
+        const entry = group[6 + index * 14 ..][0..14];
+        const width: u16 = if (entry[0] == 0) 256 else entry[0];
+        const height: u16 = if (entry[1] == 0) 256 else entry[1];
+        try std.testing.expectEqual(size, width);
+        try std.testing.expectEqual(size, height);
+        try std.testing.expectEqual(@as(u8, 0), entry[2]);
+        try std.testing.expectEqual(@as(u8, 0), entry[3]);
+        try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, entry[4..6], .little));
+        try std.testing.expectEqual(@as(u16, 32), std.mem.readInt(u16, entry[6..8], .little));
+        const bytes_in_res = std.mem.readInt(u32, entry[8..12], .little);
+        const icon_id = std.mem.readInt(u16, entry[12..14], .little);
+        try std.testing.expectEqual(@as(u16, @intCast(index + 1)), icon_id);
+        const image = try resourceNamedData(bytes, pe, 3, icon_id);
+        try std.testing.expectEqual(bytes_in_res, @as(u32, @intCast(image.len)));
+        const canonical_entry = canonical_ico[6 + index * 16 ..][0..16];
+        const canonical_bytes_in_res = std.mem.readInt(u32, canonical_entry[8..12], .little);
+        const canonical_offset = std.mem.readInt(u32, canonical_entry[12..16], .little);
+        const canonical_image = canonical_ico[canonical_offset..][0..canonical_bytes_in_res];
+        try expectCanonicalIconImage(canonical_image, image);
+        try std.testing.expectEqual(@as(u32, 40), std.mem.readInt(u32, image[0..4], .little));
+        try std.testing.expectEqual(@as(i32, size), std.mem.readInt(i32, image[4..8], .little));
+        try std.testing.expectEqual(@as(i32, @as(i32, size) * 2), std.mem.readInt(i32, image[8..12], .little));
+        try std.testing.expectEqual(@as(u16, 1), std.mem.readInt(u16, image[12..14], .little));
+        try std.testing.expectEqual(@as(u16, 32), std.mem.readInt(u16, image[14..16], .little));
+        try std.testing.expectEqual(@as(u32, 0), std.mem.readInt(u32, image[16..20], .little));
+    }
+}
+
+test "canonical icon oracle rejects a pixel mutation with an unchanged header" {
+    if (!supported) return error.SkipZigTest;
+    const canonical_ico = try icon.renderIco(std.testing.allocator);
+    defer std.testing.allocator.free(canonical_ico);
+    const first_entry = canonical_ico[6..][0..16];
+    const first_bytes_in_res = std.mem.readInt(u32, first_entry[8..12], .little);
+    const first_offset = std.mem.readInt(u32, first_entry[12..16], .little);
+    const expected = canonical_ico[first_offset..][0..first_bytes_in_res];
+    var mutant = try std.testing.allocator.dupe(u8, expected);
+    defer std.testing.allocator.free(mutant);
+    mutant[40 + 3] ^= 1;
+    try std.testing.expectError(error.NonCanonicalIcon, expectCanonicalIconImage(expected, mutant));
 }
 
 test "VERSIONINFO parse-back rejects flag locale string and length mutations" {

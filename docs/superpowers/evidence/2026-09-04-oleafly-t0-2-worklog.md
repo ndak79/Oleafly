@@ -644,3 +644,74 @@ HTML/browser surface or live-render canvas. Icon artwork, D3D/DirectWrite
 presentation, waitable presenter, workers, UIA, telemetry, and full native
 pixel/capture evidence remain later Task 3 work; this section does not claim
 those features.
+
+## T0.2c bounded deterministic TExFlow app-mark/ICO resource evidence (2026-09-05)
+
+This increment adds one canonical fixed-point geometry source for the reviewed
+TExFlow source-to-evidence mark. Pure Zig emits the tracked SVG-equivalent bytes
+and a cache-only five-size 32-bit alpha ICO (`16/24/32/48/256`), plus a
+self-contained generated RC fragment. The generator validates its own output
+before writing and never mutates tracked source. The Windows product embeds the
+generated `RT_GROUP_ICON`/`RT_ICON` tree while the Linux graph remains
+product-empty.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t0-2c-icon-test` first failed because `native/zig/assets/texflow_icon.zig` was absent; a later corner-coverage failure caught a renderer bounds mismatch before repair. | The source-mark and raster output tests were non-vacuous and detected a real geometry bug. |
+| Windows icon/tool tests | `t0-2c-icon-test` passed `10/10` tests in Debug, ReleaseSafe, and ReleaseFast (9 target icon tests plus 1 host generator test). | Fixed-point geometry, tracked-SVG equality, ICO directory/DIB/alpha/AND-mask invariants, mutation rejection, and allocator-failure cleanup are green. |
+| Linux portability | `t0-2c-icon-check -Dtarget=x86_64-linux-gnu` passed `4/4` compile steps in Debug, ReleaseSafe, and ReleaseFast. | The source/validator and host generator compile without Windows-only APIs; Linux runtime is not claimed. |
+| Product/resource oracle | `t0-2c-product-test` passed `11/11` in Windows Debug, ReleaseSafe, and ReleaseFast. The PE parser found one US-English group resource with five ordered entries and matching RT_ICON DIB sizes/IDs and canonical bytes. | The real AMD64 GUI PE embeds the generated mark and preserves the exact five-resolution contract. |
+| Full regression | `t0-2c-models-test -Doptimize=ReleaseSafe -j1`: `33/33` steps, `93/93` tests; `zig build test -Doptimize=ReleaseSafe -j1`: `13/13`, `10/10`. | Existing T0.1/T0.2 models and baseline gates remain green. |
+| Fresh reproducibility | Two fresh x86_64-Windows ReleaseSafe prefixes with disjoint local/global caches each contained exactly `bin\TExFlow.exe` (851,968 bytes); both SHA-256 were `82b2e1bb44c3268ec78e39c682e1fd74ea60f24e8d63a06f836348679543aaf5`. | Generated ICO/RC inputs do not introduce output drift or extra installed files. |
+| Adversarial falsification | Count, offset, dimension, truncation, alpha/AND-mask mismatch, stale-alpha, named-resource cardinality, canonical-pixel mutation, and every injected allocation-failure path were rejected; the source SVG must byte-match the canonical generator output. | Plausible resource corruption and cleanup regressions are actively detected. |
+| Formatting/CI | Full-path `zig fmt --check`, `git diff --check`, and YAML parsing passed; workflow runs icon gates in all three Windows and Linux optimization lanes. | Formatting and CI reachability are aligned with the target-gated install graph. |
+| Review | Independent read-only review is required before commit; quality streak remains `0` until that review and the post-review rerun are clean. | This section does not pre-claim the streak or Task 3 completion. |
+
+No browser QA applies: this is a native resource/build increment with no HTML
+surface. Explorer/Alt-Tab/taskbar visual capture, D3D/DirectWrite presentation,
+waitable swap-chain behavior, and full A05 pixel evidence remain open Task 3
+obligations. The icon generator is build-time/test-time only and is not a
+shipping executable or installed payload.
+
+## T0.2c corrective review round: icon/resource oracle gaps (2026-09-05)
+
+The independent read-only reviewer returned `NOT CLEAN` with four P2 findings
+and one P3. This is recorded before any quality-streak transition. The issues
+were verified against the current source and corrected in this working tree:
+
+| Finding | Correction | Direct oracle |
+| --- | --- | --- |
+| SVG path coordinates could drift from raster geometry | `canonical_svg` is now comptime-formatted from the fixed-point segment/style constants used by the rasterizer; the tracked SVG remains a byte-checked generated artifact. | Tracked-SVG equality plus compile-time geometry references. |
+| All-zero legacy AND mask erased transparency for older consumers | ICO generation now emits bottom-up 1-bpp AND bits for `alpha == 0`, clears row padding, and validates every bit against the pixel alpha. | Per-size alpha/mask/padding test and mutation rejection. |
+| PE parser accepted extra or duplicate icon/group resources | Resource-name validation now requires exactly group ID `1` and icon IDs `1..5`, with no names, extras, missing IDs, or duplicates; every leaf is validated. | Always-run resource-ID mutation tests and Windows PE test. |
+| PE oracle checked only DIB headers and lengths | Windows product tests compare every embedded `RT_ICON` byte-for-byte with the canonical ICO image; a preserved-header pixel mutation is rejected by the oracle helper. | Canonical image equality and mutation test. |
+| Allocation-overflow test name overstated its cases | The unsupported-size test was renamed; the separate allocation-failure sweep remains the cleanup oracle. | `checkAllAllocationFailures` test. |
+
+| Package-path TDD RED | The new `deps-manifest-test` first failed because `build.zig.zon` omitted the tracked SVG and host icon generator required by `build.zig`. | The source-package allowlist oracle detected a clean-archive build gap before it could ship. |
+| Package-path GREEN | After adding both exact paths to `build.zig.zon`, `zig build deps-manifest-test -Doptimize=Debug -j1 --summary all` passed `17/17` tests. | The build-script inputs are now represented in the package source contract. |
+| Corrective matrix | Fresh Windows Debug icon/tool `10/10`, product `11/11`; ReleaseSafe/ReleaseFast icon `10/10`, product `11/11`; Linux Debug/ReleaseSafe/ReleaseFast icon-check `4/4` compile steps; full `t0-2c-models-test` `33/33` steps, `93/93` tests. | The five reviewer fixes and package allowlist correction survive the target/optimization matrix. |
+
+The independent post-review verdict is still required before commit. Quality
+streak remains `0/1` until that verdict and one final clean rerun are recorded.
+
+## T0.2c final review and post-review clean pass (2026-09-05)
+
+The independent reviewer returned `CLEAN` after the corrective round. One
+fresh post-review verification pass then reproduced the relevant matrix without
+new Medium-or-higher findings:
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Package contract | `zig build deps-manifest-test -Doptimize=Debug -j1 --summary all`: `17/17` tests. | The source-package allowlist includes every icon build input. |
+| Windows icon/tool matrix | `t0-2c-icon-test`: `10/10` in Debug, ReleaseSafe, and ReleaseFast (9 target + 1 host). | Canonical geometry/style, SVG bytes, ICO alpha/mask, mutations, and allocation cleanup remain green. |
+| Windows product matrix | `t0-2c-product-test`: `11/11` in Debug, ReleaseSafe, and ReleaseFast. | Strict resource cardinality, canonical RT_ICON bytes, PE metadata, and owned shell tests remain green. |
+| Linux portability | `t0-2c-icon-check`: `4/4` compile steps in Debug, ReleaseSafe, and ReleaseFast. | The portable source and host generator remain cross-target compilable; no Linux runtime is claimed. |
+| Full regression | `t0-2c-models-test`: `33/33` steps, `93/93` tests; `zig build test`: `13/13` steps, `10/10` tests. | Existing T0.1/T0.2 behavior and baseline gates remain green. |
+| Clean-build reproducibility | Two explicitly contained fresh ReleaseSafe prefixes each contained exactly `bin\TExFlow.exe` (851,968 bytes); both SHA-256 were `D326FAA5D5EFCE6CDBE070F14BFB870A54E0258D001AD295958BC7D904005AA4`. | Generated resources do not add output drift or extra install files. |
+| Formatting and stale-label scan | `zig fmt --check`, `git diff --cached --check`, YAML parse, and GPT-6/Astra scan all passed/clean. | The staged source is formatted, workflow syntax-valid, and contains no unsupported model claim. |
+| Quality streak | Reviewer `CLEAN` + this fresh post-review pass: `1/1`. | This bounded T0.2c increment is ready for its own commit; it does not close full Task 3. |
+
+Browser QA is not applicable to this native resource/build increment. Explorer,
+Alt-Tab/taskbar captures, D3D/DirectWrite presentation, waitable swap-chain
+behavior, and the remaining Task 3 visual/runtime obligations stay explicitly
+open for their owning slices.

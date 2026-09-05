@@ -384,6 +384,8 @@ test "source package carries Unicode-3.0 notice and excludes UCD archives and ca
     try std.testing.expect(std.mem.indexOf(u8, package_manifest, "tools/zig/.cache") == null);
     try std.testing.expect(std.mem.indexOf(u8, package_manifest, "archive.bin") == null);
     try std.testing.expect(std.mem.indexOf(u8, package_manifest, "UCD.zip") == null);
+    try std.testing.expect(std.mem.indexOf(u8, package_manifest, "docs/assets/texflow-app-mark.svg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, package_manifest, "tools/zig/icon_gen.zig") != null);
 }
 
 test "attestation and trusted-root locks reject origin and identity drift" {

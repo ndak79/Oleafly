@@ -18,6 +18,7 @@
 # Zig formatting and workflow verification require stable LF bytes on Windows.
 *.zig text eol=lf
 *.zon text eol=lf
+*.svg text eol=lf
 tools/zig/toolchain.json text eol=lf
 tools/zig/native-deps.json text eol=lf
 # Attestation JSONL is evidence, not source: preserve the exact upstream bytes

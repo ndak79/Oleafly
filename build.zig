@@ -189,8 +189,49 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const texflow_icon_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/assets/texflow_icon.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const texflow_icon_host_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/assets/texflow_icon.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    const icon_assets = b.addOptions();
+    icon_assets.addOption([]const u8, "tracked_svg", @embedFile("docs/assets/texflow-app-mark.svg"));
     const t0_2c_models_test = b.step("t0-2c-models-test", "Run deterministic T0.2c app-model tests");
     const t0_2c_models_check = b.step("t0-2c-models-check", "Compile deterministic T0.2c app-model tests");
+    const icon_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/icon_gen_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    icon_tests.root_module.addImport("texflow_icon", texflow_icon_module);
+    icon_tests.root_module.addOptions("icon_assets", icon_assets);
+    const run_icon_tests = b.addRunArtifact(icon_tests);
+    const icon_test_step = b.step("t0-2c-icon-test", "Run deterministic TExFlow source-mark and ICO tests");
+    icon_test_step.dependOn(&run_icon_tests.step);
+    const icon_check_step = b.step("t0-2c-icon-check", "Compile deterministic TExFlow source-mark and ICO tests");
+    icon_check_step.dependOn(&icon_tests.step);
+    const icon_generator_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/icon_gen.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    icon_generator_tests.root_module.addImport("texflow_icon", texflow_icon_host_module);
+    const run_icon_generator_tests = b.addRunArtifact(icon_generator_tests);
+    icon_test_step.dependOn(&run_icon_generator_tests.step);
+    icon_check_step.dependOn(&icon_generator_tests.step);
+    t0_2c_models_test.dependOn(&run_icon_tests.step);
+    t0_2c_models_check.dependOn(&icon_tests.step);
+    t0_2c_models_test.dependOn(&run_icon_generator_tests.step);
+    t0_2c_models_check.dependOn(&icon_generator_tests.step);
     const presenter_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/platform/windows/presenter.zig"),
         .target = target,
@@ -271,6 +312,19 @@ pub fn build(b: *std.Build) void {
     }
     const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
     if (product_target) {
+        const icon_generator = b.addExecutable(.{
+            .name = "texflow-icon-gen",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("tools/zig/icon_gen.zig"),
+                .target = host_target,
+                .optimize = .ReleaseSafe,
+            }),
+        });
+        icon_generator.root_module.addImport("texflow_icon", texflow_icon_host_module);
+        const run_icon_generator = b.addRunArtifact(icon_generator);
+        run_icon_generator.addArg("emit");
+        const icon_outputs = run_icon_generator.addOutputDirectoryArg("TExFlow-resources");
+        const icon_rc = icon_outputs.path(b, "TExFlow-icon.rc");
         const product = b.addExecutable(.{
             .name = "TExFlow",
             .root_module = b.createModule(.{
@@ -286,8 +340,14 @@ pub fn build(b: *std.Build) void {
             .flags = &.{"/x"},
             .include_paths = &.{},
         });
+        product.root_module.addWin32ResourceFile(.{
+            .file = icon_rc,
+            .flags = &.{"/x"},
+            .include_paths = &.{},
+        });
         product.subsystem = .Windows;
         b.installArtifact(product);
+        product.step.dependOn(&run_icon_generator.step);
         product_build_step.dependOn(&product.step);
         executable = product;
     }
@@ -315,6 +375,7 @@ pub fn build(b: *std.Build) void {
     product_tests.root_module.addOptions("resource_assets", resource_assets);
     product_tests.root_module.addImport("windows_argv", windows_argv_module);
     product_tests.root_module.addImport("app_version_resource", app_version_resource_module);
+    product_tests.root_module.addImport("texflow_icon", texflow_icon_module);
     if (target.result.os.tag == .windows) product_tests.root_module.linkSystemLibrary("user32", .{});
     b.step("t0-2c-product-test", "Test native product PE and owned Windows shell runtime").dependOn(&b.addRunArtifact(product_tests).step);
     b.step("t0-2c-product-check", "Compile product contract tests without execution").dependOn(&product_tests.step);
@@ -689,6 +750,11 @@ pub fn build(b: *std.Build) void {
     );
     deps_manifest_tests.root_module.addOptions("package_contract", package_contract);
     const run_deps_manifest_tests = b.addRunArtifact(deps_manifest_tests);
+    const deps_manifest_test_step = b.step(
+        "deps-manifest-test",
+        "Run the source-package allowlist and notice contract tests",
+    );
+    deps_manifest_test_step.dependOn(&run_deps_manifest_tests.step);
 
     const archive_security_tests = b.addTest(.{
         .root_module = b.createModule(.{

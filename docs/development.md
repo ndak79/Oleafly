@@ -85,11 +85,23 @@ enter the default install graph; it has no compatibility exports.
 
 ReleaseSafe is the shipping default; ReleaseFast is used only to expose
 optimizer-dependent known-answer regressions. The legacy `run` step has been
-retired. The current placeholder executable/install and transitional CI hash
-checks remain until the separate native GUI and Zig-owned `t0-2-repro`
-cutover; `t0-2-repro` is not implemented yet. These smoke/ABI tests do not claim
-that cutover or full application, native Windows UI, editor, compiler workers,
-research ledger, and publishing pipeline completion.
+retired. T0.2c now builds the target-gated x64-Windows GUI product
+`TExFlow.exe`; its source-mark SVG is tracked, while the five-size ICO and
+resource fragment are generated into the Zig cache and embedded at build time.
+The corresponding deterministic checks are:
+
+```
+zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-icon-test --summary all
+zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-product-test --summary all
+zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-icon-check --summary all
+zig build deps-manifest-test -Doptimize=Debug --summary all
+```
+
+Non-Windows targets compile the portable contracts but install no lookalike
+product. The native HWND/PMv2 shell and version resources are admitted, but the
+D3D/DirectWrite presenter, editor, compiler workers, research ledger, and
+publishing pipeline remain later slices; this is not full application
+completion. The Zig-owned `t0-2-repro` cutover is not implemented yet.
 
 ## Native dependency workflow (T0.2a)
 
