@@ -881,8 +881,9 @@ transport transient, not suppressed as a test failure.
 This bounded native slice adds `SwapChain.waitForFrame(timeout_ms)` to the
 existing Windows x64 DXGI adapter. `WaitOutcome` exposes only `signaled` and
 `timeout`; null, invalid/closed, abandoned, failed, and unknown wait states
-remain typed errors. A null or invalid handle is rejected before any Win32
-call. The Windows path calls `WaitForSingleObject` through the curated
+remain typed errors. A null or `INVALID_HANDLE_VALUE` handle is rejected
+before any Win32 call. The Windows path calls `WaitForSingleObject` through
+the curated
 `windows_api.kernel32` facade, while non-Windows builds return
 `UnsupportedTarget`. The adapter still owns no `Present1`, `ResizeBuffers`, or
 render-target API, and `deinit` remains idempotent.
