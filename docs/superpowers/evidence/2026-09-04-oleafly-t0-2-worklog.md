@@ -231,3 +231,37 @@ to SHA-256 receipts.
 The oracle deliberately does not claim the real release-payload inventory,
 90/30 MiB gates, filesystem-root isolation, installer packaging, or signed
 shipping evidence. Those remain later T0.2b/T0.2h gates.
+
+## T0.2b bounded SQLite amalgamation contract evidence (2026-09-05)
+
+This increment is an isolated, unshipped SQLite 3.53.4 contract. It adds a
+narrow Zig-owned C ABI, an offline source snapshotter, and a static archive
+symbol oracle; it does not integrate a ledger/search connection, set Task 6
+limits, or admit SQLite into a worker image. The exact locked `sqlite3.c` and
+`sqlite3.h` bytes are hashed before being copied into an immutable `payload`
+directory. Compilation consumes only that published pair.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED (missing contract) | Initial focused suite failed `0/8`. | Source locks, ABI, runtime, FTS5, allocator, and symbol tests detect the absent contract. |
+| Flag-compatibility repair | The exact plan flags exposed a 3.53.4 compile-time constraint: `SQLITE_MAX_SQL_LENGTH` must not exceed `SQLITE_MAX_LENGTH`. | The required `SQLITE_MAX_SQL_LENGTH=6291456` compatibility define is locked and independently asserted; it does not weaken the plan's 6-MiB SQL/length bound. |
+| Symbol-oracle repair | Initial audit falsely classified `sqlite3_soft_heap_limit(int)` as omitted; the upstream build retains it, as well as three static auto-extension registry symbols. | Four retained upstream symbols are required in the archive but absent from the Zig surface; eleven genuinely prohibited symbols are required absent. |
+| Review RED: nullable callback | Callback ABI regression failed `10/11` before the fix. | `empty_result_callbacks=ON` can pass `azVals=NULL`; the corrected nullable many-pointer ABI distinguishes that from a SQL NULL element. |
+| Review RED: mutable snapshot race | A locked-reader regression reproduced `FileBusy` against the old truncating writer. | Concurrent builds could have read or held the shared source while another invocation rewrote it. |
+| Review GREEN: immutable publication | Locked-reader, incomplete-payload refusal, and concurrent-publisher tests pass. A unique stage is populated, then published with atomic no-replace rename; an existing complete pair is rehashed and reused. | No compiler-held published member is opened for write, and readers see only a complete verified pair. |
+| Windows Debug | `t0-2b-sqlite-test`: `14/14` tests; `9/9` steps. | ABI, runtime, FTS5, hard-heap, source-publication, and archive-symbol checks are green. |
+| Windows ReleaseSafe | `t0-2b-sqlite-test`: `14/14` tests; `9/9` steps. | Safe optimized contract is green. |
+| Windows ReleaseFast | `t0-2b-sqlite-test`: `14/14` tests; `9/9` steps. | Fast optimized contract is green. |
+| Linux portability | `t0-2b-sqlite-check -Dtarget=x86_64-linux-gnu`: `8/8` compile/audit steps. | Cross-target compilation and archive audit are covered; Linux runtime execution is not claimed. |
+| Concurrent build reality | Safe, Fast, and Linux checks ran concurrently against the shared snapshot and all completed cleanly. | The previously reproducible shared-output race is closed by immutable publication. |
+| Fail-closed source override | Relative `-Dsqlite-source` rejected with `SqliteSourceMustBeAbsolute`; missing absolute source rejected with `FileNotFound`; no fallback/fetch occurred. | Source selection remains explicit and offline. |
+| Independent gpt-6 reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | Nullable callback, archive padding, source locks, flags, symbol distinctions, atomic publication, and build graph reviewed clean. |
+
+The archive parser covers native GNU/MSVC first-linker-member tables and the
+single NUL padding byte emitted by LLVM's even-sized archive writer. The
+contract intentionally keeps SQLite's default allocator/page cache so the
+hard-heap limiter accounts for both; connection-scoped limits, WAL policy,
+ledger durability, and disposable FTS search semantics belong to Task 6.
+No browser QA is applicable to this native/CLI-only slice; browser evidence is
+required when the TExFlow UI/HTML evidence lane exists. Linux runtime and
+product integration remain unverified and out of scope here.

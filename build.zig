@@ -177,6 +177,66 @@ pub fn build(b: *std.Build) void {
     const package_probe_check = b.step("t0-2b-package-check", "Compile the package oracle tests for the selected target");
     package_probe_check.dependOn(&package_probe_tests.step);
 
+    // Isolated T0.2b SQLite contract; no install or product/runtime edge.
+    const sqlite_source = b.option([]const u8, "sqlite-source", "Absolute directory containing the exact locked SQLite 3.53.4 sqlite3.c and sqlite3.h (offline only)") orelse
+        b.pathFromRoot("tools/zig/.cache/native-deps/.v2/sqlite/generations/g-14ea30ba6b8a3c158e833613/payload/sqlite-autoconf-3530400");
+    const sqlite_probe = b.addExecutable(.{
+        .name = "texflow-sqlite-contract-probe",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/sqlite_probe.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    const sqlite_snapshot = b.addRunArtifact(sqlite_probe);
+    sqlite_snapshot.addArg("snapshot");
+    sqlite_snapshot.addArg(sqlite_source);
+    // Rehash even on warm builds. The generation pointer and completion
+    // receipt are not trusted, and there is no network/fetch dependency.
+    sqlite_snapshot.has_side_effects = true;
+    const sqlite_snapshot_output = sqlite_snapshot.addOutputDirectoryArg("sqlite-3.53.4-verified");
+    const sqlite_snapshot_root = sqlite_snapshot_output.path(b, "payload");
+    const sqlite_c_flags = @import("native/zig/src/db/sqlite.zig").Contract.c_flags;
+    const sqlite_library = b.addLibrary(.{
+        .name = "sqlite-t0-2b-unshipped",
+        .linkage = .static,
+        .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+    });
+    sqlite_library.root_module.addCSourceFile(.{ .file = sqlite_snapshot_root.path(b, "sqlite3.c"), .flags = sqlite_c_flags });
+    const sqlite_symbols = b.addRunArtifact(sqlite_probe);
+    sqlite_symbols.addArg("symbols");
+    sqlite_symbols.addFileArg(sqlite_library.getEmittedBin());
+    const sqlite_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/sqlite_abi_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    sqlite_tests.root_module.addImport("sqlite", b.createModule(.{
+        .root_source_file = b.path("native/zig/src/db/sqlite.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    sqlite_tests.root_module.addImport("sqlite_probe", b.createModule(.{
+        .root_source_file = b.path("tools/zig/sqlite_probe.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const sqlite_contract = b.addOptions();
+    sqlite_contract.addOption([]const []const u8, "c_flags", sqlite_c_flags);
+    sqlite_contract.addOption([]const u8, "wrapper_source", @embedFile("native/zig/src/db/sqlite.zig"));
+    sqlite_contract.addOptionPath("source_root", sqlite_snapshot_root);
+    sqlite_tests.root_module.addOptions("sqlite_contract", sqlite_contract);
+    sqlite_tests.root_module.addIncludePath(sqlite_snapshot_root);
+    sqlite_tests.root_module.linkLibrary(sqlite_library);
+    const sqlite_test_step = b.step("t0-2b-sqlite-test", "Run the unshipped SQLite amalgamation contract; no product integration");
+    sqlite_test_step.dependOn(&b.addRunArtifact(sqlite_tests).step);
+    sqlite_test_step.dependOn(&sqlite_symbols.step);
+    const sqlite_check_step = b.step("t0-2b-sqlite-check", "Compile the unshipped SQLite contract for the selected target");
+    sqlite_check_step.dependOn(&sqlite_tests.step);
+    sqlite_check_step.dependOn(&sqlite_symbols.step);
+
     const deps_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/deps.zig"),
         .target = target,
