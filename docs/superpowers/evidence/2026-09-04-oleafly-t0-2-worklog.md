@@ -955,3 +955,38 @@ values. The facade test also requires exactly one declaration named
 Browser QA remains not applicable because this is a native-only Windows wait
 correction. Present/resize/render-target ownership and visual/runtime work
 remain open for later slices.
+
+## T0.2c native back-buffer/render-target ownership boundary (2026-09-06)
+
+This bounded Windows-only slice adds a nullable `BackBuffer` owner containing
+the acquired `ID3D11Resource` and its `ID3D11RenderTargetView`. `BackBuffer.deinit`
+is idempotent and releases the RTV before the resource. `SwapChain.acquireBackBuffer`
+rejects an index outside the admitted two-buffer range and missing/null device
+or chain handles before any ABI call; on Windows it calls inherited
+`IDXGISwapChain.GetBuffer` with the pinned `IID_ID3D11Resource`, then
+`ID3D11Device.CreateRenderTargetView(resource, null, &rtv)`. GetBuffer and RTV
+failures have distinct typed errors, and all partial interfaces are released
+in reverse ownership order. The deterministic backend/release seam is exposed
+only from the test-build `native.testing` namespace.
+
+The ABI and ownership details follow the official Microsoft contracts:
+[`IDXGISwapChain::GetBuffer`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-getbuffer),
+[`ID3D11Device::CreateRenderTargetView`](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-createrendertargetview),
+[`ID3D11Resource`](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nn-d3d11-id3d11resource),
+and [`IUnknown::Release`](https://learn.microsoft.com/en-us/windows/win32/api/unknwn/nf-unknwn-iunknown-release).
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Before the production symbols existed, the focused Windows Debug build failed on the expected missing `native.testing.ReleaseKind`, `native.BackBuffer`, and `SwapChain.acquireBackBuffer` references. | Tests were written first and were non-vacuous. |
+| Deterministic seam | The focused tests cover pre-ABI rejection for index/device/chain, GetBuffer failure without RTV creation, IID/index/resource forwarding, RTV failure with a partial RTV, reverse release order, exact released handles, and double-deinit. | The ownership boundary and failure cleanup are directly observable without relying only on runtime COM behavior. |
+| Falsification | Reversing deinit order failed the expected view-before-resource assertion; disabling the index guard failed the expected `InvalidBackBufferIndex` assertion. Both counterfactuals were restored before final verification. | The tests detect plausible cleanup and precondition regressions. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test -Dtarget=x86_64-windows-msvc` in all three modes: `9/9` steps, `16` passed, `1` expected non-Windows skip (`17` total) per mode. Both flip-sequential and flip-discard real HWND chains acquired buffer 0 with non-null resource/RTV and tore down twice; buffer 1 was accepted only when the runtime safely exposed it. | Real x64 Windows device/swap-chain/RTV ownership is green without assuming a non-current buffer is available. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check -Dtarget=x86_64-linux-gnu` in all three modes: `2/2` compile steps per mode. | Linux is compile-only portability evidence; no Linux product/runtime support is added or claimed. |
+| Impacted gates | Windows graphics Debug/Safe/Fast: `6` passed, `1` expected skip per mode; Windows models Safe: `39/39` steps, `115` passed, `2` skips; Windows baseline `zig build test`: `13/13` steps, `10/10` passed; `deps-test`: `18/18` steps, `152/152` passed. | Existing graphics/model/test/dependency contracts remain green. |
+| Formatting and scope | `zig fmt --check build.zig build.zig.zon native/zig`, `git diff --check`, and the presenter API-scope scan passed. Only `presenter_native.zig`, `presenter_native_test.zig`, and this worklog are changed; `api.zig` and `build.zig.zon` required no edits. | The patch is formatted, whitespace-clean, and bounded. |
+| API uncertainty / exclusions | Microsoft documents `GetBuffer` with a zero-based index, but no unconditional buffer-1 success is assumed before a present/state transition; the runtime test records typed acquisition/RTV failure as the safe optional outcome. No browser QA was run because this is a native API/build slice. | Present1, ResizeBuffers, drawing/OMSetRenderTargets, D2D/DWrite, device-loss, resize, and Linux product support remain explicit obligations for later slices. |
+
+Browser QA remains not applicable: there is no HTML/UI surface in this native
+increment. The parent review should treat the malformed non-null COM-pointer
+case as a caller/ABI contract rather than a dynamically probeable state; null
+handles and all in-scope pre-ABI checks are covered.

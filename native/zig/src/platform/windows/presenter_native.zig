@@ -1,10 +1,11 @@
 //! Minimal native DXGI binding for the admitted TExFlow HWND presenter.
 //!
 //! The policy/state machine lives in `presenter.zig`; this adapter owns only
-//! the COM interfaces and the DXGI frame-latency handle. It deliberately
-//! stops at the creation/lifetime boundary: no Present1/ResizeBuffers entry
-//! point is exposed until a later slice owns render-target references,
-//! wait-before-draw, rebind, HRESULT mapping, and device-loss recovery.
+//! the COM interfaces, DXGI frame-latency handle, and acquired back-buffer
+//! resource/render-target-view pair. It deliberately stops at the
+//! creation/lifetime boundary: no Present1/ResizeBuffers entry point is
+//! exposed until a later slice owns draw binding, rebind, HRESULT mapping, and
+//! device-loss recovery.
 //! Every Windows call is behind the curated `windows_api` facade, while
 //! non-Windows builds retain a compile-only surface for the portable model
 //! lane.
@@ -45,6 +46,15 @@ pub const WaitError = error{
     FrameLatencyWaitFailed,
     InvalidFrameLatencyHandle,
     UnexpectedFrameLatencyWaitResult,
+    UnsupportedTarget,
+};
+
+pub const BackBufferError = error{
+    BackBufferAcquisitionFailed,
+    InvalidBackBufferIndex,
+    InvalidDevice,
+    InvalidSwapChain,
+    RenderTargetViewCreationFailed,
     UnsupportedTarget,
 };
 
@@ -103,6 +113,51 @@ pub fn nativeDescriptor(effect: graphics.SwapEffect) NativeDescriptor {
     };
 }
 
+const BackBufferReleaseKind = enum(u8) {
+    render_target_view,
+    resource,
+};
+
+const BackBufferReleaseFn = *const fn (
+    ?*anyopaque,
+    BackBufferReleaseKind,
+    *anyopaque,
+) callconv(.c) void;
+
+const BackBufferBackend = struct {
+    get_buffer: *const fn (
+        ?*anyopaque,
+        u32,
+        ?*const anyopaque,
+        *?*anyopaque,
+    ) callconv(.c) bool,
+    create_render_target_view: *const fn (
+        ?*anyopaque,
+        ?*anyopaque,
+        *?*anyopaque,
+    ) callconv(.c) bool,
+    release: BackBufferReleaseFn,
+};
+
+const WindowsAcquireContext = struct {
+    device_handle: *anyopaque,
+    swap_chain_handle: *anyopaque,
+};
+
+pub const BackBuffer = struct {
+    resource: if (builtin.os.tag == .windows) ?*api.d3d11.ID3D11Resource else ?*anyopaque = null,
+    render_target_view: if (builtin.os.tag == .windows) ?*api.d3d11.ID3D11RenderTargetView else ?*anyopaque = null,
+
+    pub fn deinit(self: *BackBuffer) void {
+        if (builtin.os.tag != .windows) {
+            self.render_target_view = null;
+            self.resource = null;
+            return;
+        }
+        deinitBackBufferWithImpl(self, null, releaseBackBufferInterface);
+    }
+};
+
 pub const SwapChain = struct {
     effect: graphics.SwapEffect,
     maximum_frame_latency: u32 = graphics.max_frame_latency,
@@ -124,6 +179,19 @@ pub const SwapChain = struct {
     /// frame; this primitive only waits and does not schedule frames.
     pub fn waitForFrame(self: *const SwapChain, timeout_ms: u32) WaitError!WaitOutcome {
         return waitForFrameWithImpl(self, timeout_ms, null, waitForSingleObject);
+    }
+
+    pub fn acquireBackBuffer(
+        self: *const SwapChain,
+        device: ?*const graphics.Device,
+        buffer_index: u32,
+    ) BackBufferError!BackBuffer {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        if (buffer_index >= 2) return error.InvalidBackBufferIndex;
+        const device_value = device orelse return error.InvalidDevice;
+        const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
+        return acquireBackBufferWindows(device_handle, swap_chain, buffer_index);
     }
 
     pub fn deinit(self: *SwapChain) void {
@@ -169,9 +237,142 @@ fn waitForFrameWithImpl(
     return mapWaitResult(wait_fn(context, handle, timeout_ms));
 }
 
+fn deinitBackBufferWithImpl(
+    self: *BackBuffer,
+    context: ?*anyopaque,
+    release_fn: BackBufferReleaseFn,
+) void {
+    if (self.render_target_view) |render_target_view| {
+        release_fn(context, .render_target_view, @ptrCast(render_target_view));
+        self.render_target_view = null;
+    }
+    if (self.resource) |resource| {
+        release_fn(context, .resource, @ptrCast(resource));
+        self.resource = null;
+    }
+}
+
+fn releaseBackBufferInterface(
+    _: ?*anyopaque,
+    kind: BackBufferReleaseKind,
+    handle: *anyopaque,
+) callconv(.c) void {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    switch (kind) {
+        .render_target_view => {
+            const render_target_view: *api.d3d11.ID3D11RenderTargetView = @ptrCast(@alignCast(handle));
+            _ = render_target_view.IUnknown.Release();
+        },
+        .resource => {
+            const resource: *api.d3d11.ID3D11Resource = @ptrCast(@alignCast(handle));
+            _ = resource.IUnknown.Release();
+        },
+    }
+}
+
+fn acquireBackBufferWithImpl(
+    device_handle: ?*anyopaque,
+    swap_chain_handle: ?*anyopaque,
+    buffer_index: u32,
+    resource_iid: ?*const anyopaque,
+    backend: BackBufferBackend,
+    context: ?*anyopaque,
+) BackBufferError!BackBuffer {
+    if (buffer_index >= 2) return error.InvalidBackBufferIndex;
+    if (device_handle == null) return error.InvalidDevice;
+    if (swap_chain_handle == null) return error.InvalidSwapChain;
+
+    var resource: ?*anyopaque = null;
+    if (!backend.get_buffer(context, buffer_index, resource_iid, &resource) or resource == null) {
+        if (resource) |partial_resource| backend.release(context, .resource, partial_resource);
+        return error.BackBufferAcquisitionFailed;
+    }
+
+    var render_target_view: ?*anyopaque = null;
+    if (!backend.create_render_target_view(context, resource, &render_target_view) or render_target_view == null) {
+        if (render_target_view) |partial_view| backend.release(context, .render_target_view, partial_view);
+        backend.release(context, .resource, resource.?);
+        return error.RenderTargetViewCreationFailed;
+    }
+
+    return .{
+        .resource = if (comptime builtin.os.tag == .windows)
+            @ptrCast(@alignCast(resource.?))
+        else
+            resource,
+        .render_target_view = if (comptime builtin.os.tag == .windows)
+            @ptrCast(@alignCast(render_target_view.?))
+        else
+            render_target_view,
+    };
+}
+
+fn getBufferWindows(
+    context: ?*anyopaque,
+    buffer_index: u32,
+    resource_iid: ?*const anyopaque,
+    out_resource: *?*anyopaque,
+) callconv(.c) bool {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const swap_chain: *api.dxgi.IDXGISwapChain1 = @ptrCast(@alignCast(windows_context.swap_chain_handle));
+    const Guid = @TypeOf(api.d3d11.IID_ID3D11Resource.*);
+    const iid: ?*const Guid = if (resource_iid) |value| @ptrCast(@alignCast(value)) else null;
+    var resource: ?*anyopaque = null;
+    const result = swap_chain.IDXGISwapChain.GetBuffer(
+        buffer_index,
+        iid,
+        @ptrCast(&resource),
+    );
+    out_resource.* = resource;
+    return !result.failed and resource != null;
+}
+
+fn createRenderTargetViewWindows(
+    context: ?*anyopaque,
+    resource: ?*anyopaque,
+    out_view: *?*anyopaque,
+) callconv(.c) bool {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const device: *api.d3d11.ID3D11Device = @ptrCast(@alignCast(windows_context.device_handle));
+    const resource_value: *api.d3d11.ID3D11Resource = @ptrCast(@alignCast(resource.?));
+    var render_target_view: ?*api.d3d11.ID3D11RenderTargetView = null;
+    const result = device.CreateRenderTargetView(resource_value, null, @ptrCast(&render_target_view));
+    out_view.* = if (render_target_view) |view| @ptrCast(view) else null;
+    return !result.failed and render_target_view != null;
+}
+
+fn acquireBackBufferWindows(
+    device_handle: *anyopaque,
+    swap_chain: *api.dxgi.IDXGISwapChain1,
+    buffer_index: u32,
+) BackBufferError!BackBuffer {
+    var windows_context = WindowsAcquireContext{
+        .device_handle = device_handle,
+        .swap_chain_handle = @ptrCast(swap_chain),
+    };
+    return acquireBackBufferWithImpl(
+        device_handle,
+        @ptrCast(swap_chain),
+        buffer_index,
+        @ptrCast(api.d3d11.IID_ID3D11Resource),
+        .{
+            .get_buffer = getBufferWindows,
+            .create_render_target_view = createRenderTargetViewWindows,
+            .release = releaseBackBufferInterface,
+        },
+        @ptrCast(&windows_context),
+    );
+}
+
 /// Test-build-only access to the wait seam. Production callers use
 /// `SwapChain.waitForFrame`; this export is an empty struct in non-test builds.
 pub const testing = if (builtin.is_test) struct {
+    pub const ReleaseKind = BackBufferReleaseKind;
+    pub const Backend = BackBufferBackend;
+    pub const acquireBackBufferWith = acquireBackBufferWithImpl;
+    pub const deinitBackBufferWith = deinitBackBufferWithImpl;
     pub const waitForFrameWith = waitForFrameWithImpl;
 } else struct {};
 
