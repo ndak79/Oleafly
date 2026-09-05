@@ -208,3 +208,26 @@ available in this environment and is intentionally not implied by the green
 Zig tests. The slice does not close full T0.2b acceptance, PDFium source
 reconstruction, binary equivalence, authenticated worker loading, or Task 5
 runtime qualification.
+
+## T0.2b bounded deterministic package-oracle slice evidence (2026-09-05)
+
+This increment adds a pure-Zig, in-memory fixture oracle for the eventual
+release payload archive. It is not an installer, MSIX, runtime inventory, or
+product-size result. The oracle writes a canonical POSIX-ustar stream and
+deterministic gzip level 9 bytes, and binds the exact sorted path/byte manifest
+to SHA-256 receipts.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t0-2b-package-test`: `14/14` failed against the empty module/missing source allowlist. | Tests detect absent implementation and package inclusion. |
+| ReleaseSafe GREEN | `t0-2b-package-test`: `20/20` passed. | Canonical tar/gzip, path safety, receipts, round-trip and ownership contracts are green. |
+| Debug | `t0-2b-package-test -Doptimize=Debug`: `20/20` passed. | Debug regression is green. |
+| ReleaseFast | `t0-2b-package-test -Doptimize=ReleaseFast`: `20/20` passed. | Optimized oracle remains deterministic. |
+| Linux portability | `t0-2b-package-check -Dtarget=x86_64-linux-gnu`: `3/3` compile-only steps passed. | Cross-target compilation is covered; Linux execution is not claimed. |
+| Falsification | Tar header/metadata/padding/end-marker mutations, gzip header/body/footer/truncation/concatenation, changed payload, unsafe path, duplicate/conflict, nonregular file, and allocation-failure cases were rejected. | Representative negative paths fail closed. |
+| Windows path hardening | COM/PRN/AUX/NUL/CONIN$/CONOUT$, COM/LPT ASCII and superscript aliases, extensions/nested components, ASCII/Unicode case aliases, and folded file-directory ancestors are rejected. | No known Windows path collision remains in this fixture scope. |
+| Independent gpt-6 reviewer, final pass | No Medium+ findings; quality streak `1`. | Tar/gzip/hash/ownership/OOM and Windows collision review clean. |
+
+The oracle deliberately does not claim the real release-payload inventory,
+90/30 MiB gates, filesystem-root isolation, installer packaging, or signed
+shipping evidence. Those remain later T0.2b/T0.2h gates.

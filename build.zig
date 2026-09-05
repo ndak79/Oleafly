@@ -155,6 +155,28 @@ pub fn build(b: *std.Build) void {
         pdfium_static_step.dependOn(&pdfium_tests.step);
     }
 
+    // Offline fixture compression oracle: no fetch, installer, or product edge.
+    const package_probe_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/package_probe_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    package_probe_tests.root_module.addImport("package_probe", b.createModule(.{
+        .root_source_file = b.path("tools/zig/package_probe.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const package_probe_contract = b.addOptions();
+    package_probe_contract.addOption([]const u8, "zon", @embedFile("build.zig.zon"));
+    package_probe_tests.root_module.addOptions("package_probe_contract", package_probe_contract);
+    const run_package_probe_tests = b.addRunArtifact(package_probe_tests);
+    const package_probe_test = b.step("t0-2b-package-test", "Run the offline fixture package/compression oracle");
+    package_probe_test.dependOn(&run_package_probe_tests.step);
+    const package_probe_check = b.step("t0-2b-package-check", "Compile the package oracle tests for the selected target");
+    package_probe_check.dependOn(&package_probe_tests.step);
+
     const deps_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/deps.zig"),
         .target = target,
