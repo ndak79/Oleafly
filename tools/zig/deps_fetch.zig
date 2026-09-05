@@ -3588,6 +3588,12 @@ const TokenUser = extern struct {
     user: SidAndAttributes,
 };
 
+const TokenOwner = extern struct {
+    owner: *anyopaque,
+};
+
+const token_owner_information_class: u32 = 4;
+
 fn ownerSidMatchesCurrentToken(owner: *const anyopaque) bool {
     if (builtin.os.tag != .windows) return true;
     var token: std.os.windows.HANDLE = undefined;
@@ -3605,7 +3611,30 @@ fn ownerSidMatchesCurrentToken(owner: *const anyopaque) bool {
         return false;
     }
     const token_user: *const TokenUser = @ptrCast(@alignCast(&buffer));
-    return IsValidSid(token_user.user.sid) != 0 and EqualSid(owner, token_user.user.sid) != 0;
+    if (IsValidSid(token_user.user.sid) != 0 and EqualSid(owner, token_user.user.sid) != 0) {
+        return true;
+    }
+
+    // Elevated Windows tokens may stamp newly-created objects with the
+    // token's effective owner group (often BUILTIN\\Administrators) instead
+    // of the logon SID returned by TokenUser. Accept that exact token owner as
+    // well; the protected OWNER RIGHTS DACL checked below still denies every
+    // write/WRITE_DAC right, so group ownership cannot widen the cache policy.
+    // A SID can contain up to 15 sub-authorities (68 bytes); leave ample
+    // room for the TOKEN_OWNER header plus any SID payload returned inline.
+    var owner_buffer: [256]u8 align(@alignOf(TokenOwner)) = undefined;
+    required = 0;
+    if (GetTokenInformation(
+        token,
+        token_owner_information_class,
+        &owner_buffer,
+        owner_buffer.len,
+        &required,
+    ) == 0 or required > owner_buffer.len) {
+        return false;
+    }
+    const token_owner: *const TokenOwner = @ptrCast(@alignCast(&owner_buffer));
+    return IsValidSid(token_owner.owner) != 0 and EqualSid(owner, token_owner.owner) != 0;
 }
 
 fn applyOwnerOnlyAcl(
