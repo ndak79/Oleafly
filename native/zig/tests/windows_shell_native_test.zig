@@ -19,6 +19,14 @@ test "narrow Win32 declarations retain x64 SDK structure layouts and flags" {
     try std.testing.expectEqual(@as(isize, -4), @as(isize, @bitCast(@intFromPtr(native.dpi_pmv2))));
 }
 
+test "DPI admission accepts only a non-null context proven equal to PMv2" {
+    const pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
+    const pmv1: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -2))));
+    try std.testing.expect(native.acceptPmv2Context(pmv2, true));
+    try std.testing.expect(!native.acceptPmv2Context(pmv1, false));
+    try std.testing.expect(!native.acceptPmv2Context(null, false));
+}
+
 const Forbidden = struct {
     calls: usize = 0,
     pub fn restrictDllSearch(self: *@This()) bool {

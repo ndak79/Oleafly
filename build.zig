@@ -155,6 +155,15 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const app_version_resource_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/version_resource.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_build_identity_module.addImport("app_version_resource", app_version_resource_module);
+    const resource_assets = b.addOptions();
+    resource_assets.addOption([]const u8, "rc_source", @embedFile("native/zig/manifests/TExFlow.rc"));
+    resource_assets.addOption([]const u8, "manifest_source", @embedFile("native/zig/manifests/TExFlow.exe.manifest"));
     const app_live_render_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/app/live_render.zig"),
         .target = target,
@@ -272,6 +281,11 @@ pub fn build(b: *std.Build) void {
             }),
         });
         product.root_module.addImport("shell_native", shell_native_module);
+        product.root_module.addWin32ResourceFile(.{
+            .file = b.path("native/zig/manifests/TExFlow.rc"),
+            .flags = &.{"/x"},
+            .include_paths = &.{},
+        });
         product.subsystem = .Windows;
         b.installArtifact(product);
         product_build_step.dependOn(&product.step);
@@ -298,10 +312,28 @@ pub fn build(b: *std.Build) void {
         }),
     });
     product_tests.root_module.addOptions("product_contract", product_contract);
+    product_tests.root_module.addOptions("resource_assets", resource_assets);
     product_tests.root_module.addImport("windows_argv", windows_argv_module);
+    product_tests.root_module.addImport("app_version_resource", app_version_resource_module);
     if (target.result.os.tag == .windows) product_tests.root_module.linkSystemLibrary("user32", .{});
     b.step("t0-2c-product-test", "Test native product PE and owned Windows shell runtime").dependOn(&b.addRunArtifact(product_tests).step);
     b.step("t0-2c-product-check", "Compile product contract tests without execution").dependOn(&product_tests.step);
+    const version_resource_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/version_resource_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    version_resource_tests.root_module.addImport("app_version_resource", app_version_resource_module);
+    version_resource_tests.root_module.addOptions("resource_assets", resource_assets);
+    const run_version_resource_tests = b.addRunArtifact(version_resource_tests);
+    const version_resource_test_step = b.step("t0-2c-resource-test", "Run portable TExFlow version and resource contract tests");
+    version_resource_test_step.dependOn(&run_version_resource_tests.step);
+    const version_resource_check_step = b.step("t0-2c-resource-check", "Compile TExFlow version and resource contract tests");
+    version_resource_check_step.dependOn(&version_resource_tests.step);
+    t0_2c_models_test.dependOn(&run_version_resource_tests.step);
+    t0_2c_models_check.dependOn(&version_resource_tests.step);
     inline for (.{
         "role_test.zig",
         "build_identity_test.zig",

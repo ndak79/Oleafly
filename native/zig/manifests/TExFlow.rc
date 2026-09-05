@@ -1,0 +1,40 @@
+// Self-contained TExFlow UI resources.  /x is supplied by the Zig build and
+// no SDK or ambient INCLUDE header is required.
+#define RT_MANIFEST 24
+#define VS_FF_PRERELEASE 0x00000002L
+#define VS_FF_PRIVATEBUILD 0x00000008L
+#define VOS_NT_WINDOWS32 0x00040004L
+#define VFT_APP 0x00000001L
+#define VFT2_UNKNOWN 0x00000000L
+#define TEXFLOW_LANG 0x0409
+#define TEXFLOW_CODEPAGE 1200
+
+1 RT_MANIFEST "TExFlow.exe.manifest"
+
+1 VERSIONINFO
+ FILEVERSION 0,0,2,0
+ PRODUCTVERSION 0,0,2,0
+ FILEFLAGSMASK 0x0000003fL
+ FILEFLAGS VS_FF_PRERELEASE | VS_FF_PRIVATEBUILD
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904B0"
+  BEGIN
+   VALUE "ProductName", "TExFlow"
+   VALUE "FileDescription", "TExFlow"
+   VALUE "InternalName", "TExFlow"
+   VALUE "OriginalFilename", "TExFlow.exe"
+   VALUE "FileVersion", "0.0.2.0"
+   VALUE "ProductVersion", "0.0.2-feasibility"
+   VALUE "PrivateBuild", "T0.2 architecture feasibility; not release-qualified"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", TEXFLOW_LANG, TEXFLOW_CODEPAGE
+ END
+END

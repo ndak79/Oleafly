@@ -1,12 +1,10 @@
 const std = @import("std");
+const resource = @import("app_version_resource");
 
 pub const digest_bytes = 32;
 pub const identity_domain = "texflow:build:v1\x00";
 
-pub const version_flags = struct {
-    pub const prerelease: u32 = 0x00000002;
-    pub const private_build: u32 = 0x00000008;
-};
+pub const version_flags = resource.version_flags;
 
 pub const VersionInfo = struct {
     major: u16,
@@ -25,19 +23,19 @@ pub const VersionInfo = struct {
 };
 
 pub const version_info = VersionInfo{
-    .major = 0,
-    .minor = 0,
-    .patch = 2,
-    .revision = 0,
-    .file_version = "0.0.2.0",
-    .product_version = "0.0.2-feasibility",
-    .private_build = "T0.2 architecture feasibility; not release-qualified",
-    .translation = "040904B0",
-    .is_prerelease = true,
-    .is_private_build = true,
-    .windows_version = "VOS_NT_WINDOWS32",
-    .application_type = "VFT_APP",
-    .internal_name = "TExFlow",
+    .major = resource.version.major,
+    .minor = resource.version.minor,
+    .patch = resource.version.patch,
+    .revision = resource.version.revision,
+    .file_version = resource.file_version,
+    .product_version = resource.product_version,
+    .private_build = resource.private_build,
+    .translation = resource.translation,
+    .is_prerelease = resource.is_prerelease,
+    .is_private_build = resource.is_private_build,
+    .windows_version = resource.windows_version,
+    .application_type = resource.application_type,
+    .internal_name = resource.internal_name,
 };
 
 /// Return the common role-neutral version tuple with the role-specific

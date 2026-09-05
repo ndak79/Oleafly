@@ -1,7 +1,8 @@
 //! Narrow x64 Windows UI adapter. Declarations match the Win32 SDK's pointer,
 //! DWORD/BOOL/HRESULT and callback ABI; no generated "everything" binding.
 //! Entry-time DLL policy governs subsequent loads, not the OS's pre-entry image
-//! loader. No resources/manifest/icon, renderer, worker, database or network.
+//! loader. Resource and manifest identity are supplied by the product build;
+//! this adapter owns no renderer, worker, database or network seams.
 const std = @import("std");
 const shell = @import("windows_shell");
 const com = @import("windows_com");
@@ -47,6 +48,8 @@ const raw = struct {
     extern "shell32" fn CommandLineToArgvW([*:0]const u16, *i32) callconv(.winapi) ?[*][*:0]u16;
     extern "bcrypt" fn BCryptGenRandom(?*anyopaque, [*]u8, u32, u32) callconv(.winapi) i32;
     extern "user32" fn SetProcessDpiAwarenessContext(*anyopaque) callconv(.winapi) i32;
+    extern "user32" fn GetThreadDpiAwarenessContext() callconv(.winapi) ?*anyopaque;
+    extern "user32" fn AreDpiAwarenessContextsEqual(?*anyopaque, ?*anyopaque) callconv(.winapi) i32;
     extern "user32" fn LoadCursorW(?HINSTANCE, [*:0]const u16) callconv(.winapi) ?*anyopaque;
     extern "user32" fn RegisterClassExW(*const WNDCLASSEXW) callconv(.winapi) u16;
     extern "user32" fn UnregisterClassW([*:0]const u16, HINSTANCE) callconv(.winapi) i32;
@@ -64,6 +67,13 @@ const raw = struct {
 pub fn launch(instance: HINSTANCE, show: i32) shell.Result {
     var backend: Backend = .{ .instance = instance, .show = show };
     return runCommandLine(std.heap.page_allocator, raw.GetCommandLineW(), &backend);
+}
+
+/// The Windows API reports PMv2 as a special opaque context.  Keep the
+/// acceptance rule pure so tests can falsify null/unknown/PMv1 paths without
+/// loading user32: only a non-null context proven equal by the OS is accepted.
+pub fn acceptPmv2Context(current: ?*anyopaque, equal_to_pmv2: bool) bool {
+    return current != null and equal_to_pmv2;
 }
 
 /// Uses the complete OS command line, not a presumed wWinMain tail: Zig 0.16's
@@ -101,9 +111,17 @@ pub const Backend = struct {
         return raw.SetDefaultDllDirectories(dll_search_flags) != 0;
     }
     pub fn setDpiAwareness(_: *Backend) bool {
-        // Fail closed if policy was already set, rather than silently accepting
-        // another context. The later resource slice can supply a PMv2 manifest.
-        return raw.SetProcessDpiAwarenessContext(dpi_pmv2) != 0;
+        // A PMv2 manifest establishes the process context before entry.  In
+        // that case SetProcessDpiAwarenessContext may report access denied;
+        // query the effective thread context and accept only exact PMv2.
+        const before = raw.GetThreadDpiAwarenessContext();
+        if (before) |context| {
+            if (acceptPmv2Context(context, raw.AreDpiAwarenessContextsEqual(context, dpi_pmv2) != 0)) return true;
+        } else return false;
+        _ = raw.SetProcessDpiAwarenessContext(dpi_pmv2);
+        const after = raw.GetThreadDpiAwarenessContext();
+        if (after) |context| return acceptPmv2Context(context, raw.AreDpiAwarenessContextsEqual(context, dpi_pmv2) != 0);
+        return false;
     }
     pub fn initializeCom(_: *Backend) bool {
         return com.initializeSta();

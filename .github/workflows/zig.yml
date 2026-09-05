@@ -107,6 +107,21 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           zig build -Dtarget=x86_64-windows-msvc --release=safe t0-1-smoke --summary all
 
+      - name: Run TExFlow resource, native shell, and product gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-resource-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-resource-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-resource-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-shell-native-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-shell-native-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-shell-native-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-product-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-product-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-product-test --summary all
+
       - name: Prove two clean ReleaseSafe hashes
         shell: pwsh
         run: |
@@ -196,6 +211,15 @@ jobs:
         run: |
           set -euo pipefail
           zig build -Dtarget=x86_64-linux-gnu --release=safe t0-1-smoke --summary all
+
+      - name: Run portable TExFlow resource and model gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-resource-test --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-resource-test --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=fast t0-2c-resource-test --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-models-test --summary all
 
       - name: Prove two clean ReleaseSafe Linux install graphs are empty
         shell: bash

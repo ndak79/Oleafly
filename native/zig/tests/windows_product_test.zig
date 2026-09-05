@@ -4,6 +4,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const contract = @import("product_contract");
 const argv = @import("windows_argv");
+const resources = @import("resource_assets");
+const version_resource = @import("app_version_resource");
 const windows = std.os.windows;
 const w = std.unicode.utf8ToUtf16LeStringLiteral;
 const supported = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64;
@@ -46,6 +48,381 @@ fn peString(bytes: []const u8, offset: usize) ![]const u8 {
     return bytes[offset..][0..end];
 }
 
+const ResourceTarget = struct {
+    relative_offset: u32,
+    is_directory: bool,
+};
+
+const ResourceSpan = struct {
+    root: usize,
+    end: usize,
+    rva: u32,
+    size: u32,
+};
+
+fn resourceSpan(bytes: []const u8, pe: usize) !ResourceSpan {
+    const resource_rva = try read(u32, bytes, pe + 24 + 128);
+    const resource_size = try read(u32, bytes, pe + 24 + 132);
+    if (resource_rva == 0 or resource_size == 0) return error.MissingResourceDirectory;
+    const root = try rvaOffset(bytes, pe, resource_rva);
+    const end = std.math.add(usize, root, @as(usize, resource_size)) catch return error.InvalidResourceTree;
+    if (end > bytes.len) return error.InvalidResourceTree;
+    return .{ .root = root, .end = end, .rva = resource_rva, .size = resource_size };
+}
+
+fn resourceOffset(bytes: []const u8, root: usize, resource_end: usize, relative: u32) !usize {
+    const offset = std.math.add(usize, root, @as(usize, relative)) catch return error.TruncatedPe;
+    if (root > bytes.len or resource_end > bytes.len or offset > resource_end) return error.InvalidResourceTree;
+    return offset;
+}
+
+fn resourceRead(comptime T: type, bytes: []const u8, resource_end: usize, offset: usize) !T {
+    if (offset > resource_end or @sizeOf(T) > resource_end - offset) return error.InvalidResourceTree;
+    return read(T, bytes, offset) catch return error.InvalidResourceTree;
+}
+
+fn resourceChild(bytes: []const u8, root: usize, resource_end: usize, directory: u32, wanted_id: u32) !ResourceTarget {
+    const directory_offset = try resourceOffset(bytes, root, resource_end, directory);
+    const named_count = try resourceRead(u16, bytes, resource_end, directory_offset + 12);
+    const id_count = try resourceRead(u16, bytes, resource_end, directory_offset + 14);
+    if (named_count != 0 or id_count != 1) return error.UnexpectedResourceCount;
+    const entry = directory_offset + 16;
+    const id = try resourceRead(u32, bytes, resource_end, entry);
+    if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
+    if (id != wanted_id) return error.MissingResource;
+    const target = try resourceRead(u32, bytes, resource_end, entry + 4);
+    return .{
+        .relative_offset = target & 0x7fff_ffff,
+        .is_directory = (target & 0x8000_0000) != 0,
+    };
+}
+
+fn resourceOnlyChild(bytes: []const u8, root: usize, resource_end: usize, directory: u32, wanted_id: u32) !ResourceTarget {
+    const directory_offset = try resourceOffset(bytes, root, resource_end, directory);
+    const named_count = try resourceRead(u16, bytes, resource_end, directory_offset + 12);
+    const id_count = try resourceRead(u16, bytes, resource_end, directory_offset + 14);
+    if (named_count != 0 or id_count != 1) return error.UnexpectedResourceCount;
+    const entry = directory_offset + 16;
+    const id = try resourceRead(u32, bytes, resource_end, entry);
+    if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
+    if (id != wanted_id) return error.UnexpectedResourceLocale;
+    const target = try resourceRead(u32, bytes, resource_end, entry + 4);
+    return .{
+        .relative_offset = target & 0x7fff_ffff,
+        .is_directory = (target & 0x8000_0000) != 0,
+    };
+}
+
+fn resourceData(bytes: []const u8, pe: usize, wanted_type: u32) ![]const u8 {
+    const span = try resourceSpan(bytes, pe);
+    const resource_rva = span.rva;
+    const resource_size = span.size;
+    const resource_root = span.root;
+    const resource_end = span.end;
+    const root_named = try resourceRead(u16, bytes, resource_end, resource_root + 12);
+    const root_ids = try resourceRead(u16, bytes, resource_end, resource_root + 14);
+    if (root_named != 0 or root_ids != 2) return error.UnexpectedResourceCount;
+    var seen_version = false;
+    var seen_manifest = false;
+    var wanted_target: ?ResourceTarget = null;
+    for (0..root_ids) |index| {
+        const entry = resource_root + 16 + index * 8;
+        const id = try resourceRead(u32, bytes, resource_end, entry);
+        if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
+        if (id == 16) {
+            if (seen_version) return error.DuplicateResource;
+            seen_version = true;
+        } else if (id == 24) {
+            if (seen_manifest) return error.DuplicateResource;
+            seen_manifest = true;
+        } else return error.UnexpectedResourceType;
+        if (id == wanted_type) {
+            const target = try resourceRead(u32, bytes, resource_end, entry + 4);
+            wanted_target = .{
+                .relative_offset = target & 0x7fff_ffff,
+                .is_directory = (target & 0x8000_0000) != 0,
+            };
+        }
+    }
+    if (!seen_version or !seen_manifest) return error.MissingResource;
+    const type_target = wanted_target orelse return error.MissingResource;
+    if (!type_target.is_directory) return error.InvalidResourceTree;
+    const name = try resourceChild(bytes, resource_root, resource_end, type_target.relative_offset, 1);
+    if (!name.is_directory) return error.InvalidResourceTree;
+    const language = try resourceOnlyChild(bytes, resource_root, resource_end, name.relative_offset, version_resource.language);
+    if (language.is_directory) return error.InvalidResourceTree;
+    const data_entry = try resourceOffset(bytes, resource_root, resource_end, language.relative_offset);
+    const data_rva = try resourceRead(u32, bytes, resource_end, data_entry);
+    const data_size = try resourceRead(u32, bytes, resource_end, data_entry + 4);
+    _ = try resourceRead(u32, bytes, resource_end, data_entry + 8); // code page, checked for bounds
+    _ = try resourceRead(u32, bytes, resource_end, data_entry + 12); // reserved, checked for bounds
+    if (data_rva < resource_rva) return error.InvalidResourceTree;
+    const relative_data_rva = data_rva - resource_rva;
+    if (relative_data_rva > resource_size or data_size > resource_size - relative_data_rva) return error.InvalidResourceTree;
+    const data_offset = try rvaOffset(bytes, pe, data_rva);
+    if (@as(usize, data_size) > bytes.len - data_offset) return error.TruncatedPe;
+    return bytes[data_offset .. data_offset + @as(usize, data_size)];
+}
+
+fn resourceLanguageIdOffset(bytes: []const u8, pe: usize, wanted_type: u32) !usize {
+    const span = try resourceSpan(bytes, pe);
+    const resource_root = span.root;
+    const resource_end = span.end;
+    const root_named = try resourceRead(u16, bytes, resource_end, resource_root + 12);
+    const root_ids = try resourceRead(u16, bytes, resource_end, resource_root + 14);
+    if (root_named != 0 or root_ids != 2) return error.UnexpectedResourceCount;
+    var type_target: ?ResourceTarget = null;
+    for (0..root_ids) |index| {
+        const entry = resource_root + 16 + index * 8;
+        const id = try resourceRead(u32, bytes, resource_end, entry);
+        if ((id & 0x8000_0000) != 0) return error.UnexpectedNamedResource;
+        if (id == wanted_type) {
+            if (type_target != null) return error.DuplicateResource;
+            const target = try resourceRead(u32, bytes, resource_end, entry + 4);
+            type_target = .{
+                .relative_offset = target & 0x7fff_ffff,
+                .is_directory = (target & 0x8000_0000) != 0,
+            };
+        }
+    }
+    const resource_type = type_target orelse return error.MissingResource;
+    if (!resource_type.is_directory) return error.InvalidResourceTree;
+    const type_directory = try resourceOffset(bytes, resource_root, resource_end, resource_type.relative_offset);
+    if (try resourceRead(u16, bytes, resource_end, type_directory + 12) != 0 or try resourceRead(u16, bytes, resource_end, type_directory + 14) != 1) return error.UnexpectedResourceCount;
+    const name_entry = type_directory + 16;
+    if (try resourceRead(u32, bytes, resource_end, name_entry) != 1) return error.InvalidResourceTree;
+    const name_target = try resourceRead(u32, bytes, resource_end, name_entry + 4);
+    if ((name_target & 0x8000_0000) == 0) return error.InvalidResourceTree;
+    const name_directory = try resourceOffset(bytes, resource_root, resource_end, name_target & 0x7fff_ffff);
+    if (try resourceRead(u16, bytes, resource_end, name_directory + 12) != 0 or try resourceRead(u16, bytes, resource_end, name_directory + 14) != 1) return error.UnexpectedResourceCount;
+    return name_directory + 16;
+}
+
+const VersionBlock = struct {
+    end: usize,
+    value_start: usize,
+    value_end: usize,
+    children_start: usize,
+    value_length: u16,
+    value_type: u16,
+    key_start: usize,
+    key_units: usize,
+};
+
+fn alignResource(value: usize) !usize {
+    return std.math.add(usize, value, 3) catch return error.InvalidVersionResource;
+}
+
+fn validateVersionPadding(bytes: []const u8, start: usize, end: usize) !void {
+    if (start > end or end - start > 3) return error.InvalidVersionResource;
+    for (bytes[start..end]) |byte| {
+        if (byte != 0) return error.InvalidVersionResource;
+    }
+}
+
+fn parseVersionBlock(bytes: []const u8, start: usize, limit: usize) !VersionBlock {
+    if (start > limit or limit - start < 6) return error.InvalidVersionResource;
+    const length = try read(u16, bytes, start);
+    const value_length = try read(u16, bytes, start + 2);
+    const value_type = try read(u16, bytes, start + 4);
+    if (length < 6 or @as(usize, length) > limit - start) return error.InvalidVersionResource;
+    const end = start + @as(usize, length);
+    const key_start = start + 6;
+    var cursor = key_start;
+    var key_units: usize = 0;
+    while (cursor + 2 <= end) : ({
+        cursor += 2;
+        key_units += 1;
+    }) {
+        if (try read(u16, bytes, cursor) == 0) break;
+    }
+    if (cursor + 2 > end or try read(u16, bytes, cursor) != 0) return error.InvalidVersionResource;
+    const value_start_unaligned = cursor + 2;
+    const value_start = (try alignResource(value_start_unaligned)) & ~@as(usize, 3);
+    if (value_start > end) return error.InvalidVersionResource;
+    try validateVersionPadding(bytes, value_start_unaligned, value_start);
+    const value_bytes = if (value_type == 1) std.math.mul(usize, @as(usize, value_length), 2) catch return error.InvalidVersionResource else @as(usize, value_length);
+    if (value_bytes > end - value_start) return error.InvalidVersionResource;
+    const value_end = value_start + value_bytes;
+    const children_start = if (value_end == end) end else (try alignResource(value_end)) & ~@as(usize, 3);
+    if (children_start > end) return error.InvalidVersionResource;
+    try validateVersionPadding(bytes, value_end, children_start);
+    return .{
+        .end = end,
+        .value_start = value_start,
+        .value_end = value_end,
+        .children_start = children_start,
+        .value_length = value_length,
+        .value_type = value_type,
+        .key_start = key_start,
+        .key_units = key_units,
+    };
+}
+
+fn nextVersionChildOffset(bytes: []const u8, parent_end: usize, child_end: usize) !usize {
+    if (child_end > parent_end) return error.InvalidVersionResource;
+    if (child_end == parent_end) return parent_end;
+    const aligned = (try alignResource(child_end)) & ~@as(usize, 3);
+    const padding_end = @min(aligned, parent_end);
+    try validateVersionPadding(bytes, child_end, padding_end);
+    if (aligned > parent_end) return parent_end;
+    return aligned;
+}
+
+fn utf16AsciiEqual(bytes: []const u8, start: usize, units: usize, expected: []const u8) bool {
+    if (units != expected.len or start > bytes.len or units > (bytes.len - start) / 2) return false;
+    for (expected, 0..) |character, index| {
+        const code_unit = std.mem.readInt(u16, bytes[start + index * 2 ..][0..2], .little);
+        if (code_unit != character) return false;
+    }
+    return true;
+}
+
+fn utf16ValueEqual(bytes: []const u8, start: usize, units: usize, expected: []const u8) bool {
+    if (units != expected.len + 1 or start > bytes.len or units > (bytes.len - start) / 2) return false;
+    if (!utf16AsciiEqual(bytes, start, expected.len, expected)) return false;
+    return std.mem.readInt(u16, bytes[start + expected.len * 2 ..][0..2], .little) == 0;
+}
+
+fn requireVersionLeaf(block: VersionBlock) !void {
+    if (block.children_start != block.end) return error.InvalidVersionResource;
+}
+
+fn expectVersionLeafRejected(block: VersionBlock) !void {
+    requireVersionLeaf(block) catch return;
+    return error.MutationAccepted;
+}
+
+fn findUtf16Ascii(bytes: []const u8, expected: []const u8) !usize {
+    if (expected.len > bytes.len / 2) return error.MissingVersionString;
+    const last = bytes.len - expected.len * 2;
+    for (0..last + 1) |offset| {
+        if (utf16AsciiEqual(bytes, offset, expected.len, expected)) return offset;
+    }
+    return error.MissingVersionString;
+}
+
+const ParsedVersionStrings = struct {
+    product_name: bool = false,
+    file_description: bool = false,
+    internal_name: bool = false,
+    original_filename: bool = false,
+    file_version: bool = false,
+    product_version: bool = false,
+    private_build: bool = false,
+};
+
+fn parseVersionStringTable(bytes: []const u8, table: VersionBlock, strings: *ParsedVersionStrings) !void {
+    if (!utf16AsciiEqual(bytes, table.key_start, table.key_units, "040904B0") or table.value_length != 0 or table.value_type != 1) return error.InvalidVersionResource;
+    var child_offset = table.children_start;
+    var child_count: usize = 0;
+    while (child_offset < table.end) {
+        if (table.end - child_offset < 6 or try read(u16, bytes, child_offset) == 0) {
+            try validateVersionPadding(bytes, child_offset, table.end);
+            break;
+        }
+        const child = try parseVersionBlock(bytes, child_offset, table.end);
+        if (child.end <= child_offset or child.value_type != 1 or child.value_length == 0) return error.InvalidVersionResource;
+        try requireVersionLeaf(child);
+        const value_start = child.value_start;
+        const value_units = @as(usize, child.value_length);
+        if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "ProductName")) {
+            if (strings.product_name or !utf16ValueEqual(bytes, value_start, value_units, version_resource.product_name)) return error.InvalidVersionResource;
+            strings.product_name = true;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "FileDescription")) {
+            if (strings.file_description or !utf16ValueEqual(bytes, value_start, value_units, version_resource.file_description)) return error.InvalidVersionResource;
+            strings.file_description = true;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "InternalName")) {
+            if (strings.internal_name or !utf16ValueEqual(bytes, value_start, value_units, version_resource.internal_name)) return error.InvalidVersionResource;
+            strings.internal_name = true;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "OriginalFilename")) {
+            if (strings.original_filename or !utf16ValueEqual(bytes, value_start, value_units, version_resource.original_filename)) return error.InvalidVersionResource;
+            strings.original_filename = true;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "FileVersion")) {
+            if (strings.file_version or !utf16ValueEqual(bytes, value_start, value_units, version_resource.file_version)) return error.InvalidVersionResource;
+            strings.file_version = true;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "ProductVersion")) {
+            if (strings.product_version or !utf16ValueEqual(bytes, value_start, value_units, version_resource.product_version)) return error.InvalidVersionResource;
+            strings.product_version = true;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "PrivateBuild")) {
+            if (strings.private_build or !utf16ValueEqual(bytes, value_start, value_units, version_resource.private_build)) return error.InvalidVersionResource;
+            strings.private_build = true;
+        } else return error.UnexpectedVersionString;
+        child_count += 1;
+        child_offset = try nextVersionChildOffset(bytes, table.end, child.end);
+    }
+    if (child_count != 7 or !strings.product_name or !strings.file_description or !strings.internal_name or !strings.original_filename or !strings.file_version or !strings.product_version or !strings.private_build) return error.InvalidVersionResource;
+}
+
+fn parseVersionVarTable(bytes: []const u8, table: VersionBlock) !void {
+    if (!utf16AsciiEqual(bytes, table.key_start, table.key_units, "Translation") or table.value_type != 0 or table.value_length != 4) return error.InvalidVersionResource;
+    try requireVersionLeaf(table);
+    if (try read(u16, bytes, table.value_start) != version_resource.language or try read(u16, bytes, table.value_start + 2) != version_resource.code_page) return error.InvalidVersionResource;
+}
+
+fn parseVersionResource(bytes: []const u8) !void {
+    const root = try parseVersionBlock(bytes, 0, bytes.len);
+    if (root.end != bytes.len) return error.InvalidVersionResource;
+    if (!utf16AsciiEqual(bytes, root.key_start, root.key_units, "VS_VERSION_INFO") or root.value_type != 0 or root.value_length != 52 or root.value_end - root.value_start != 52) return error.InvalidVersionResource;
+    if (try read(u32, bytes, root.value_start) != 0xfeef_04bd or try read(u32, bytes, root.value_start + 4) != 0x0001_0000) return error.InvalidVersionResource;
+    const expected_file_ms = (@as(u32, version_resource.version.major) << 16) | version_resource.version.minor;
+    const expected_file_ls = (@as(u32, version_resource.version.patch) << 16) | version_resource.version.revision;
+    if (try read(u32, bytes, root.value_start + 8) != expected_file_ms or try read(u32, bytes, root.value_start + 12) != expected_file_ls or try read(u32, bytes, root.value_start + 16) != expected_file_ms or try read(u32, bytes, root.value_start + 20) != expected_file_ls) return error.InvalidVersionResource;
+    if (try read(u32, bytes, root.value_start + 24) != version_resource.file_flags_mask or try read(u32, bytes, root.value_start + 28) != version_resource.file_flags or try read(u32, bytes, root.value_start + 32) != version_resource.file_os or try read(u32, bytes, root.value_start + 36) != version_resource.file_type or try read(u32, bytes, root.value_start + 40) != version_resource.file_subtype) return error.InvalidVersionResource;
+    var strings: ParsedVersionStrings = .{};
+    var string_info_count: usize = 0;
+    var var_info_count: usize = 0;
+    var child_offset = root.children_start;
+    while (child_offset < root.end) {
+        if (root.end - child_offset < 6 or try read(u16, bytes, child_offset) == 0) {
+            try validateVersionPadding(bytes, child_offset, root.end);
+            break;
+        }
+        const child = try parseVersionBlock(bytes, child_offset, root.end);
+        if (child.end <= child_offset) return error.InvalidVersionResource;
+        if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "StringFileInfo")) {
+            if (string_info_count != 0 or child.value_length != 0 or child.value_type != 1) return error.InvalidVersionResource;
+            var table_count: usize = 0;
+            var table_offset = child.children_start;
+            while (table_offset < child.end) {
+                if (child.end - table_offset < 6 or try read(u16, bytes, table_offset) == 0) {
+                    try validateVersionPadding(bytes, table_offset, child.end);
+                    break;
+                }
+                const table = try parseVersionBlock(bytes, table_offset, child.end);
+                try parseVersionStringTable(bytes, table, &strings);
+                table_count += 1;
+                table_offset = try nextVersionChildOffset(bytes, child.end, table.end);
+            }
+            if (table_count != 1) return error.InvalidVersionResource;
+            string_info_count = 1;
+        } else if (utf16AsciiEqual(bytes, child.key_start, child.key_units, "VarFileInfo")) {
+            if (var_info_count != 0 or child.value_length != 0 or child.value_type != 1) return error.InvalidVersionResource;
+            var table_count: usize = 0;
+            var table_offset = child.children_start;
+            while (table_offset < child.end) {
+                if (child.end - table_offset < 6 or try read(u16, bytes, table_offset) == 0) {
+                    try validateVersionPadding(bytes, table_offset, child.end);
+                    break;
+                }
+                const table = try parseVersionBlock(bytes, table_offset, child.end);
+                try parseVersionVarTable(bytes, table);
+                table_count += 1;
+                table_offset = try nextVersionChildOffset(bytes, child.end, table.end);
+            }
+            if (table_count != 1) return error.InvalidVersionResource;
+            var_info_count = 1;
+        } else return error.UnexpectedVersionBlock;
+        child_offset = try nextVersionChildOffset(bytes, root.end, child.end);
+    }
+    if (string_info_count != 1 or var_info_count != 1) return error.InvalidVersionResource;
+}
+
+fn expectVersionMutationRejected(bytes: []u8) !void {
+    parseVersionResource(bytes) catch return;
+    return error.MutationAccepted;
+}
+
 test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
     if (!supported) return error.SkipZigTest;
     const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, contract.path, std.testing.allocator, .limited(32 * 1024 * 1024));
@@ -58,10 +435,9 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
     try std.testing.expectEqual(@as(u16, 2), try read(u16, bytes, pe + 24 + 68));
     try std.testing.expect((try read(u32, bytes, pe + 24 + 16)) != 0);
     const required = [_][]const u8{
-        "GetCommandLineW", "CommandLineToArgvW", "SetDefaultDllDirectories", "SetProcessDpiAwarenessContext",
-        "CoInitializeEx",  "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",
-        "ShowWindow",      "GetMessageW",        "TranslateMessage",         "DispatchMessageW",
-        "DestroyWindow",   "UnregisterClassW",   "BCryptGenRandom",
+        "GetCommandLineW",  "CommandLineToArgvW", "SetDefaultDllDirectories", "SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual",
+        "CoInitializeEx",   "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",               "ShowWindow",                   "GetMessageW",
+        "TranslateMessage", "DispatchMessageW",   "DestroyWindow",            "UnregisterClassW",              "BCryptGenRandom",
     };
     var found = [_]bool{false} ** required.len;
     var descriptor = try rvaOffset(bytes, pe, try read(u32, bytes, pe + 24 + 120));
@@ -88,6 +464,144 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         }
     }
     for (found) |present| try std.testing.expect(present);
+}
+
+test "actual product PE round-trips the manifest and exact VERSIONINFO contract" {
+    if (!supported) return error.SkipZigTest;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, contract.path, std.testing.allocator, .limited(32 * 1024 * 1024));
+    defer std.testing.allocator.free(bytes);
+    const pe = try read(u32, bytes, 0x3c);
+    const manifest = try resourceData(bytes, pe, 24);
+    try std.testing.expectEqualSlices(u8, resources.manifest_source, manifest);
+    try parseVersionResource(try resourceData(bytes, pe, 16));
+}
+
+test "VERSIONINFO parse-back rejects flag locale string and length mutations" {
+    if (!supported) return error.SkipZigTest;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, contract.path, std.testing.allocator, .limited(32 * 1024 * 1024));
+    defer std.testing.allocator.free(bytes);
+    const pe = try read(u32, bytes, 0x3c);
+    const source = try resourceData(bytes, pe, 16);
+    const root = try parseVersionBlock(source, 0, source.len);
+
+    var flags_mutant = try std.testing.allocator.dupe(u8, source);
+    defer std.testing.allocator.free(flags_mutant);
+    std.mem.writeInt(u32, flags_mutant[root.value_start + 28 ..][0..4], 0, .little);
+    try expectVersionMutationRejected(flags_mutant);
+
+    var locale_mutant = try std.testing.allocator.dupe(u8, source);
+    defer std.testing.allocator.free(locale_mutant);
+    const locale_offset = try findUtf16Ascii(locale_mutant, "040904B0");
+    std.mem.writeInt(u16, locale_mutant[locale_offset..][0..2], '1', .little);
+    try expectVersionMutationRejected(locale_mutant);
+
+    var string_mutant = try std.testing.allocator.dupe(u8, source);
+    defer std.testing.allocator.free(string_mutant);
+    const string_offset = try findUtf16Ascii(string_mutant, version_resource.product_name);
+    std.mem.writeInt(u16, string_mutant[string_offset..][0..2], 'X', .little);
+    try expectVersionMutationRejected(string_mutant);
+
+    var length_mutant = try std.testing.allocator.dupe(u8, source);
+    defer std.testing.allocator.free(length_mutant);
+    std.mem.writeInt(u16, length_mutant[0..2], @intCast(root.end - 1), .little);
+    try expectVersionMutationRejected(length_mutant);
+
+    const product_key_offset = try findUtf16Ascii(source, "ProductName");
+    if (product_key_offset < 6) return error.InvalidVersionResource;
+    const product_block_start = product_key_offset - 6;
+    const product_length = try read(u16, source, product_block_start);
+    var leaf_mutant = try std.testing.allocator.dupe(u8, source);
+    defer std.testing.allocator.free(leaf_mutant);
+    std.mem.writeInt(u16, leaf_mutant[product_block_start..][0..2], @intCast(product_length + 4), .little);
+    try expectVersionLeafRejected(try parseVersionBlock(leaf_mutant, product_block_start, leaf_mutant.len));
+
+    const translation_key_offset = try findUtf16Ascii(source, "Translation");
+    if (translation_key_offset < 6) return error.InvalidVersionResource;
+    const translation_block_start = translation_key_offset - 6;
+    const translation_length = try read(u16, source, translation_block_start);
+    var translation_leaf_mutant = try std.testing.allocator.alloc(u8, source.len + 4);
+    defer std.testing.allocator.free(translation_leaf_mutant);
+    @memcpy(translation_leaf_mutant[0..source.len], source);
+    @memset(translation_leaf_mutant[source.len..], 0);
+    std.mem.writeInt(u16, translation_leaf_mutant[translation_block_start..][0..2], @intCast(translation_length + 4), .little);
+    try expectVersionLeafRejected(try parseVersionBlock(translation_leaf_mutant, translation_block_start, translation_leaf_mutant.len));
+
+    const string_key_offset = try findUtf16Ascii(source, "StringFileInfo");
+    if (string_key_offset < 6) return error.InvalidVersionResource;
+    const string_block = try parseVersionBlock(source, string_key_offset - 6, source.len);
+    const var_key_offset = try findUtf16Ascii(source, "VarFileInfo");
+    if (var_key_offset < 6) return error.InvalidVersionResource;
+    const var_block_start = var_key_offset - 6;
+    try std.testing.expect(var_block_start > string_block.end);
+    var padding_mutant = try std.testing.allocator.dupe(u8, source);
+    defer std.testing.allocator.free(padding_mutant);
+    padding_mutant[string_block.end] = 1;
+    try expectVersionMutationRejected(padding_mutant);
+}
+
+test "resource tree rejects a non-US language resource" {
+    if (!supported) return error.SkipZigTest;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, contract.path, std.testing.allocator, .limited(32 * 1024 * 1024));
+    defer std.testing.allocator.free(bytes);
+    const pe = try read(u32, bytes, 0x3c);
+    const language_id_offset = try resourceLanguageIdOffset(bytes, pe, 16);
+    var mutant = try std.testing.allocator.dupe(u8, bytes);
+    defer std.testing.allocator.free(mutant);
+    std.mem.writeInt(u32, mutant[language_id_offset..][0..4], 0x0407, .little);
+    const mutated_pe = try read(u32, mutant, 0x3c);
+    _ = resourceData(mutant, mutated_pe, 16) catch return;
+    return error.MutationAccepted;
+}
+
+test "resource parser rejects metadata outside the declared resource span" {
+    if (!supported) return error.SkipZigTest;
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, contract.path, std.testing.allocator, .limited(32 * 1024 * 1024));
+    defer std.testing.allocator.free(bytes);
+    const pe = try read(u32, bytes, 0x3c);
+    const span = try resourceSpan(bytes, pe);
+    const language_entry = try resourceLanguageIdOffset(bytes, pe, 16);
+    const original_data_entry_relative = try read(u32, bytes, language_entry + 4);
+    const original_data_entry = try resourceOffset(bytes, span.root, span.end, original_data_entry_relative);
+    const original_data_rva = try read(u32, bytes, original_data_entry);
+    const original_data_size = try read(u32, bytes, original_data_entry + 4);
+    var type_entry: ?usize = null;
+    const root_ids = try resourceRead(u16, bytes, span.end, span.root + 14);
+    for (0..root_ids) |index| {
+        const entry = span.root + 16 + index * 8;
+        if (try resourceRead(u32, bytes, span.end, entry) == 16) type_entry = entry;
+    }
+    const type_entry_offset = type_entry orelse return error.MissingResource;
+    var mutant = try std.testing.allocator.dupe(u8, bytes);
+    defer std.testing.allocator.free(mutant);
+    const synthetic_base = span.end + 0x20;
+    const synthetic_end = synthetic_base + 0x70;
+    try std.testing.expect(synthetic_base > span.end);
+    try std.testing.expect(synthetic_end <= mutant.len);
+    @memset(mutant[synthetic_base..synthetic_end], 0);
+    const synthetic_relative: u32 = @intCast(synthetic_base - span.root);
+    std.mem.writeInt(u32, mutant[type_entry_offset + 4 ..][0..4], 0x8000_0000 | synthetic_relative, .little);
+
+    const synthetic_type_entry = synthetic_base + 16;
+    std.mem.writeInt(u16, mutant[synthetic_base + 12 ..][0..2], 0, .little);
+    std.mem.writeInt(u16, mutant[synthetic_base + 14 ..][0..2], 1, .little);
+    std.mem.writeInt(u32, mutant[synthetic_type_entry..][0..4], 1, .little);
+    std.mem.writeInt(u32, mutant[synthetic_type_entry + 4 ..][0..4], 0x8000_0000 | (synthetic_relative + 0x40), .little);
+
+    const synthetic_name = synthetic_base + 0x40;
+    const synthetic_name_entry = synthetic_name + 16;
+    std.mem.writeInt(u16, mutant[synthetic_name + 12 ..][0..2], 0, .little);
+    std.mem.writeInt(u16, mutant[synthetic_name + 14 ..][0..2], 1, .little);
+    std.mem.writeInt(u32, mutant[synthetic_name_entry..][0..4], version_resource.language, .little);
+    std.mem.writeInt(u32, mutant[synthetic_name_entry + 4 ..][0..4], synthetic_relative + 0x60, .little);
+
+    const synthetic_data = synthetic_base + 0x60;
+    std.mem.writeInt(u32, mutant[synthetic_data..][0..4], original_data_rva, .little);
+    std.mem.writeInt(u32, mutant[synthetic_data + 4 ..][0..4], original_data_size, .little);
+    std.mem.writeInt(u32, mutant[synthetic_data + 8 ..][0..4], 1200, .little);
+    std.mem.writeInt(u32, mutant[synthetic_data + 12 ..][0..4], 0, .little);
+    const mutated_pe = try read(u32, mutant, 0x3c);
+    _ = resourceData(mutant, mutated_pe, 16) catch return;
+    return error.MutationAccepted;
 }
 
 const raw = struct {

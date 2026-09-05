@@ -615,3 +615,32 @@ requirement for the D3D/UI/live-render lane. The product is not yet
 Task 3 complete: resources/manifest, renderer, waitable presenter, workers,
 security hardening beyond entry-time policy, and full reproducibility/capture
 closure remain open.
+
+## T0.2c resources, VERSIONINFO, and PMv2 compatibility evidence (2026-09-05)
+
+This bounded increment adds the tracked TExFlow manifest and VERSIONINFO
+resource, embeds both only in the x64-Windows GUI product, and keeps the
+portable version contract shared with build identity. The manifest requests
+`asInvoker`, Common Controls v6, and `PerMonitorV2`; the resource metadata is a
+pre-release/private feasibility build (`0.0.2.0`) with the exact TExFlow
+identity and US-English Unicode translation. The native shell accepts an
+already-established PMv2 context from the manifest or verifies the explicit
+runtime setter path; it never silently accepts another DPI context.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Resource contract | `t0-2c-resource-test` passed `3/3` tests in Debug, ReleaseSafe, and ReleaseFast. | Version tuple, flags, identity, legal-field exclusions, tracked RC literals, and manifest policy are deterministic on every target. |
+| Product/resource oracle | `t0-2c-product-test` passed `8/8` tests in Debug, ReleaseSafe, and ReleaseFast. | The actual AMD64 GUI PE round-trips the embedded manifest byte-for-byte and the exact VERSIONINFO structure, flags, strings, translation, and resource tree. |
+| Native shell regression | `t0-2c-shell-native-test` passed `7/7` tests in Debug, ReleaseSafe, and ReleaseFast. | PMv2 acceptance, Unicode argv, secure entropy, COM, DLL search, cleanup, and ABI contracts remain green. |
+| Full portable regression | `t0-2c-models-test -Doptimize=ReleaseSafe -j1 --summary all`: `28/28` steps, `83/83` tests; `zig build test`: `13/13` steps, `10/10` tests. | Prior T0.1/T0.2 models and smoke/ABI corpus remain green after resource/build wiring. |
+| Linux reachability | `t0-2c-resource-check`: `3/3`; `t0-2c-shell-native-check`: `2/2`; `t0-2c-product-check`: `4/4`; `t0-2c-models-check`: `17/17` compile steps for x86_64-linux-gnu ReleaseSafe. | Non-Windows graph compiles without a product install edge; Linux runtime was not claimed from this Windows host. |
+| Fresh install reproducibility | Two fresh x86_64-windows-msvc ReleaseSafe prefixes each contained exactly `bin\TExFlow.exe`; SHA-256 for both was `613c4453e0a2f6a82cd70c02584fd4bd518b0442b7897bf8a5b594bbbb3231f5`. | Resources are embedded in the named product and do not introduce nondeterministic output or extra installed artifacts. |
+| Adversarial resource falsification | Wrong US locale, non-zero sibling padding, hidden leaf data, malformed flags/string/length, and a valid synthetic resource tree outside the declared resource span were all rejected by the product parser. | The parser guards are exercised with mutants that keep unrelated PE/resource limits valid. |
+| CI closure | Windows workflow now runs resource, native-shell, and product gates in Debug/ReleaseSafe/ReleaseFast; Linux runs portable resource gates in all three modes plus ReleaseSafe models. YAML parse and `git diff --check` passed. | CI executes the product/resource acceptance oracle instead of only compiling the graph. |
+| Final review | Review cycles found and repaired seven P2 findings (root-tree cardinality, locale, sibling padding, resource-span bounds, leaf completeness, and synthetic-tree fixture correctness); final independent read-only review returned `CLEAN`. Quality streak: `1/1`. | The bounded slice is closed for Medium+ findings under the user-selected one-pass streak policy. Model identity is intentionally not recorded because this runtime does not expose a verified provider/model ID. |
+
+No browser QA applies to this native-only resource/manifest slice: there is no
+HTML/browser surface or live-render canvas. Icon artwork, D3D/DirectWrite
+presentation, waitable presenter, workers, UIA, telemetry, and full native
+pixel/capture evidence remain later Task 3 work; this section does not claim
+those features.
