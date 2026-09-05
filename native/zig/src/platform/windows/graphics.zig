@@ -4,7 +4,8 @@
 //! (hardware first, WARP fallback) and its COM releases.  The separate
 //! `presenter_native.zig` adapter binds the admitted HWND swap-chain
 //! descriptor, waitable frame handle, back-buffer/RTV owner, and minimal clear
-//! path; D2D/DWrite composition and device-loss recovery remain later slices.
+//! path; D2D/DWrite composition remains a later slice while shell-level
+//! device-loss retirement and rebuild orchestration is now explicit.
 const builtin = @import("builtin");
 const api = @import("windows_api");
 

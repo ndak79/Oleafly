@@ -4,7 +4,8 @@
 //! the COM interfaces, DXGI frame-latency handle, and acquired back-buffer
 //! resource/render-target-view pair, the bounded Present1/ResizeBuffers
 //! ownership barriers, and a minimal full-frame D3D11 clear path. D2D/DirectWrite
-//! composition and device-loss recovery remain deferred.
+//! composition remains deferred; frame retirement and shell-level device-loss
+//! recovery are explicit seams in this layer.
 //! Every Windows call is behind the curated `windows_api` facade, while
 //! non-Windows builds retain a compile-only surface for the portable model
 //! lane.

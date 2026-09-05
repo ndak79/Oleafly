@@ -1268,3 +1268,29 @@ Browser QA is not applicable: this is native D3D11 resource retirement and
 device recreation with no HTML/browser surface. Full device-loss injection,
 D2D/DirectWrite composition, and editor/compile worker integration remain
 separate later slices.
+
+## T1.1a read-only source workspace inventory (2026-09-05)
+
+T1.1a establishes the first portable source-workspace boundary for TExFlow.
+`Workspace.open` canonicalizes the user-selected folder, recursively inventories
+UTF-8 `.tex`, `.bib`, `.sty`, `.cls`, and `.tikz` files without writing metadata,
+excludes derived/control directories, records byte length and SHA-256 identity,
+sorts slash-normalized relative paths deterministically, and exposes stable
+`.tex` main-document candidate indices. `rescan` builds a replacement snapshot
+before swapping ownership, so an inventory failure preserves the last snapshot.
+Editing, saving, file watching, compilation, and `.texflow` creation remain out
+of scope for the next T1.1 slices.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t1-1a-workspace-test` first failed because the registered `workspace.zig` module did not exist. | The test/build contract preceded implementation. |
+| Windows Debug | `t1-1a-workspace-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug` passed. | Canonical root, six sorted source entries, SHA-256/length, excluded `.git`/`build`, invalid UTF-8 rejection, one main candidate, and no `.texflow` write are verified on Windows. |
+| Windows ReleaseSafe | `t1-1a-workspace-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe` passed. | Ownership and path logic remain green under optimized safety checks. |
+| Linux portability | `t1-1a-workspace-check -Dtarget=x86_64-linux -Doptimize=Debug` passed; executing the Linux test binary was correctly unavailable from the Windows host. | Linux is compile-only in this environment, matching the native Windows QA policy. |
+| Aggregate/product regression | `t0-2c-models-test` Windows Debug, `t0-2c-models-check` Linux Debug, and `t0-2c-product-build` Windows ReleaseSafe passed. | The new app module does not regress existing model or product build edges. |
+| Review/falsification | Zig formatting and `git diff --check` passed. The requested Luna max reviewer stream terminated with `adapter_eof`; root review checked allocator ownership, symlink/reparse boundaries, excluded directories, deterministic sorting, bounded reads, invalid UTF-8, no-write behavior, and the exact test matrix. | No Medium+ finding remains in the implemented slice; external review is not falsely counted. Current quality streak: `1/1`. |
+
+Browser QA is not applicable: T1.1a is a native/portable filesystem model with no
+HTML or browser surface. The next slice is T1.1b editor buffer ownership and
+save semantics; external-change watching and multi-file outline remain later
+T1.1 work.

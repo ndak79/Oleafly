@@ -202,6 +202,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const app_workspace_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/workspace.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const texflow_icon_module = b.createModule(.{
         .root_source_file = b.path("native/zig/assets/texflow_icon.zig"),
         .target = target,
@@ -216,6 +221,21 @@ pub fn build(b: *std.Build) void {
     icon_assets.addOption([]const u8, "tracked_svg", @embedFile("docs/assets/texflow-app-mark.svg"));
     const t0_2c_models_test = b.step("t0-2c-models-test", "Run deterministic T0.2c app-model tests");
     const t0_2c_models_check = b.step("t0-2c-models-check", "Compile deterministic T0.2c app-model tests");
+    const workspace_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/workspace_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    workspace_tests.root_module.addImport("workspace", app_workspace_module);
+    const run_workspace_tests = b.addRunArtifact(workspace_tests);
+    const workspace_test_step = b.step("t1-1a-workspace-test", "Run T1.1a read-only source workspace inventory tests");
+    workspace_test_step.dependOn(&run_workspace_tests.step);
+    const workspace_check_step = b.step("t1-1a-workspace-check", "Compile T1.1a read-only source workspace inventory tests");
+    workspace_check_step.dependOn(&workspace_tests.step);
+    t0_2c_models_test.dependOn(&run_workspace_tests.step);
+    t0_2c_models_check.dependOn(&workspace_tests.step);
     const icon_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/icon_gen_test.zig"),
