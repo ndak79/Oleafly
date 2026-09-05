@@ -78,6 +78,13 @@ pub fn renderOutcomeUsable(outcome: presenter.PresentOutcome) bool {
     return outcome == .presented or outcome == .occluded;
 }
 
+const FrameAttempt = enum {
+    presented,
+    occluded,
+    device_lost,
+    failed,
+};
+
 pub fn isPaintMessage(message: u32) bool {
     return message == wm_paint;
 }
@@ -245,19 +252,26 @@ pub const Backend = struct {
             self.window = null;
             return false;
         }
+        self.frame_timer = raw.SetTimer(self.window.?, frame_timer_id, frame_timer_period_ms, null);
+        if (self.frame_timer == 0) {
+            self.releaseFrameResources();
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        }
         return true;
     }
 
     /// The first-frame bridge is synchronous: a hidden window receives a
     /// complete clear + Present before it becomes visible, so the shell never
     /// exposes an uninitialized back buffer.
-    pub fn renderFrame(self: *Backend) bool {
-        const window = self.window orelse return false;
+    fn renderFrameOnce(self: *Backend) FrameAttempt {
+        const window = self.window orelse return .failed;
         var client: RECT = undefined;
-        if (raw.GetClientRect(window, &client) == 0) return false;
+        if (raw.GetClientRect(window, &client) == 0) return .failed;
         const width_i = client.right - client.left;
         const height_i = client.bottom - client.top;
-        if (width_i <= 0 or height_i <= 0) return false;
+        if (width_i <= 0 or height_i <= 0) return .failed;
         const width: u32 = @intCast(width_i);
         const height: u32 = @intCast(height_i);
         if (self.graphics_device) |*device| {
@@ -267,13 +281,25 @@ pub const Backend = struct {
                         .width = width,
                         .height = height,
                         .clear_color = Backend.initial_clear_color,
-                    }) catch return false;
-                    const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch return false;
-                    return renderOutcomeUsable(outcome);
+                    }) catch return .failed;
+                    const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch return .failed;
+                    return switch (outcome) {
+                        .presented => .presented,
+                        .occluded => .occluded,
+                        .device_removed, .device_reset, .device_hung => .device_lost,
+                    };
                 }
             }
         }
-        return false;
+        return .failed;
+    }
+
+    pub fn renderFrame(self: *Backend) bool {
+        return switch (self.renderFrameOnce()) {
+            .presented, .occluded => true,
+            .device_lost => self.rebuildFrameResources(),
+            .failed => false,
+        };
     }
 
     pub fn hasFrameResources(self: *const Backend) bool {
@@ -302,7 +328,7 @@ pub const Backend = struct {
                     }) catch return false;
                     return switch (outcome) {
                         .resized => self.renderFrame(),
-                        .device_removed, .device_reset, .device_hung => false,
+                        .device_removed, .device_reset, .device_hung => self.rebuildFrameResources(),
                     };
                 }
             }
@@ -314,9 +340,52 @@ pub const Backend = struct {
         return self.frame_timer != 0;
     }
 
+    /// Retire the current native frame owner and recreate the device, swap
+    /// chain, and canonical buffer. Hardware is preferred when it was the
+    /// previous path; WARP is admitted as the deterministic fallback.
+    pub fn rebuildFrameResources(self: *Backend) bool {
+        const window = self.window orelse return false;
+        const preferred_path = if (self.graphics_device) |device| device.path else .hardware;
+        self.releaseFrameResources();
+
+        var paths = [_]graphics.DevicePath{ .hardware, .warp };
+        var path_count: usize = paths.len;
+        if (preferred_path == .warp) {
+            paths[0] = .warp;
+            path_count = 1;
+        } else {
+            paths[0] = preferred_path;
+        }
+
+        for (paths[0..path_count]) |path| {
+            var device = graphics.Device.createWithPath(path) catch continue;
+            var swap_chain = presenter.create(&device, @ptrCast(window), .flip_discard) catch {
+                device.deinit();
+                continue;
+            };
+            const back_buffer = swap_chain.acquireBackBuffer(&device, 0) catch {
+                swap_chain.deinit();
+                device.deinit();
+                continue;
+            };
+            self.graphics_device = device;
+            self.swap_chain = swap_chain;
+            self.back_buffer = back_buffer;
+            switch (self.renderFrameOnce()) {
+                .presented, .occluded => return true,
+                .device_lost, .failed => self.releaseFrameResources(),
+            }
+        }
+        return false;
+    }
+
     fn releaseFrameResources(self: *Backend) void {
         if (self.back_buffer) |*buffer| {
-            buffer.deinit();
+            if (self.swap_chain) |*swap_chain| {
+                if (self.graphics_device) |*device| {
+                    _ = swap_chain.retireBackBuffer(device, buffer) catch buffer.deinit();
+                } else buffer.deinit();
+            } else buffer.deinit();
             self.back_buffer = null;
         }
         if (self.swap_chain) |*swap_chain| {
@@ -344,7 +413,6 @@ pub const Backend = struct {
     pub fn showWindow(self: *Backend) void {
         // ShowWindow's return reports previous visibility, not success/failure.
         _ = raw.ShowWindow(self.window.?, self.show);
-        self.frame_timer = raw.SetTimer(self.window.?, frame_timer_id, frame_timer_period_ms, null);
     }
     pub fn getMessage(self: *Backend) i32 {
         // No HWND filter: WM_QUIT remains valid after the main HWND is gone.

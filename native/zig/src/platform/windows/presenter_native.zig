@@ -57,6 +57,14 @@ pub const BackBufferError = error{
     UnsupportedTarget,
 };
 
+pub const RetireError = error{
+    InvalidBackBuffer,
+    InvalidDevice,
+    InvalidDeviceContext,
+    InvalidSwapChain,
+    UnsupportedTarget,
+};
+
 pub const PresentError = error{
     InvalidBackBuffer,
     InvalidDevice,
@@ -345,6 +353,31 @@ pub const SwapChain = struct {
         const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
         const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
         return acquireBackBufferWindows(device_handle, swap_chain, buffer_index);
+    }
+
+    /// Retire an acquired owner before swap-chain/device destruction. The
+    /// immediate context is explicitly unbound first because a render call may
+    /// have left the RTV in the output-merger, including on device-loss paths
+    /// where Present1 did not reach its normal unbind/rebind branch.
+    pub fn retireBackBuffer(
+        self: *const SwapChain,
+        device: ?*const graphics.Device,
+        buffer: *BackBuffer,
+    ) RetireError!void {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        if (self.swap_chain1 == null) return error.InvalidSwapChain;
+        if (!buffer.complete()) return error.InvalidBackBuffer;
+        const device_value = device orelse return error.InvalidDevice;
+        const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const context_handle = device_value.contextHandle() orelse return error.InvalidDeviceContext;
+        const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
+        var context = WindowsAcquireContext{
+            .device_handle = device_handle,
+            .swap_chain_handle = @ptrCast(swap_chain),
+            .context_handle = context_handle,
+        };
+        unbindRenderTargetWindows(@ptrCast(&context));
+        buffer.deinit();
     }
 
     pub fn presentAndRebind(

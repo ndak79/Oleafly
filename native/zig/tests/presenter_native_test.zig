@@ -1192,3 +1192,27 @@ test "native swap chain clears and presents both effects" {
         buffer.deinit();
     }
 }
+
+test "native swap chain retires a back buffer after unbinding the context" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    var device = try graphics.Device.create();
+    defer device.deinit();
+    var window = try TestWindow.init();
+    defer window.deinit();
+    var chain = try native.create(&device, window.hwnd, .flip_discard);
+    defer chain.deinit();
+    var buffer = try chain.acquireBackBuffer(&device, 0);
+    var invalid_device: graphics.Device = .{
+        .path = .warp,
+        .feature_level = @intFromEnum(graphics.FeatureLevel.level_11_0),
+        .device = @ptrFromInt(0x1111),
+        .context = null,
+    };
+    try std.testing.expectError(native.RetireError.InvalidDeviceContext, chain.retireBackBuffer(&invalid_device, &buffer));
+    try std.testing.expect(buffer.resource != null);
+    try std.testing.expect(buffer.render_target_view != null);
+    try chain.retireBackBuffer(&device, &buffer);
+    try std.testing.expect(buffer.resource == null);
+    try std.testing.expect(buffer.render_target_view == null);
+    try std.testing.expectError(native.RetireError.InvalidBackBuffer, chain.retireBackBuffer(&device, &buffer));
+}

@@ -1240,3 +1240,31 @@ slice; minimized windows do not resize or render.
 Browser QA is not applicable: this is native Win32/D3D11 event routing with no
 HTML/browser surface. Continuous editor/compile worker scheduling is still a
 separate app-layer slice; this commit establishes the native live-render pump.
+
+## T0.2c native frame retirement and rebuild (2026-09-05)
+
+The native presenter now exposes an explicit `retireBackBuffer` barrier that
+unbinds the D3D11 output-merger through the correctly shaped
+`WindowsAcquireContext` before releasing the RTV/resource owner. The shell uses
+that barrier for ordinary teardown and for recovery. When Present1 or
+ResizeBuffers reports device removed/reset/hung, the shell retires the old
+frame, recreates the preferred device path, rebuilds the waitable swap-chain
+and canonical buffer, and renders a new frame; hardware is preferred and WARP
+is a deterministic fallback. The live timer is now admitted during
+`createWindow`, so SetTimer failure cleanly rejects startup instead of silently
+degrading to a non-live window.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Presenter test first failed because `retireBackBuffer` was absent; shell test then failed because `rebuildFrameResources` was absent. | Both public recovery seams were specified before implementation. |
+| Falsification | The first implementation crashed in real Windows `OMSetRenderTargets` because a raw context was passed where the callback required `WindowsAcquireContext`. The wrapper was corrected, and the same test reran clean. | A real ABI/lifetime bug was found and fixed; the quality streak reset at the crash. |
+| Retirement preflight | Null immediate context returns `InvalidDeviceContext` and preserves resource ownership; successful retirement leaves resource/RTV null; double retirement returns `InvalidBackBuffer`. | Failure paths cannot silently mutate or double-release the owner. |
+| Real Windows rebuild | Shell-native runtime test creates the real window/device/swap-chain, renders, resizes, explicitly rebuilds frame resources, renders again, and cleans up. | Native retirement → recreate → rebind → render works on x64 Windows. |
+| Matrix | Shell-native Debug/ReleaseSafe/ReleaseFast pass; presenter Debug/ReleaseFast and graphics ReleaseSafe pass; Linux shell/presenter compile checks pass. | Recovery changes preserve optimization and portability lanes. |
+| Product/smoke | `t0-2c-product-build -Doptimize=ReleaseFast` passes. Hidden `TExFlow.exe` stays alive for 2 seconds at approximately `8.2 MB` working set before controlled termination. | The rebuilt product still enters the live message loop without immediate crash. |
+| Review state | `git diff --check` and Zig formatting pass. Luna max reviewer again terminated with `adapter_eof`; root review found and fixed the wrapper crash, then reran all affected checks. | External review is not falsely counted; after the fix, current quality streak is `1/1`. |
+
+Browser QA is not applicable: this is native D3D11 resource retirement and
+device recreation with no HTML/browser surface. Full device-loss injection,
+D2D/DirectWrite composition, and editor/compile worker integration remain
+separate later slices.
