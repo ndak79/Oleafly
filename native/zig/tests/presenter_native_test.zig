@@ -66,6 +66,86 @@ const BackBufferStub = struct {
     }
 };
 
+const PresentStub = struct {
+    calls: usize = 0,
+    last_sync_interval: u32 = undefined,
+    last_present_flags: u32 = undefined,
+    parameters_present: bool = false,
+    dirty_rect: ?native.Rect = null,
+    result: u32 = native.present_s_ok,
+
+    fn present(
+        context: ?*anyopaque,
+        sync_interval: u32,
+        present_flags: u32,
+        parameters_present: bool,
+        dirty_rect: ?*const native.Rect,
+    ) callconv(.c) u32 {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.calls += 1;
+        self.last_sync_interval = sync_interval;
+        self.last_present_flags = present_flags;
+        self.parameters_present = parameters_present;
+        self.dirty_rect = if (dirty_rect) |rect| rect.* else null;
+        return self.result;
+    }
+};
+
+const RebindStub = struct {
+    present_state: PresentStub = .{},
+    release_calls: usize = 0,
+    acquire_calls: usize = 0,
+    acquire_fails: bool = false,
+    events: [4]u8 = undefined,
+
+    fn release(
+        context: ?*anyopaque,
+        _: native.testing.ReleaseKind,
+        _: *anyopaque,
+    ) callconv(.c) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.events[self.release_calls + self.acquire_calls] = 'r';
+        self.release_calls += 1;
+    }
+
+    fn acquire(context: ?*anyopaque, index: u32) native.BackBufferError!native.BackBuffer {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.events[self.release_calls + self.acquire_calls] = 'a';
+        self.acquire_calls += 1;
+        if (self.acquire_fails) return error.BackBufferAcquisitionFailed;
+        return .{
+            .buffer_index = @intCast(index),
+            .resource = @ptrFromInt(0x3000 + index * 0x100),
+            .render_target_view = @ptrFromInt(0x4000 + index * 0x100),
+        };
+    }
+
+    fn presentCall(
+        context: ?*anyopaque,
+        sync_interval: u32,
+        present_flags: u32,
+        parameters_present: bool,
+        dirty_rect: ?*const native.Rect,
+    ) callconv(.c) u32 {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        return PresentStub.present(
+            @ptrCast(&self.present_state),
+            sync_interval,
+            present_flags,
+            parameters_present,
+            dirty_rect,
+        );
+    }
+
+    fn backend() native.testing.PresentBackend {
+        return .{
+            .present = presentCall,
+            .release = release,
+            .acquire = acquire,
+        };
+    }
+};
+
 test "back-buffer owner is empty and deinit is idempotent" {
     var buffer = native.BackBuffer{};
     buffer.deinit();
@@ -252,6 +332,149 @@ test "back-buffer owner releases its view before resource and remains idempotent
     try std.testing.expectEqual(native.testing.ReleaseKind.resource, stub.release_order[1]);
     try std.testing.expectEqual(stub.render_target_view.?, stub.released_handles[0]);
     try std.testing.expectEqual(stub.resource.?, stub.released_handles[1]);
+    try std.testing.expect(buffer.resource == null);
+    try std.testing.expect(buffer.render_target_view == null);
+}
+
+test "present mapping preserves success, occlusion, and device-loss classes" {
+    try std.testing.expectEqual(native.PresentOutcome.presented, try native.mapPresentResult(native.present_s_ok));
+    try std.testing.expectEqual(native.PresentOutcome.occluded, try native.mapPresentResult(native.dxgi_status_occluded));
+    try std.testing.expectEqual(native.PresentOutcome.device_removed, try native.mapPresentResult(native.dxgi_error_device_removed));
+    try std.testing.expectEqual(native.PresentOutcome.device_reset, try native.mapPresentResult(native.dxgi_error_device_reset));
+    try std.testing.expectEqual(native.PresentOutcome.device_hung, try native.mapPresentResult(native.dxgi_error_device_hung));
+    try std.testing.expectError(error.PresentFailed, native.mapPresentResult(0x887A0001));
+}
+
+test "present seam always supplies non-null parameters and preserves dirty metadata" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x5000) };
+    var stub = PresentStub{};
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+
+    _ = try native.testing.present1With(
+        &chain,
+        .{ .sync_interval = 0, .present_flags = 0 },
+        context,
+        PresentStub.present,
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.calls);
+    try std.testing.expect(stub.parameters_present);
+    try std.testing.expect(stub.dirty_rect == null);
+
+    const dirty = native.Rect{ .left = 2, .top = 3, .right = 20, .bottom = 30 };
+    _ = try native.testing.present1With(
+        &chain,
+        .{ .sync_interval = 1, .present_flags = 0, .dirty_rect = dirty },
+        context,
+        PresentStub.present,
+    );
+    try std.testing.expectEqual(@as(usize, 2), stub.calls);
+    try std.testing.expectEqual(@as(u32, 1), stub.last_sync_interval);
+    try std.testing.expectEqual(dirty, stub.dirty_rect.?);
+}
+
+test "present seam rejects invalid requests before the callback" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x5000) };
+    var stub = PresentStub{};
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const invalid_rect = native.Rect{ .left = 5, .top = 5, .right = 5, .bottom = 4 };
+
+    try std.testing.expectError(
+        error.InvalidPresentRequest,
+        native.testing.present1With(&chain, .{ .sync_interval = 5 }, context, PresentStub.present),
+    );
+    try std.testing.expectError(
+        error.InvalidPresentRequest,
+        native.testing.present1With(&chain, .{ .present_flags = 1 }, context, PresentStub.present),
+    );
+    try std.testing.expectError(
+        error.InvalidPresentRequest,
+        native.testing.present1With(&chain, .{ .dirty_rect = invalid_rect }, context, PresentStub.present),
+    );
+    try std.testing.expectEqual(@as(usize, 0), stub.calls);
+
+    chain.effect = .flip_discard;
+    try std.testing.expectError(
+        error.PartialPresentUnsupported,
+        native.testing.present1With(
+            &chain,
+            .{ .dirty_rect = .{ .left = 0, .top = 0, .right = 4, .bottom = 4 } },
+            context,
+            PresentStub.present,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 0), stub.calls);
+}
+
+test "present and rebind releases the old buffer before acquiring the next" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x7000) };
+    var buffer = native.BackBuffer{
+        .buffer_index = 0,
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = RebindStub{};
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const outcome = try native.testing.presentAndRebindWith(
+        &chain,
+        @ptrFromInt(0x6000),
+        @ptrFromInt(0x7000),
+        &buffer,
+        .{},
+        RebindStub.backend(),
+        context,
+    );
+    try std.testing.expectEqual(native.PresentOutcome.presented, outcome);
+    try std.testing.expectEqual(@as(usize, 1), stub.present_state.calls);
+    try std.testing.expectEqual(@as(usize, 2), stub.release_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.acquire_calls);
+    try std.testing.expectEqual(@as(u8, 'r'), stub.events[0]);
+    try std.testing.expectEqual(@as(u8, 'r'), stub.events[1]);
+    try std.testing.expectEqual(@as(u8, 'a'), stub.events[2]);
+    try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
+    try std.testing.expect(buffer.resource != null);
+    try std.testing.expect(buffer.render_target_view != null);
+}
+
+test "present and rebind keeps ownership on occlusion and empties on rebind failure" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x7000) };
+    var buffer = native.BackBuffer{
+        .buffer_index = 0,
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = RebindStub{ .present_state = .{ .result = native.dxgi_status_occluded } };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const outcome = try native.testing.presentAndRebindWith(
+        &chain,
+        @ptrFromInt(0x6000),
+        @ptrFromInt(0x7000),
+        &buffer,
+        .{},
+        RebindStub.backend(),
+        context,
+    );
+    try std.testing.expectEqual(native.PresentOutcome.occluded, outcome);
+    try std.testing.expectEqual(@as(usize, 0), stub.release_calls);
+    try std.testing.expect(buffer.resource != null);
+
+    stub.present_state.result = native.present_s_ok;
+    stub.acquire_fails = true;
+    try std.testing.expectError(
+        error.RebindFailed,
+        native.testing.presentAndRebindWith(
+            &chain,
+            @ptrFromInt(0x6000),
+            @ptrFromInt(0x7000),
+            &buffer,
+            .{},
+            RebindStub.backend(),
+            context,
+        ),
+    );
     try std.testing.expect(buffer.resource == null);
     try std.testing.expect(buffer.render_target_view == null);
 }
@@ -563,5 +786,31 @@ test "native swap chain acquires real back buffers and render-target views" {
             error.BackBufferAcquisitionFailed, error.RenderTargetViewCreationFailed => {},
             else => return err,
         }
+    }
+}
+
+test "native swap chain presents with non-null parameters and rebinds both effects" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    var device = try graphics.Device.create();
+    defer device.deinit();
+    var window = try TestWindow.init();
+    defer window.deinit();
+    for ([_]graphics.SwapEffect{ .flip_sequential, .flip_discard }) |effect| {
+        var chain = try native.create(&device, window.hwnd, effect);
+        defer chain.deinit();
+        var buffer = try chain.acquireBackBuffer(&device, 0);
+        const outcome = try chain.presentAndRebind(&device, &buffer, .{});
+        switch (outcome) {
+            .presented => {
+                try std.testing.expect(buffer.resource != null);
+                try std.testing.expect(buffer.render_target_view != null);
+                try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
+            },
+            .occluded, .device_removed, .device_reset, .device_hung => {
+                try std.testing.expect(buffer.resource != null);
+                try std.testing.expect(buffer.render_target_view != null);
+            },
+        }
+        buffer.deinit();
     }
 }

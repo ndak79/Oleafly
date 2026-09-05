@@ -2,10 +2,8 @@
 //!
 //! The policy/state machine lives in `presenter.zig`; this adapter owns only
 //! the COM interfaces, DXGI frame-latency handle, and acquired back-buffer
-//! resource/render-target-view pair. It deliberately stops at the
-//! creation/lifetime boundary: no Present1/ResizeBuffers entry point is
-//! exposed until a later slice owns draw binding, rebind, HRESULT mapping, and
-//! device-loss recovery.
+//! resource/render-target-view pair, and the bounded Present1/rebind barrier.
+//! ResizeBuffers, drawing, and device-loss recovery remain deferred.
 //! Every Windows call is behind the curated `windows_api` facade, while
 //! non-Windows builds retain a compile-only surface for the portable model
 //! lane.
@@ -58,10 +56,50 @@ pub const BackBufferError = error{
     UnsupportedTarget,
 };
 
+pub const PresentError = error{
+    InvalidBackBuffer,
+    InvalidDevice,
+    InvalidPresentRequest,
+    InvalidSwapChain,
+    PartialPresentUnsupported,
+    PresentFailed,
+    RebindFailed,
+    UnsupportedTarget,
+};
+
+pub const Rect = extern struct {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+};
+
+pub const PresentRequest = struct {
+    sync_interval: u32 = 0,
+    present_flags: u32 = 0,
+    dirty_rect: ?Rect = null,
+};
+
+pub const PresentOutcome = enum {
+    presented,
+    occluded,
+    device_removed,
+    device_reset,
+    device_hung,
+};
+
 pub const wait_object_0: u32 = 0;
 pub const wait_abandoned: u32 = 128;
 pub const wait_timeout: u32 = 258;
 pub const wait_failed: u32 = std.math.maxInt(u32);
+
+pub const present_s_ok: u32 = 0;
+pub const dxgi_status_occluded: u32 = 0x087A0001;
+pub const dxgi_error_device_hung: u32 = 0x887A0006;
+pub const dxgi_error_device_removed: u32 = 0x887A0005;
+pub const dxgi_error_device_reset: u32 = 0x887A0007;
+pub const max_present_sync_interval: u32 = 4;
+pub const present_flags_none: u32 = 0;
 
 /// Convert a `WaitForSingleObject` result without hiding failure or unknown
 /// status values as a timeout. `WAIT_ABANDONED` and `WAIT_ABANDONED_0` are
@@ -73,6 +111,17 @@ pub fn mapWaitResult(result: u32) WaitError!WaitOutcome {
         wait_abandoned => error.FrameLatencyWaitAbandoned, // WAIT_ABANDONED/_0
         wait_failed => error.FrameLatencyWaitFailed, // WAIT_FAILED
         else => error.UnexpectedFrameLatencyWaitResult,
+    };
+}
+
+pub fn mapPresentResult(result: u32) PresentError!PresentOutcome {
+    return switch (result) {
+        present_s_ok => .presented,
+        dxgi_status_occluded => .occluded,
+        dxgi_error_device_removed => .device_removed,
+        dxgi_error_device_reset => .device_reset,
+        dxgi_error_device_hung => .device_hung,
+        else => error.PresentFailed,
     };
 }
 
@@ -139,6 +188,20 @@ const BackBufferBackend = struct {
     release: BackBufferReleaseFn,
 };
 
+const PresentFn = *const fn (
+    ?*anyopaque,
+    u32,
+    u32,
+    bool,
+    ?*const Rect,
+) callconv(.c) u32;
+
+const PresentBackendImpl = struct {
+    present: PresentFn,
+    release: BackBufferReleaseFn,
+    acquire: *const fn (?*anyopaque, u32) BackBufferError!BackBuffer,
+};
+
 const WindowsAcquireContext = struct {
     device_handle: *anyopaque,
     swap_chain_handle: *anyopaque,
@@ -149,6 +212,7 @@ const WindowsAcquireContext = struct {
 /// owner may call `deinit`. Call `deinit` before any future swap-chain resize
 /// or rebuild that could invalidate its underlying back buffer.
 pub const BackBuffer = struct {
+    buffer_index: u1 = 0,
     resource: if (builtin.os.tag == .windows) ?*api.d3d11.ID3D11Resource else ?*anyopaque = null,
     render_target_view: if (builtin.os.tag == .windows) ?*api.d3d11.ID3D11RenderTargetView else ?*anyopaque = null,
 
@@ -159,6 +223,10 @@ pub const BackBuffer = struct {
             return;
         }
         deinitBackBufferWithImpl(self, null, releaseBackBufferInterface);
+    }
+
+    fn complete(self: *const BackBuffer) bool {
+        return self.resource != null and self.render_target_view != null;
     }
 };
 
@@ -196,6 +264,35 @@ pub const SwapChain = struct {
         const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
         const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
         return acquireBackBufferWindows(device_handle, swap_chain, buffer_index);
+    }
+
+    pub fn presentAndRebind(
+        self: *const SwapChain,
+        device: ?*const graphics.Device,
+        buffer: *BackBuffer,
+        request: PresentRequest,
+    ) PresentError!PresentOutcome {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        const device_value = device orelse return error.InvalidDevice;
+        const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
+        var context = WindowsAcquireContext{
+            .device_handle = device_handle,
+            .swap_chain_handle = @ptrCast(swap_chain),
+        };
+        return presentAndRebindWithImpl(
+            self,
+            device_handle,
+            @ptrCast(swap_chain),
+            buffer,
+            request,
+            .{
+                .present = present1Windows,
+                .release = releaseBackBufferInterface,
+                .acquire = acquireBackBufferWindowsFromContext,
+            },
+            @ptrCast(&context),
+        );
     }
 
     pub fn deinit(self: *SwapChain) void {
@@ -239,6 +336,62 @@ fn waitForFrameWithImpl(
     const handle = self.waitable orelse return error.InvalidFrameLatencyHandle;
     if (handle == std.os.windows.INVALID_HANDLE_VALUE) return error.InvalidFrameLatencyHandle;
     return mapWaitResult(wait_fn(context, handle, timeout_ms));
+}
+
+fn validatePresentRequest(effect: graphics.SwapEffect, request: PresentRequest) PresentError!void {
+    if (request.sync_interval > max_present_sync_interval or request.present_flags != present_flags_none) {
+        return error.InvalidPresentRequest;
+    }
+    if (request.dirty_rect) |rect| {
+        if (effect == .flip_discard) return error.PartialPresentUnsupported;
+        if (rect.left >= rect.right or rect.top >= rect.bottom) return error.InvalidPresentRequest;
+    }
+}
+
+fn present1WithImpl(
+    self: *const SwapChain,
+    request: PresentRequest,
+    context: ?*anyopaque,
+    present_fn: PresentFn,
+) PresentError!PresentOutcome {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    if (self.swap_chain1 == null) return error.InvalidSwapChain;
+    try validatePresentRequest(switch (self.effect) {
+        .flip_sequential => .flip_sequential,
+        .flip_discard => .flip_discard,
+    }, request);
+    return mapPresentResult(present_fn(
+        context,
+        request.sync_interval,
+        request.present_flags,
+        true,
+        if (request.dirty_rect) |*rect| rect else null,
+    ));
+}
+
+fn presentAndRebindWithImpl(
+    self: *const SwapChain,
+    device_handle: ?*anyopaque,
+    swap_chain_handle: ?*anyopaque,
+    buffer: *BackBuffer,
+    request: PresentRequest,
+    backend: PresentBackendImpl,
+    context: ?*anyopaque,
+) PresentError!PresentOutcome {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    if (device_handle == null) return error.InvalidDevice;
+    if (swap_chain_handle == null) return error.InvalidSwapChain;
+    if (!buffer.complete()) return error.InvalidBackBuffer;
+    const outcome = try present1WithImpl(self, request, context, backend.present);
+    if (outcome != .presented) return outcome;
+
+    const next_index: u32 = 0;
+    deinitBackBufferWithImpl(buffer, context, backend.release);
+    const rebound = backend.acquire(context, next_index) catch {
+        return error.RebindFailed;
+    };
+    buffer.* = rebound;
+    return .presented;
 }
 
 fn deinitBackBufferWithImpl(
@@ -300,6 +453,7 @@ fn acquireBackBufferWithImpl(
     }
 
     return .{
+        .buffer_index = @intCast(buffer_index),
         .resource = if (comptime builtin.os.tag == .windows)
             @ptrCast(@alignCast(resource.?))
         else
@@ -347,6 +501,46 @@ fn createRenderTargetViewWindows(
     return !result.failed and render_target_view != null;
 }
 
+fn present1Windows(
+    context: ?*anyopaque,
+    sync_interval: u32,
+    present_flags: u32,
+    parameters_present: bool,
+    dirty_rect: ?*const Rect,
+) callconv(.c) u32 {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    if (!parameters_present) unreachable;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const swap_chain: *api.dxgi.IDXGISwapChain1 = @ptrCast(@alignCast(windows_context.swap_chain_handle));
+    var native_rect: api.foundation.RECT = undefined;
+    const native_dirty_rect: ?*api.foundation.RECT = if (dirty_rect) |rect| blk: {
+        native_rect = .{
+            .left = rect.left,
+            .top = rect.top,
+            .right = rect.right,
+            .bottom = rect.bottom,
+        };
+        break :blk &native_rect;
+    } else null;
+    var parameters = api.dxgi.DXGI_PRESENT_PARAMETERS{
+        .DirtyRectsCount = if (native_dirty_rect == null) 0 else 1,
+        .pDirtyRects = native_dirty_rect,
+        .pScrollRect = null,
+        .pScrollOffset = null,
+    };
+    return @bitCast(swap_chain.Present1(sync_interval, present_flags, &parameters));
+}
+
+fn acquireBackBufferWindowsFromContext(
+    context: ?*anyopaque,
+    buffer_index: u32,
+) BackBufferError!BackBuffer {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const swap_chain: *api.dxgi.IDXGISwapChain1 = @ptrCast(@alignCast(windows_context.swap_chain_handle));
+    return acquireBackBufferWindows(windows_context.device_handle, swap_chain, buffer_index);
+}
+
 fn acquireBackBufferWindows(
     device_handle: *anyopaque,
     swap_chain: *api.dxgi.IDXGISwapChain1,
@@ -370,14 +564,17 @@ fn acquireBackBufferWindows(
     );
 }
 
-/// Test-build-only access to the wait and back-buffer seams. Production
-/// callers use `SwapChain.waitForFrame` and `SwapChain.acquireBackBuffer`; this
-/// export is an empty struct in non-test builds.
+/// Test-build-only access to wait, back-buffer, and Present1 seams. Production
+/// callers use the corresponding `SwapChain` methods; this export is an empty
+/// struct in non-test builds.
 pub const testing = if (builtin.is_test) struct {
     pub const ReleaseKind = BackBufferReleaseKind;
     pub const Backend = BackBufferBackend;
+    pub const PresentBackend = PresentBackendImpl;
     pub const acquireBackBufferWith = acquireBackBufferWithImpl;
     pub const deinitBackBufferWith = deinitBackBufferWithImpl;
+    pub const present1With = present1WithImpl;
+    pub const presentAndRebindWith = presentAndRebindWithImpl;
     pub const waitForFrameWith = waitForFrameWithImpl;
 } else struct {};
 

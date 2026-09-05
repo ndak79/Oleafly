@@ -1018,3 +1018,47 @@ seams. No facade expansion or new product API was made.
 | Linux Debug/Safe/Fast | `t0-2c-presenter-native-check -Dtarget=x86_64-linux-gnu` in each mode: `2/2` compile steps. | Linux remains compile-only portability evidence; no Linux product/runtime support is claimed. |
 | Formatting and diff | `zig fmt --check build.zig build.zig.zon native/zig` and `git diff --check` passed before commit. | The follow-up patch is formatted and whitespace-clean. |
 | Scope and remaining obligations | Only the presenter source/test and this worklog are changed; no Present1, ResizeBuffers, drawing/OMSetRenderTargets, D2D/DWrite, device-loss, resize, or facade work was added. Browser QA remains not applicable. | This is a verification/documentation follow-up to the same bounded native ownership slice. |
+
+## T0.2c bounded Present1/rebind barrier (2026-09-05)
+
+This increment adds the smallest useful presentation boundary after back-buffer
+ownership: `Present1` always receives a non-null `DXGI_PRESENT_PARAMETERS`
+mirror, full redraw is the default, and one validated dirty rectangle is allowed
+only for `FLIP_SEQUENTIAL`. `FLIP_DISCARD` rejects partial-present metadata until
+the later renderer can prove a complete redraw/dirty-region contract. HRESULT
+classes are mapped to typed outcomes for success, occlusion, and the three
+in-scope device-loss signals; unknown failures remain `PresentFailed`.
+
+On a successful present, the old RTV/resource pair is released in reverse
+ownership order and the swap chain is rebound to canonical buffer index `0`.
+Rebind failure returns `RebindFailed` with an empty owner, while occlusion and
+device-loss outcomes preserve the current pair for the later recovery slice.
+ResizeBuffers, drawing/OMSetRenderTargets, D2D/DirectWrite, device-loss rebuild,
+and facade expansion remain explicitly out of scope. The contract follows
+Microsoft's [`Present1`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgiswapchain1-present1),
+[`DXGI_PRESENT_PARAMETERS`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/ns-dxgi1_2-dxgi_present_parameters),
+[`GetBuffer`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-getbuffer),
+and [flip-model presentation guidance](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements).
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Before the production additions, the focused Windows Debug build failed on the expected missing `Rect`, `PresentOutcome`, and `buffer_index` members. | Tests exercised the new surface before implementation. |
+| Runtime falsification | The first real Windows Present1 attempt crashed because the callback incorrectly treated its context as the swap-chain interface; the focused runtime test caught it. The callback was corrected to unwrap `WindowsAcquireContext` before the ABI call. | The test is a real execution path, not only a deterministic seam. |
+| Rebind falsification | Acquiring alternate buffer `1` after Present1 produced typed RTV `E_INVALIDARG` on the real flip-model chain. Microsoft flip-model semantics and the canonical writable-buffer contract were rechecked; rebind now acquires buffer `0`, and the runtime test asserts that invariant. | A plausible but invalid buffer-selection assumption was removed before commit. |
+| Deterministic Present1 seam | Full and dirty requests assert non-null parameters, exact sync/flags, and rectangle preservation; malformed rectangles, unsupported flags/sync values, and flip-discard partial metadata are rejected before callback invocation. | The ABI mirror and bounded policy are directly verified. |
+| Ownership/rebind seam | Successful present records RTV release, resource release, then acquire (`r,r,a`); occlusion preserves ownership; post-present acquire failure returns `RebindFailed` and leaves the owner empty. | Release-before-rebind and failure-state invariants are explicit. |
+| HRESULT mapping | `S_OK`, `DXGI_STATUS_OCCLUDED`, `DXGI_ERROR_DEVICE_REMOVED`, `DXGI_ERROR_DEVICE_RESET`, and `DXGI_ERROR_DEVICE_HUNG` map to distinct typed outcomes; an unknown failure maps to `PresentFailed`. | Device-loss/occlusion classes are not collapsed into generic success. |
+| Windows Debug/Safe/Fast | `zig build t0-2c-presenter-native-test -Doptimize=Debug|ReleaseSafe|ReleaseFast`: all three focused runs succeeded, including the real x64 Windows both-effect Present1/rebind smoke test and one expected non-Windows skip. | The native runtime path is green across optimization modes. |
+| Linux Debug/Safe/Fast | `zig build t0-2c-presenter-native-check -Dtarget=x86_64-linux-gnu -Doptimize=Debug|ReleaseSafe|ReleaseFast`: `2/2` compile steps per mode. | Linux is a compile-only portability guard, not a product/runtime claim. |
+| Impacted gates | `t0-2c-models-test -Doptimize=ReleaseSafe`, baseline `test -Doptimize=ReleaseSafe`, and `deps-test -Doptimize=ReleaseSafe --summary all -j1` all exited successfully; dependency summary reported `18/18` steps and `152/152` tests. | Existing model, baseline, and dependency contracts remain green. |
+| Formatting/scope | `zig fmt --check` and `git diff --check` passed. No build graph, package, or Windows API facade expansion was needed; only presenter source, presenter tests, and this worklog are in scope. | The change remains bounded and reviewable. |
+
+Browser QA is not applicable: this is a native Windows API increment with no
+HTML/browser surface. Three requested Luna max reviewer turns terminated with
+the infrastructure error `adapter_eof` before producing a review artifact;
+they are not counted as clean reviews. A root-agent read-only review then
+checked the same ABI, HRESULT, dirty/full policy, canonical-buffer, ownership,
+failure-state, test-vacuity, portability, and scope checklist with no
+Medium+ finding. The quality streak is therefore `1/1` based on that review
+and the fresh post-review matrix; the external reviewer evidence remains
+unavailable and is not represented as clean.
