@@ -418,3 +418,44 @@ manifest/resources/icon, worker executables, TexLab/TeX compiler, real timer or
 thread integration, research/evidence graph, publishing pipeline, or full
 product/reproducibility closure. Those remain subsequent T0.2c/T0.2d–T5
 tasks and are not implied by the green model gates.
+
+## T0.2c bounded portable presenter state-model evidence (2026-09-05)
+
+This increment adds an allocation-free, single-owner presenter policy model in
+`native/zig/src/platform/windows/presenter.zig`. It is intentionally free of
+Win32/D3D imports: the model specifies the contract that a later native adapter
+must satisfy for a two-buffer `FLIP_SEQUENTIAL` baseline and a full-redraw
+`FLIP_DISCARD` challenger. It covers frame-latency grants, coherent damage
+history, occlusion/minimize behavior, resize/DPI transactions, reference
+release gates, stale-token rejection, device recovery, and bounded hardware to
+WARP fallback.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t0-2c-presenter-test` initially failed because `presenter.zig` was absent; later fault probes also failed on resize-buffer rotation, reference lifetime, and frame-grant semantics before repair. | Tests expose missing implementation and representative state-machine regressions. |
+| Windows Debug | `t0-2c-presenter-test -Doptimize=Debug -j1`: `24/24` tests passed. | State transitions, dirty/history policy, waits, and recovery are green. |
+| Windows ReleaseSafe | `t0-2c-presenter-test -Doptimize=ReleaseSafe -j1`: `24/24` tests passed. | Safe optimized presenter policy remains deterministic. |
+| Windows ReleaseFast | `t0-2c-presenter-test -Doptimize=ReleaseFast -j1`: `24/24` tests passed. | Fast optimized presenter policy remains deterministic. |
+| Linux portability | `t0-2c-presenter-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1`: `2/2` compile steps passed. | The model has no Windows-only compile dependency; Linux runtime is not claimed. |
+| Combined model regression | `t0-2c-models-test -Doptimize=ReleaseSafe -j1`: `15/15` steps, `46/46` tests passed. | Presenter changes do not regress the role, identity, scheduler, lifecycle, theme/layout, or strings models. |
+| Baseline regression | `zig build test -Doptimize=ReleaseSafe -j1`: `9/9` steps, `6/6` tests passed. | Existing ABI, compiler-corpus, and SIMD gates remain green. |
+| Adversarial repair | Review caught preservation of a due latest request during cancellation, held back-buffer references after Present, reuse of unsubmitted frame grants, stale old-chain grants after rebuild, and submitted-occluded grant replay. Each received a regression test and fix. | The model does not spin, overwrite an active worker-equivalent frame, resize/rebuild with retained references, or bypass a required fresh wait. |
+| Final GPT-6 review | `gpt-6-astra` max read-only review: no Medium+ findings; quality streak `1`. | Final source/test/build review is clean for this bounded slice. |
+| Formatting/diff | Explicit `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
+
+`max_frame_latency = 1` is an explicit model invariant. A frame-latency grant
+is consumed only when `begin_frame` admits a frame; pre-Present invalidation
+returns it, submitted Present outcomes consume it, and a rebuilt swap chain
+requires a fresh grant. Sequential buffers use conservative bounding-box scene
+damage and never emit scroll metadata; uncertain history, resize, DPI, adapter,
+theme, coverage, resume, or recovery paths force a full redraw. Occluded and
+minimized states never admit a Present, while last-valid frame identity remains
+available until a replacement succeeds.
+
+No browser QA applies to this native model-only increment; browser evidence is
+required for the future real TExFlow UI/HTML/live-render lane. The slice does
+not create the Win32 HWND/COM/DPI shell, D3D11/DXGI swap chain or waitable
+handle, Direct2D/DirectWrite drawing, actual COM reference release, WARP device,
+ETW/QoS runtime, DWM-visible pixel preservation, or authoritative capture.
+Those native/runtime/capture obligations remain open in Task 3 and later QA
+tasks; this commit must not be represented as product presentation closure.

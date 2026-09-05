@@ -169,6 +169,26 @@ pub fn build(b: *std.Build) void {
     });
     const t0_2c_models_test = b.step("t0-2c-models-test", "Run deterministic T0.2c app-model tests");
     const t0_2c_models_check = b.step("t0-2c-models-check", "Compile deterministic T0.2c app-model tests");
+    const presenter_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/presenter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const presenter_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/presenter_state_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    presenter_tests.root_module.addImport("presenter", presenter_module);
+    const run_presenter_tests = b.addRunArtifact(presenter_tests);
+    const presenter_test_step = b.step("t0-2c-presenter-test", "Run the portable presenter state model tests");
+    presenter_test_step.dependOn(&run_presenter_tests.step);
+    const presenter_check_step = b.step("t0-2c-presenter-check", "Compile the portable presenter state model tests");
+    presenter_check_step.dependOn(&presenter_tests.step);
+    t0_2c_models_test.dependOn(&run_presenter_tests.step);
+    t0_2c_models_check.dependOn(&presenter_tests.step);
     inline for (.{
         "role_test.zig",
         "build_identity_test.zig",
