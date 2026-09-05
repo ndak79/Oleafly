@@ -211,6 +211,32 @@ const ResizeStub = struct {
     }
 };
 
+const RenderStub = struct {
+    calls: usize = 0,
+    succeeds: bool = true,
+    last_context_handle: ?*anyopaque = null,
+    last_render_target_view: ?*anyopaque = null,
+    last_request: native.RenderRequest = .{},
+
+    fn render(
+        context: ?*anyopaque,
+        context_handle: *anyopaque,
+        render_target_view: *anyopaque,
+        request: *const native.RenderRequest,
+    ) callconv(.c) bool {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.calls += 1;
+        self.last_context_handle = context_handle;
+        self.last_render_target_view = render_target_view;
+        self.last_request = request.*;
+        return self.succeeds;
+    }
+
+    fn backend() native.testing.RenderBackend {
+        return .{ .render = render };
+    }
+};
+
 test "back-buffer owner is empty and deinit is idempotent" {
     var buffer = native.BackBuffer{};
     buffer.deinit();
@@ -556,6 +582,78 @@ test "resize rebind failure leaves the owner empty after the new buffers exist" 
     try std.testing.expectEqualSlices(u8, "urrza", stub.events[0..]);
     try std.testing.expect(buffer.resource == null);
     try std.testing.expect(buffer.render_target_view == null);
+}
+
+test "render seam clears a complete back buffer with exact viewport and color metadata" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var buffer: native.BackBuffer = .{
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = RenderStub{};
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const context_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+    const request = native.RenderRequest{
+        .width = 1280,
+        .height = 720,
+        .clear_color = .{ 0.1, 0.2, 0.3, 1.0 },
+    };
+
+    try std.testing.expectEqual(
+        native.RenderOutcome.cleared,
+        try native.testing.renderClearWith(
+            device_handle,
+            context_handle,
+            &buffer,
+            request,
+            RenderStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.calls);
+    try std.testing.expectEqual(context_handle, stub.last_context_handle);
+    try std.testing.expectEqual(@as(?*anyopaque, @ptrFromInt(0x2000)), stub.last_render_target_view);
+    try std.testing.expectEqual(request, stub.last_request);
+}
+
+test "render seam rejects invalid inputs before the callback and preserves ownership" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var buffer: native.BackBuffer = .{
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = RenderStub{};
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const context_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+    const valid_request = native.RenderRequest{ .width = 1, .height = 1 };
+
+    try std.testing.expectError(
+        error.InvalidDevice,
+        native.testing.renderClearWith(null, context_handle, &buffer, valid_request, RenderStub.backend(), context),
+    );
+    try std.testing.expectError(
+        error.InvalidDeviceContext,
+        native.testing.renderClearWith(device_handle, null, &buffer, valid_request, RenderStub.backend(), context),
+    );
+    var incomplete = native.BackBuffer{};
+    try std.testing.expectError(
+        error.InvalidBackBuffer,
+        native.testing.renderClearWith(device_handle, context_handle, &incomplete, valid_request, RenderStub.backend(), context),
+    );
+    try std.testing.expectError(
+        error.InvalidRenderRequest,
+        native.testing.renderClearWith(device_handle, context_handle, &buffer, .{ .width = 0, .height = 1 }, RenderStub.backend(), context),
+    );
+    stub.succeeds = false;
+    try std.testing.expectError(
+        error.RenderFailed,
+        native.testing.renderClearWith(device_handle, context_handle, &buffer, valid_request, RenderStub.backend(), context),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.calls);
+    try std.testing.expect(buffer.resource != null);
+    try std.testing.expect(buffer.render_target_view != null);
 }
 
 test "native resize rejects a device without an immediate context before callbacks" {
@@ -1067,6 +1165,30 @@ test "native swap chain resizes and rebinds both effects" {
         try std.testing.expect(buffer.resource != null);
         try std.testing.expect(buffer.render_target_view != null);
         try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
+        buffer.deinit();
+    }
+}
+
+test "native swap chain clears and presents both effects" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    var device = try graphics.Device.create();
+    defer device.deinit();
+    var window = try TestWindow.init();
+    defer window.deinit();
+    for ([_]graphics.SwapEffect{ .flip_sequential, .flip_discard }) |effect| {
+        var chain = try native.create(&device, window.hwnd, effect);
+        defer chain.deinit();
+        var buffer = try chain.acquireBackBuffer(&device, 0);
+        _ = try chain.renderClear(&device, &buffer, .{
+            .width = 64,
+            .height = 64,
+            .clear_color = .{ 0.02, 0.04, 0.08, 1.0 },
+        });
+        const outcome = try chain.presentAndRebind(&device, &buffer, .{});
+        switch (outcome) {
+            .presented => {},
+            .occluded, .device_removed, .device_reset, .device_hung => {},
+        }
         buffer.deinit();
     }
 }

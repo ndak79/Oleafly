@@ -1133,3 +1133,32 @@ available (`adapter_eof`); a root-agent review checked ABI context plumbing,
 unbind ordering, occlusion behavior, preflight preservation, test-vacuity,
 portable compilation, and scope with no Medium+ finding. The current quality
 streak remains `1/1`.
+
+## T0.2c minimal full-frame D3D11 clear path (2026-09-05)
+
+This slice adds the first real render operation after the ownership barriers:
+`SwapChain.renderClear` validates the live device/context and complete
+back-buffer owner, binds exactly one RTV with `OMSetRenderTargets`, sets a
+deterministic full-frame viewport, and clears the target with the supplied
+RGBA color. The render seam passes the context handle, RTV handle, viewport
+dimensions, and color by explicit typed values; invalid extents and partial
+owners are rejected before the callback. Present and Resize already unbind the
+OM target before releasing the owner, so this path does not create a hidden
+use-after-release window. D2D/DirectWrite chrome, text, PDF tiles, and device
+rebuild remain later slices.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The focused Windows Debug build first failed on missing `RenderRequest` and `SwapChain.renderClear`. A follow-up ABI compile caught the required scalar pointer `&clear_color[0]` for `ClearRenderTargetView`. | Both the public contract and generated binding shape were exercised before the final implementation. |
+| Deterministic render seam | A complete owner records one callback with exact context/RTV handles, width, height, and RGBA metadata; zero dimensions, null device/context, incomplete owner, and callback failure are typed and leave ownership unchanged. | The render operation is not a no-op or unconditional success path. |
+| Real Windows smoke | For both `FLIP_SEQUENTIAL` and `FLIP_DISCARD`, the test creates a real D3D11 device/window, acquires buffer `0`, executes clear, then Present1/rebinds and deinitializes. | The OM bind, viewport, clear, unbind, present, and rebind chain executes on x64 Windows. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test`: `35` passed, `1` expected non-Windows skip per mode. | The clear path and preceding ownership barriers remain green across optimization modes. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded per mode for `x86_64-linux-gnu`. | Linux remains a compile-only portability guard. |
+| Formatting/scope | `zig fmt --check` and `git diff --check` passed; only presenter/graphics comments and presenter tests changed besides this evidence. | No dependency, build-graph, or facade expansion was introduced. |
+
+Browser QA is not applicable: this is a native D3D11 render increment with no
+HTML/browser surface. External Luna max review remains unavailable because the
+review stream terminated with `adapter_eof`; root review checked binding
+signatures, preflight/order invariants, owner preservation, real runtime
+coverage, portability, and scope with no Medium+ finding. Current quality
+streak: `1/1`.

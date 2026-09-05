@@ -2,9 +2,9 @@
 //!
 //! The policy/state machine lives in `presenter.zig`; this adapter owns only
 //! the COM interfaces, DXGI frame-latency handle, and acquired back-buffer
-//! resource/render-target-view pair, and the bounded Present1/rebind barrier.
-//! ResizeBuffers ownership/rebind is also bounded here; drawing and device-loss
-//! recovery remain deferred.
+//! resource/render-target-view pair, the bounded Present1/ResizeBuffers
+//! ownership barriers, and a minimal full-frame D3D11 clear path. D2D/DirectWrite
+//! composition and device-loss recovery remain deferred.
 //! Every Windows call is behind the curated `windows_api` facade, while
 //! non-Windows builds retain a compile-only surface for the portable model
 //! lane.
@@ -79,6 +79,16 @@ pub const ResizeError = error{
     UnsupportedTarget,
 };
 
+pub const RenderError = error{
+    InvalidBackBuffer,
+    InvalidDevice,
+    InvalidDeviceContext,
+    InvalidRenderRequest,
+    InvalidSwapChain,
+    RenderFailed,
+    UnsupportedTarget,
+};
+
 pub const Rect = extern struct {
     left: i32,
     top: i32,
@@ -112,6 +122,16 @@ pub const ResizeOutcome = enum {
     device_removed,
     device_reset,
     device_hung,
+};
+
+pub const RenderRequest = struct {
+    width: u32 = 0,
+    height: u32 = 0,
+    clear_color: [4]f32 = .{ 0.0, 0.0, 0.0, 1.0 },
+};
+
+pub const RenderOutcome = enum {
+    cleared,
 };
 
 pub const wait_object_0: u32 = 0;
@@ -251,6 +271,17 @@ const ResizeBackendImpl = struct {
     unbind: ?UnbindFn = null,
 };
 
+const RenderFn = *const fn (
+    ?*anyopaque,
+    *anyopaque,
+    *anyopaque,
+    *const RenderRequest,
+) callconv(.c) bool;
+
+const RenderBackendImpl = struct {
+    render: RenderFn,
+};
+
 const WindowsAcquireContext = struct {
     device_handle: *anyopaque,
     swap_chain_handle: *anyopaque,
@@ -377,6 +408,27 @@ pub const SwapChain = struct {
                 .unbind = unbindRenderTargetWindows,
             },
             @ptrCast(&context),
+        );
+    }
+
+    pub fn renderClear(
+        self: *const SwapChain,
+        device: ?*const graphics.Device,
+        buffer: *BackBuffer,
+        request: RenderRequest,
+    ) RenderError!RenderOutcome {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        if (self.swap_chain1 == null) return error.InvalidSwapChain;
+        const device_value = device orelse return error.InvalidDevice;
+        const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const context_handle = device_value.contextHandle() orelse return error.InvalidDeviceContext;
+        return renderClearWithImpl(
+            device_handle,
+            context_handle,
+            buffer,
+            request,
+            .{ .render = renderClearWindows },
+            null,
         );
     }
 
@@ -507,6 +559,25 @@ fn resizeAndRebindWithImpl(
     };
     buffer.* = rebound;
     return .resized;
+}
+
+fn renderClearWithImpl(
+    device_handle: ?*anyopaque,
+    context_handle: ?*anyopaque,
+    buffer: *const BackBuffer,
+    request: RenderRequest,
+    backend: RenderBackendImpl,
+    context: ?*anyopaque,
+) RenderError!RenderOutcome {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    if (device_handle == null) return error.InvalidDevice;
+    if (context_handle == null) return error.InvalidDeviceContext;
+    if (!buffer.complete()) return error.InvalidBackBuffer;
+    if (request.width == 0 or request.height == 0) return error.InvalidRenderRequest;
+    if (!backend.render(context, context_handle.?, @ptrCast(buffer.render_target_view.?), &request)) {
+        return error.RenderFailed;
+    }
+    return .cleared;
 }
 
 fn deinitBackBufferWithImpl(
@@ -672,6 +743,30 @@ fn resizeBuffersWindows(
     return result;
 }
 
+fn renderClearWindows(
+    _: ?*anyopaque,
+    context_handle: *anyopaque,
+    render_target_view: *anyopaque,
+    request: *const RenderRequest,
+) callconv(.c) bool {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    const immediate_context: *api.d3d11.ID3D11DeviceContext = @ptrCast(@alignCast(context_handle));
+    const target_view: *api.d3d11.ID3D11RenderTargetView = @ptrCast(@alignCast(render_target_view));
+    var target_view_array: ?*api.d3d11.ID3D11RenderTargetView = target_view;
+    immediate_context.OMSetRenderTargets(1, @ptrCast(&target_view_array), null);
+    const viewport = api.d3d11.D3D11_VIEWPORT{
+        .TopLeftX = 0.0,
+        .TopLeftY = 0.0,
+        .Width = @floatFromInt(request.width),
+        .Height = @floatFromInt(request.height),
+        .MinDepth = 0.0,
+        .MaxDepth = 1.0,
+    };
+    immediate_context.RSSetViewports(1, @ptrCast(&viewport));
+    immediate_context.ClearRenderTargetView(target_view, &request.clear_color[0]);
+    return true;
+}
+
 fn acquireBackBufferWindowsFromContext(
     context: ?*anyopaque,
     buffer_index: u32,
@@ -713,11 +808,13 @@ pub const testing = if (builtin.is_test) struct {
     pub const Backend = BackBufferBackend;
     pub const PresentBackend = PresentBackendImpl;
     pub const ResizeBackend = ResizeBackendImpl;
+    pub const RenderBackend = RenderBackendImpl;
     pub const acquireBackBufferWith = acquireBackBufferWithImpl;
     pub const deinitBackBufferWith = deinitBackBufferWithImpl;
     pub const present1With = present1WithImpl;
     pub const presentAndRebindWith = presentAndRebindWithImpl;
     pub const resizeAndRebindWith = resizeAndRebindWithImpl;
+    pub const renderClearWith = renderClearWithImpl;
     pub const waitForFrameWith = waitForFrameWithImpl;
 } else struct {};
 
