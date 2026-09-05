@@ -74,17 +74,23 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
+          # GitHub's checkout tree can be owned by BUILTIN\\Administrators;
+          # keep the verified owner-only cache under the runner profile.
+          $depsRoot = Join-Path $env:USERPROFILE "TExFlow-native-deps"
+          New-Item -ItemType Directory -Force -Path $depsRoot | Out-Null
+          $env:TEXFLOW_NATIVE_DEPS_ROOT = $depsRoot
+          "TEXFLOW_NATIVE_DEPS_ROOT=$depsRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           # deps-fetch is the only ordinary network acquisition lane. It
           # verifies every locked archive and atomically activates the opaque
           # cache before any generated Win32 binding or Unicode export edge.
-          zig build deps-fetch --summary all -j1
+          zig build "-Dnative-deps-root=$depsRoot" deps-fetch --summary all -j1
 
       - name: Verify dependency graph, formatting, and C layout
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build --fetch=all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig fmt --check build.zig build.zig.zon native/zig
           $translated = Join-Path $env:RUNNER_TEMP "texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h | Out-File -FilePath $translated -Encoding utf8
@@ -97,48 +103,48 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build -Doptimize=Debug test --summary all
-          zig build --release=safe test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Doptimize=Debug test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --release=safe test --summary all
 
       - name: Build ABI, miscompile, and SIMD comparison modes
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build -Dtarget=x86_64-windows-msvc --release=safe abi --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast abi --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe miscompile-corpus --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast miscompile-corpus --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe simd-corpus --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast simd-corpus --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe abi --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast abi --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe miscompile-corpus --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast miscompile-corpus --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe simd-corpus --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast simd-corpus --summary all
 
       - name: Run the portable Windows toolchain smoke gate
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-1-smoke --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-1-smoke --summary all
 
       - name: Run TExFlow resource, native shell, and product gates
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-resource-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-resource-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-resource-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-icon-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-icon-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-icon-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-graphics-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-graphics-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-graphics-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-shell-native-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-shell-native-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-shell-native-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-product-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-product-test --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-product-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-resource-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-resource-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-resource-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-icon-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-icon-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-icon-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-graphics-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-graphics-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-graphics-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-shell-native-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-shell-native-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-shell-native-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-product-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-product-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-product-test --summary all
 
       - name: Prove two clean ReleaseSafe hashes
         shell: pwsh
@@ -151,8 +157,8 @@ jobs:
           $cacheB = Join-Path $env:RUNNER_TEMP "texflow-cache-b"
           $globalA = Join-Path $env:RUNNER_TEMP "texflow-global-a"
           $globalB = Join-Path $env:RUNNER_TEMP "texflow-global-b"
-          zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outA --cache-dir $cacheA --global-cache-dir $globalA --summary all
-          zig build -Dtarget=x86_64-windows-msvc --release=safe --prefix $outB --cache-dir $cacheB --global-cache-dir $globalB --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe --prefix $outA --cache-dir $cacheA --global-cache-dir $globalA --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe --prefix $outB --cache-dir $cacheB --global-cache-dir $globalB --summary all
           $hashA = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outA "bin\TExFlow.exe")).Hash.ToLowerInvariant()
           $hashB = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $outB "bin\TExFlow.exe")).Hash.ToLowerInvariant()
           if ($hashA -ne $hashB) { throw "ReleaseSafe build is not reproducible: $hashA != $hashB" }
@@ -198,16 +204,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Keep the cache in the runner's temporary profile rather than in
+          # the checkout; deps_fetch still applies and verifies its owner-only
+          # boundary (the Linux verifier is a no-op by design).
+          deps_root="$RUNNER_TEMP/texflow-native-deps"
+          mkdir -p "$deps_root"
+          export TEXFLOW_NATIVE_DEPS_ROOT="$deps_root"
+          echo "TEXFLOW_NATIVE_DEPS_ROOT=$deps_root" >> "$GITHUB_ENV"
           # deps-fetch is the only ordinary network acquisition lane. It
           # verifies every locked archive and atomically activates the opaque
           # cache before Unicode model gates consume generated tables.
-          zig build deps-fetch --summary all -j1
+          zig build "-Dnative-deps-root=$deps_root" deps-fetch --summary all -j1
 
       - name: Verify dependency graph, formatting, and C layout
         shell: bash
         run: |
           set -euo pipefail
-          zig build --fetch=all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig fmt --check build.zig build.zig.zon native/zig
           translated="$RUNNER_TEMP/texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h > "$translated"
@@ -219,40 +232,40 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug test --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe test --summary all
 
       - name: Build ABI, miscompile, and SIMD comparison modes
         shell: bash
         run: |
           set -euo pipefail
-          zig build -Dtarget=x86_64-linux-gnu --release=safe abi --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=fast abi --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe miscompile-corpus --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=fast miscompile-corpus --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe simd-corpus --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=fast simd-corpus --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe abi --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast abi --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe miscompile-corpus --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast miscompile-corpus --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe simd-corpus --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast simd-corpus --summary all
 
       - name: Run the portable Linux toolchain smoke gate
         shell: bash
         run: |
           set -euo pipefail
-          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-1-smoke --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-1-smoke --summary all
 
       - name: Run portable TExFlow resource and model gates
         shell: bash
         run: |
           set -euo pipefail
-          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-resource-test --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-resource-test --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=fast t0-2c-resource-test --summary all
-          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-icon-test --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-icon-test --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=fast t0-2c-icon-test --summary all
-          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-graphics-check --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-graphics-check --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=fast t0-2c-graphics-check --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-models-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-resource-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-resource-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-resource-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-icon-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-icon-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-icon-test --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-graphics-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-graphics-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-graphics-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-models-test --summary all
 
       - name: Prove two clean ReleaseSafe Linux install graphs are empty
         shell: bash
@@ -265,8 +278,8 @@ jobs:
           global_a="$RUNNER_TEMP/texflow-global-a"
           global_b="$RUNNER_TEMP/texflow-global-b"
           mkdir -p "$out_a" "$out_b"
-          zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_a" --cache-dir "$cache_a" --global-cache-dir "$global_a" --summary all
-          zig build -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_b" --cache-dir "$cache_b" --global-cache-dir "$global_b" --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_a" --cache-dir "$cache_a" --global-cache-dir "$global_a" --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe --prefix "$out_b" --cache-dir "$cache_b" --global-cache-dir "$global_b" --summary all
           test -z "$(find "$out_a" -mindepth 1 -print -quit)"
           test -z "$(find "$out_b" -mindepth 1 -print -quit)"
           echo "ReleaseSafe Linux install graphs: empty (both clean prefixes)"

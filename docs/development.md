@@ -139,7 +139,10 @@ The other three commands are cache-only:
   `github-cli` executable plus the committed attestation bundle and trusted
   root. The full attestation lane is Windows-native.
 
-Treat `tools/zig/.cache/native-deps/` as one opaque cache root. New acquisitions
+Treat the configured native-dependency root as one opaque cache root. The
+default is `tools/zig/.cache/native-deps/`; CI can provide an absolute,
+runner-owned root with `-Dnative-deps-root=<absolute-path>` so checkout ACLs
+cannot become the cache owner. New acquisitions
 are immutable generations below
 `.v2/<artifact-id>/generations/g-<24-lowercase-hex>/`; the artifact's strict
 `current` selector names the active generation. Each generation contains the

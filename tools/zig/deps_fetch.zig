@@ -663,14 +663,17 @@ const PinnedStageEntry = struct {
 
 const FrozenStageTree = struct {
     allocator: std.mem.Allocator,
-    root_handle: std.os.windows.HANDLE,
+    // std.Io.Dir.Handle is a POSIX fd on Linux but a Win32 HANDLE on
+    // Windows. Keep the Windows-only pin handle optional so the portable
+    // build never coerces an i32 fd into a pointer-shaped HANDLE.
+    root_handle: ?std.os.windows.HANDLE,
     entries: std.ArrayList(PinnedStageEntry) = .empty,
-    windows_active: bool,
 
     fn restoreFull(tree: *FrozenStageTree) !void {
-        if (!tree.windows_active) return;
-        try setOwnerRightsAclByHandle(tree.root_handle, .directory, .full);
-        try verifyOwnerOnlyAclExact(tree.root_handle, .directory, file_all_access);
+        if (comptime builtin.os.tag != .windows) return;
+        const root_handle = tree.root_handle orelse return error.OwnerOnlyAclFailed;
+        try setOwnerRightsAclByHandle(root_handle, .directory, .full);
+        try verifyOwnerOnlyAclExact(root_handle, .directory, file_all_access);
         for (tree.entries.items) |entry| {
             try setOwnerRightsAclByHandle(entry.handle, entry.target, .full);
             try verifyOwnerOnlyAclExact(entry.handle, entry.target, file_all_access);
@@ -678,7 +681,7 @@ const FrozenStageTree = struct {
     }
 
     fn deinit(tree: *FrozenStageTree) void {
-        if (tree.windows_active) {
+        if (comptime builtin.os.tag == .windows) {
             for (tree.entries.items) |entry| std.os.windows.CloseHandle(entry.handle);
         }
         tree.entries.deinit(tree.allocator);
@@ -702,8 +705,7 @@ fn freezeAndPinStagedTree(
 ) !FrozenStageTree {
     var frozen: FrozenStageTree = .{
         .allocator = allocator,
-        .root_handle = stage.handle,
-        .windows_active = builtin.os.tag == .windows,
+        .root_handle = windowsHandleOrNull(stage),
     };
     errdefer {
         frozen.restoreFull() catch {};
@@ -746,13 +748,19 @@ fn freezeAndPinStagedTree(
     try observer.notify(.stage_children_frozen);
     // The root's already-granted DELETE right survives this DACL reduction,
     // allowing native rename without thawing the root or any descendant.
-    try setOwnerRightsAclByHandle(stage.handle, .directory, .read_execute);
+    const root_handle = frozen.root_handle orelse return error.OwnerOnlyAclFailed;
+    try setOwnerRightsAclByHandle(root_handle, .directory, .read_execute);
     try verifyOwnerOnlyAclExact(
-        stage.handle,
+        root_handle,
         .directory,
         owner_rights_read_execute_access,
     );
     return frozen;
+}
+
+fn windowsHandleOrNull(dir: std.Io.Dir) ?std.os.windows.HANDLE {
+    if (comptime builtin.os.tag == .windows) return dir.handle;
+    return null;
 }
 
 fn openPinnedStageChildWindows(
@@ -961,7 +969,7 @@ pub fn main(init: std.process.Init) !void {
     };
     if (args.len != expected_args) return error.InvalidArguments;
 
-    try deps.validateArchivePath(args[2]);
+    try validateCacheRootPath(args[2]);
     var manifest = try deps.parseLockedManifest(allocator);
     defer manifest.deinit();
 
@@ -3145,10 +3153,71 @@ fn openCacheRoot(
     path: []const u8,
     policy: CacheRootPolicy,
 ) !std.Io.Dir {
+    if (std.Io.Dir.path.isAbsolute(path)) {
+        if (policy == .create_or_open) {
+            // An explicitly supplied absolute root is useful for CI caches
+            // whose parent is owned by the runner account rather than the
+            // checkout service. The cache root itself is still opened without
+            // reparse following and is secured/verified by the caller.
+            std.Io.Dir.cwd().createDirPath(io, path) catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => |e| return e,
+            };
+        }
+        return std.Io.Dir.openDirAbsolute(io, path, .{
+            .iterate = true,
+            .follow_symlinks = false,
+        });
+    }
     return switch (policy) {
         .create_or_open => openOrCreateRelativeDirectory(io, root, path),
         .existing_only => openExistingRelativeDirectory(io, root, path),
     };
+}
+
+fn validateCacheRootPath(path: []const u8) !void {
+    if (path.len == 0 or path.len > 4096 or !std.unicode.utf8ValidateSlice(path)) {
+        return error.InvalidCacheRoot;
+    }
+    if (!std.Io.Dir.path.isAbsolute(path)) {
+        deps.validateArchivePath(path) catch return error.InvalidCacheRoot;
+        return;
+    }
+    if (path[path.len - 1] == '/' or path[path.len - 1] == '\\') {
+        return error.InvalidCacheRoot;
+    }
+
+    const drive_prefix = path.len >= 2 and
+        ((path[0] >= 'a' and path[0] <= 'z') or (path[0] >= 'A' and path[0] <= 'Z')) and
+        path[1] == ':';
+    var component_start: usize = if (drive_prefix) 2 else 0;
+    var index: usize = 0;
+    while (index < path.len) : (index += 1) {
+        const byte = path[index];
+        if (byte < 0x20 or byte == 0x7f or byte == '"' or byte == '*' or
+            byte == '?' or byte == '<' or byte == '>' or byte == '|')
+        {
+            return error.InvalidCacheRoot;
+        }
+        if (byte == ':' and !(drive_prefix and index == 1)) {
+            // Reject alternate data streams and malformed drive prefixes.
+            return error.InvalidCacheRoot;
+        }
+        if (byte != '/' and byte != '\\') continue;
+        if (index > component_start) {
+            const component = path[component_start..index];
+            if (std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..")) {
+                return error.InvalidCacheRoot;
+            }
+        }
+        component_start = index + 1;
+    }
+    if (component_start >= path.len or
+        std.mem.eql(u8, path[component_start..], ".") or
+        std.mem.eql(u8, path[component_start..], ".."))
+    {
+        return error.InvalidCacheRoot;
+    }
 }
 
 fn openExistingRelativeDirectory(
@@ -3340,7 +3409,7 @@ fn verifyOwnerOnlyAcl(handle: std.Io.File.Handle, target: AclTarget) !void {
 }
 
 fn verifyOwnerOnlyAclExact(
-    handle: std.Io.File.Handle,
+    handle: anytype,
     target: AclTarget,
     expected_mask: u32,
 ) !void {
@@ -3388,7 +3457,7 @@ fn verifyTreeAclPolicy(
 }
 
 fn verifyOwnerOnlyAclMasks(
-    handle: std.Io.File.Handle,
+    handle: anytype,
     target: AclTarget,
     allowed_masks: []const u32,
 ) !void {
@@ -3396,7 +3465,7 @@ fn verifyOwnerOnlyAclMasks(
 }
 
 fn verifyOwnerOnlyAclMasksPolicy(
-    handle: std.Io.File.Handle,
+    handle: anytype,
     target: AclTarget,
     allowed_masks: []const u32,
     protection_policy: AclProtectionPolicy,
@@ -3863,6 +3932,27 @@ test "cache receipts accept lowercase SHA-256 only" {
     try std.testing.expect(!isLowerSha256(
         "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
     ));
+}
+
+test "cache root path accepts a safe absolute runner path" {
+    const path = if (builtin.os.tag == .windows)
+        "C:\\Users\\runner\\TExFlow-native-deps"
+    else
+        "/tmp/TExFlow-native-deps";
+    try validateCacheRootPath(path);
+}
+
+test "cache root path rejects traversal and root-only paths" {
+    const traversal = if (builtin.os.tag == .windows)
+        "C:\\Users\\runner\\..\\TExFlow-native-deps"
+    else
+        "/tmp/../TExFlow-native-deps";
+    const trailing = if (builtin.os.tag == .windows)
+        "C:\\Users\\runner\\TExFlow-native-deps\\"
+    else
+        "/tmp/TExFlow-native-deps/";
+    try std.testing.expectError(error.InvalidCacheRoot, validateCacheRootPath(traversal));
+    try std.testing.expectError(error.InvalidCacheRoot, validateCacheRootPath(trailing));
 }
 
 test "audit mode policy is strictly read only" {

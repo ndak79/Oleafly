@@ -3,6 +3,18 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const host_target = b.graph.host;
+    // Keep the dependency cache outside a CI checkout when requested. This
+    // matters on hosted Windows runners whose checkout owner can be
+    // BUILTIN\\Administrators rather than the runner token; the cache itself
+    // still enforces the owner-only ACL boundary in deps_fetch.zig.
+    const native_deps_root = if (b.option(
+        []const u8,
+        "native-deps-root",
+        "Absolute owner-only root for the locked native dependency cache (CI may place it under the runner profile)",
+    )) |path| blk: {
+        if (!std.fs.path.isAbsolute(path)) @panic("native-deps-root must be absolute");
+        break :blk path;
+    } else b.pathFromRoot("tools/zig/.cache/native-deps");
     // Zig 0.16's preferred_optimize_mode intentionally maps every release
     // request to the preferred mode, so it cannot expose a real ReleaseFast
     // comparison lane. Resolve the explicit enum option first, then map the
@@ -548,7 +560,7 @@ pub fn build(b: *std.Build) void {
 
     // Isolated T0.2b SQLite contract; no install or product/runtime edge.
     const sqlite_source = b.option([]const u8, "sqlite-source", "Absolute directory containing the exact locked SQLite 3.53.4 sqlite3.c and sqlite3.h (offline only)") orelse
-        b.pathFromRoot("tools/zig/.cache/native-deps/.v2/sqlite/generations/g-14ea30ba6b8a3c158e833613/payload/sqlite-autoconf-3530400");
+        b.pathJoin(&.{ native_deps_root, ".v2", "sqlite", "generations", "g-14ea30ba6b8a3c158e833613", "payload", "sqlite-autoconf-3530400" });
     const sqlite_probe = b.addExecutable(.{
         .name = "texflow-sqlite-contract-probe",
         .root_module = b.createModule(.{
@@ -676,7 +688,7 @@ pub fn build(b: *std.Build) void {
     scintilla_tests.root_module.addImport("scintilla_probe", scintilla_probe_module);
     const scintilla_contract = b.addOptions();
     const scintilla_archive = b.option([]const u8, "scintilla-archive", "Absolute path to the exact Scintilla 5.6.6 archive (offline only)") orelse
-        b.pathFromRoot("tools/zig/.cache/native-deps/.v2/scintilla/generations/g-0c7dc920040326b993b39ff6/archive.bin");
+        b.pathJoin(&.{ native_deps_root, ".v2", "scintilla", "generations", "g-0c7dc920040326b993b39ff6", "archive.bin" });
     scintilla_contract.addOption([]const u8, "archive_path", scintilla_archive);
     const scintilla_probe = b.addExecutable(.{
         .name = "texflow-scintilla-source-probe",
@@ -844,7 +856,7 @@ pub fn build(b: *std.Build) void {
     const run_deps_fetch_bootstrap = b.addRunArtifact(deps_fetch_bootstrap);
     run_deps_fetch_bootstrap.addArgs(&.{
         "bootstrap",
-        "tools/zig/.cache/native-deps",
+        native_deps_root,
     });
 
     // Fetch may create the UCD generation, but every consumer receives an
@@ -852,7 +864,7 @@ pub fn build(b: *std.Build) void {
     // read-only export is used by audit so `zig build deps-audit` never gains a
     // dependency on the mutating bootstrap step.
     const export_ucd_for_fetch = b.addRunArtifact(deps_fetch_bootstrap);
-    export_ucd_for_fetch.addArgs(&.{ "export-ucd", "tools/zig/.cache/native-deps" });
+    export_ucd_for_fetch.addArgs(&.{ "export-ucd", native_deps_root });
     const ucd_export_for_fetch = export_ucd_for_fetch.addOutputDirectoryArg(
         "unicode-ucd-fetch-snapshot",
     );
@@ -860,7 +872,7 @@ pub fn build(b: *std.Build) void {
     const ucd_root_for_fetch = ucd_export_for_fetch.path(b, "payload");
 
     const export_ucd_for_audit = b.addRunArtifact(deps_fetch_bootstrap);
-    export_ucd_for_audit.addArgs(&.{ "export-ucd", "tools/zig/.cache/native-deps" });
+    export_ucd_for_audit.addArgs(&.{ "export-ucd", native_deps_root });
     const ucd_export_for_audit = export_ucd_for_audit.addOutputDirectoryArg(
         "unicode-ucd-audit-snapshot",
     );
@@ -981,7 +993,7 @@ pub fn build(b: *std.Build) void {
         deps_fetch_tool.root_module.linkSystemLibrary("advapi32", .{});
     }
     const run_deps_fetch = b.addRunArtifact(deps_fetch_tool);
-    run_deps_fetch.addArgs(&.{ "all", "tools/zig/.cache/native-deps" });
+    run_deps_fetch.addArgs(&.{ "all", native_deps_root });
     // The Unicode collision implementation is trusted for artifact two and
     // later only after all pinned official conformance vectors pass.
     run_deps_fetch.step.dependOn(&run_unicode_fetch_conformance_tests.step);
@@ -1011,10 +1023,10 @@ pub fn build(b: *std.Build) void {
         deps_cache_audit_tool.root_module.linkSystemLibrary("advapi32", .{});
     }
     const run_deps_cache_audit = b.addRunArtifact(deps_cache_audit_tool);
-    run_deps_cache_audit.addArgs(&.{ "audit", "tools/zig/.cache/native-deps" });
+    run_deps_cache_audit.addArgs(&.{ "audit", native_deps_root });
 
     const export_zigwin32 = b.addRunArtifact(deps_cache_audit_tool);
-    export_zigwin32.addArgs(&.{ "export-zigwin32", "tools/zig/.cache/native-deps" });
+    export_zigwin32.addArgs(&.{ "export-zigwin32", native_deps_root });
     const zigwin32_export = export_zigwin32.addOutputDirectoryArg("zigwin32-snapshot");
     const zigwin32_cache_module = b.createModule(.{
         .root_source_file = zigwin32_export.path(
@@ -1039,7 +1051,7 @@ pub fn build(b: *std.Build) void {
     const export_attestation_inputs = b.addRunArtifact(deps_cache_audit_tool);
     export_attestation_inputs.addArgs(&.{
         "export-attestation-inputs",
-        "tools/zig/.cache/native-deps",
+        native_deps_root,
     });
     const attestation_inputs = AbsoluteAuditInputs.create(
         b,
