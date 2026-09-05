@@ -179,3 +179,32 @@ embedded NUL/invalid UTF-8, UTF-16/command-line overflow, shell/device names,
 ambiguous environment names, and inherited environment state. Canonical file
 identity and existence remain the caller's responsibility. The native child
 test is Windows-only; the Linux lane is compile-only.
+
+## T0.2b bounded PDFium ABI/static slice evidence (2026-09-05)
+
+This increment adds a declarative, Zig-owned public-C table for the locked
+PDFium root commit. It is deliberately static-only: no DLL is linked, loaded,
+executed, or compared here. The table admits 35 stable exports for lifecycle,
+memory-backed loading, page geometry, external bitmap/progressive rendering,
+text/search, and inert link rectangles. Active form-fill/JavaScript/XFA/file
+callbacks and unreviewed experimental APIs remain absent.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | With the table absent, six of seven focused tests failed; the static guard test passed. | Tests detect missing declarations before implementation. |
+| ReleaseSafe | `t0-2b-pdfium-abi`: `7/7` passed. | Layout, widths, signatures, symbol bijection, and active-content exclusions are green. |
+| Debug | `t0-2b-pdfium-abi -Doptimize=Debug`: `7/7` passed. | Debug ABI/static regression is green. |
+| ReleaseFast | `t0-2b-pdfium-abi -Doptimize=ReleaseFast`: `7/7` passed. | Optimized static contract remains green. |
+| Linux portability | `t0-2b-pdfium-static -Dtarget=x86_64-linux-gnu`: `4/4` compile-only steps passed. | Cross-target declaration portability is covered; Linux execution is not claimed. |
+| Falsification | Mutating `FPDFBitmap_FillRect` to `void` and duplicating an allowlist entry both failed tests. | Signature and exact-symbol oracles detect representative drift. |
+| Static source guard | Import, `@cImport`, `@extern`, `extern fn`, function-body, mutable-state, and call-expression fixtures were rejected. | No executable/loader path is admitted by the module contract. |
+| Combined regression | `t0-2b-argv-test test -Doptimize=ReleaseSafe`: `22/22` passed. | Earlier Windows launch-boundary slice and legacy tests remain green. |
+| Independent gpt-6 reviewer, final pass | No Medium+ findings; quality streak `1`. | Header comparison, LLP64 widths, config v6 layout, C pause callback, and build wiring reviewed clean. |
+
+The ABI source was manually matched against the cached public headers for
+PDFium commit `6f2272e1f3aaa141305475b83ef4eac2c1f527b8` (generation
+`g-9ad8e1bb88ea1c84316a43a9`). An independent C compiler layout probe was not
+available in this environment and is intentionally not implied by the green
+Zig tests. The slice does not close full T0.2b acceptance, PDFium source
+reconstruction, binary equivalence, authenticated worker loading, or Task 5
+runtime qualification.

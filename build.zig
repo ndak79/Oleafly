@@ -129,6 +129,32 @@ pub fn build(b: *std.Build) void {
     const windows_argv_check = b.step("t0-2b-argv-check", "Compile Windows argv contracts for the selected target");
     windows_argv_check.dependOn(&windows_argv_tests.step);
 
+    // T0.2b declares the Windows public-C contract only. These artifacts do
+    // not link or load an engine and have no dependency-cache/fetch edge.
+    const pdfium_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf/pdfium.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const pdfium_contract = b.addOptions();
+    pdfium_contract.addOption([]const u8, "source", @embedFile("native/zig/src/pdf/pdfium.zig"));
+    const pdfium_abi_step = b.step("t0-2b-pdfium-abi", "Run static PDFium public ABI and boundary tests without an engine");
+    const pdfium_static_step = b.step("t0-2b-pdfium-static", "Compile the static PDFium ABI tests for the selected target without running them");
+    inline for (.{ "native_abi_test.zig", "pdf_engine_boundary_test.zig" }) |test_file| {
+        const pdfium_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("native/zig/tests/" ++ test_file),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        pdfium_tests.root_module.addImport("pdfium", pdfium_module);
+        pdfium_tests.root_module.addOptions("pdfium_contract", pdfium_contract);
+        const run_pdfium_tests = b.addRunArtifact(pdfium_tests);
+        pdfium_abi_step.dependOn(&run_pdfium_tests.step);
+        pdfium_static_step.dependOn(&pdfium_tests.step);
+    }
+
     const deps_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/deps.zig"),
         .target = target,
