@@ -89,6 +89,46 @@ pub fn build(b: *std.Build) void {
     const simd_step = b.step("simd-corpus", "Run deterministic SIMD answers");
     simd_step.dependOn(&run_simd_tests.step);
 
+    const windows_argv_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/argv.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const windows_argv_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/windows_argv_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    windows_argv_tests.root_module.addImport("windows_argv", windows_argv_module);
+    windows_argv_tests.root_module.addImport("windows_api", b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/api.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const argv_child_options = b.addOptions();
+    if (target.result.os.tag == .windows) {
+        const argv_child = b.addExecutable(.{
+            .name = "texflow-argv-child",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("native/zig/tests/windows_argv_child.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        argv_child.root_module.linkSystemLibrary("shell32", .{});
+        argv_child_options.addOptionPath("path", argv_child.getEmittedBin());
+    } else {
+        argv_child_options.addOption([]const u8, "path", "");
+    }
+    windows_argv_tests.root_module.addOptions("argv_child_options", argv_child_options);
+    const run_windows_argv_tests = b.addRunArtifact(windows_argv_tests);
+    const windows_argv_step = b.step("t0-2b-argv-test", "Test Windows typed argv and narrow platform contracts");
+    windows_argv_step.dependOn(&run_windows_argv_tests.step);
+    const windows_argv_check = b.step("t0-2b-argv-check", "Compile Windows argv contracts for the selected target");
+    windows_argv_check.dependOn(&windows_argv_tests.step);
+
     const deps_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/deps.zig"),
         .target = target,

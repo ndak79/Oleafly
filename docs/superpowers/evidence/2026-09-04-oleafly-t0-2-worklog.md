@@ -152,3 +152,30 @@ The fresh clone intentionally did not run cache-only `unicode-audit` or
 `deps-audit`: the native dependency cache is ignored and must first be seeded
 through the authorized `deps-fetch` lane. Those audits were run successfully in
 the verified workspace, including the absolute `%TEMP%` cache case above.
+
+## T0.2b bounded argv/API slice evidence (2026-09-05)
+
+This is an incremental, separately reviewable slice of T0.2b; it does not close
+the Task 2 acceptance rows. It adds one Zig-owned `CreateProcessW` launch-buffer
+serializer, a declarative 16-namespace Windows API inventory, and a native child
+oracle that checks Windows' `CommandLineToArgvW`, explicit environment, and
+current-directory behavior. No zigwin32 bindings, SDK layout admission, PDFium
+loading, package probe, or reconstruction controller is claimed here.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED (initial serializer stub) | `t0-2b-argv-test`: `0/7` passed | Contract tests detect the missing implementation. |
+| TDD GREEN (before review repair) | `t0-2b-argv-test`: `13/13` passed | Serializer, path rejection, native-child seam, and allocation cleanup were green. |
+| Review repair RED | `t0-2b-argv-test`: `14/16` passed; `Z`/`_` and punctuation-order regressions failed | The reviewer exposed a real Windows environment-block ordering defect. |
+| Review repair GREEN | `t0-2b-argv-test`: `16/16` passed | ASCII-uppercase ordinal comparator, prefixes, punctuation, and duplicate names are covered. |
+| Debug regression | `t0-2b-argv-test test -Doptimize=Debug`: `22/22` passed | Existing ABI, corpus, and SIMD tests remain green. |
+| ReleaseFast regression | `t0-2b-argv-test -Doptimize=ReleaseFast`: `16/16` passed | Optimized launch contract remains green. |
+| Cross-target portability | `t0-2b-argv-check -Dtarget=x86_64-linux-gnu`: compiled successfully | Linux compilation is covered; Linux execution is intentionally not claimed. |
+| Formatting | `zig fmt --check` and `git diff --check` | Clean. |
+| Independent gpt-6 reviewer, final pass | No Medium+ findings; quality streak `1` | The ordering finding was fixed and re-reviewed clean. |
+
+The serializer rejects missing/non-absolute or unsafe application paths,
+embedded NUL/invalid UTF-8, UTF-16/command-line overflow, shell/device names,
+ambiguous environment names, and inherited environment state. Canonical file
+identity and existence remain the caller's responsibility. The native child
+test is Windows-only; the Linux lane is compile-only.
