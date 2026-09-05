@@ -43,15 +43,51 @@ pub const RECT = extern struct {
     right: i32,
     bottom: i32,
 };
+pub const CREATESTRUCTW = extern struct {
+    lpCreateParams: ?*anyopaque,
+    hInstance: HINSTANCE,
+    hMenu: ?*anyopaque,
+    hwndParent: ?HWND,
+    cy: i32,
+    cx: i32,
+    y: i32,
+    x: i32,
+    style: i32,
+    lpszName: [*:0]const u16,
+    lpszClass: [*:0]const u16,
+    dwExStyle: u32,
+};
 
 pub const dll_search_flags: u32 = 0x800; // LOAD_LIBRARY_SEARCH_SYSTEM32
 pub const window_style: u32 = 0xcf0000; // WS_OVERLAPPEDWINDOW, system caption
 pub const dpi_pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
+pub const frame_timer_id: usize = 1;
+pub const frame_timer_period_ms: u32 = 16;
+const wm_nccreate: u32 = 0x0081;
+const wm_ncdestroy: u32 = 0x0082;
+const wm_destroy: u32 = 0x0002;
+const wm_size: u32 = 0x0005;
+const wm_paint: u32 = 0x000f;
+const wm_timer: u32 = 0x0113;
+const size_minimized: usize = 1;
+const gwlp_userdata: i32 = -21;
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.machine_class);
 const window_title = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.product_name);
 
 pub fn renderOutcomeUsable(outcome: presenter.PresentOutcome) bool {
     return outcome == .presented or outcome == .occluded;
+}
+
+pub fn isPaintMessage(message: u32) bool {
+    return message == wm_paint;
+}
+
+pub fn isResizeMessage(message: u32) bool {
+    return message == wm_size;
+}
+
+pub fn isFrameTimerMessage(message: u32, timer_id: usize) bool {
+    return message == wm_timer and timer_id == frame_timer_id;
 }
 
 const raw = struct {
@@ -68,6 +104,11 @@ const raw = struct {
     extern "user32" fn UnregisterClassW([*:0]const u16, HINSTANCE) callconv(.winapi) i32;
     extern "user32" fn CreateWindowExW(u32, [*:0]const u16, [*:0]const u16, u32, i32, i32, i32, i32, ?HWND, ?*anyopaque, HINSTANCE, ?*anyopaque) callconv(.winapi) ?HWND;
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
+    extern "user32" fn SetTimer(HWND, usize, u32, ?*anyopaque) callconv(.winapi) usize;
+    extern "user32" fn KillTimer(HWND, usize) callconv(.winapi) i32;
+    extern "user32" fn SetWindowLongPtrW(HWND, i32, isize) callconv(.winapi) isize;
+    extern "user32" fn GetWindowLongPtrW(HWND, i32) callconv(.winapi) isize;
+    extern "user32" fn ValidateRect(HWND, ?*const RECT) callconv(.winapi) i32;
     extern "user32" fn IsWindow(HWND) callconv(.winapi) i32;
     extern "user32" fn DestroyWindow(HWND) callconv(.winapi) i32;
     extern "user32" fn GetClientRect(HWND, *RECT) callconv(.winapi) i32;
@@ -121,6 +162,7 @@ pub const Backend = struct {
     graphics_device: ?graphics.Device = null,
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
+    frame_timer: usize = 0,
     message: MSG = undefined,
 
     pub const initial_clear_color: [4]f32 = .{ 0.035, 0.055, 0.09, 1.0 };
@@ -171,7 +213,7 @@ pub const Backend = struct {
     }
     pub fn createWindow(self: *Backend) bool {
         const use_default = std.math.minInt(i32); // CW_USEDEFAULT
-        self.window = raw.CreateWindowExW(0, class_name, window_title, window_style, use_default, use_default, 960, 640, null, null, self.instance, null);
+        self.window = raw.CreateWindowExW(0, class_name, window_title, window_style, use_default, use_default, 960, 640, null, null, self.instance, @ptrCast(self));
         if (self.window == null) return false;
         var device = graphics.Device.create() catch {
             // A visible window without a render device is not an admitted UI
@@ -238,6 +280,40 @@ pub const Backend = struct {
         return self.graphics_device != null and self.swap_chain != null and self.back_buffer != null;
     }
 
+    pub fn tickFrame(self: *Backend) bool {
+        if (self.swap_chain) |*swap_chain| {
+            const wait = swap_chain.waitForFrame(0) catch return false;
+            return switch (wait) {
+                .signaled => self.renderFrame(),
+                .timeout => true,
+            };
+        }
+        return false;
+    }
+
+    pub fn resizeFrame(self: *Backend, width: u32, height: u32) bool {
+        if (width == 0 or height == 0) return false;
+        if (self.graphics_device) |*device| {
+            if (self.swap_chain) |*swap_chain| {
+                if (self.back_buffer) |*buffer| {
+                    const outcome = swap_chain.resizeAndRebind(device, buffer, .{
+                        .width = width,
+                        .height = height,
+                    }) catch return false;
+                    return switch (outcome) {
+                        .resized => self.renderFrame(),
+                        .device_removed, .device_reset, .device_hung => false,
+                    };
+                }
+            }
+        }
+        return false;
+    }
+
+    pub fn frameTimerActive(self: *const Backend) bool {
+        return self.frame_timer != 0;
+    }
+
     fn releaseFrameResources(self: *Backend) void {
         if (self.back_buffer) |*buffer| {
             buffer.deinit();
@@ -254,6 +330,10 @@ pub const Backend = struct {
     }
 
     pub fn destroyWindow(self: *Backend) bool {
+        if (self.frame_timer != 0) {
+            if (self.window) |window| _ = raw.KillTimer(window, frame_timer_id);
+            self.frame_timer = 0;
+        }
         self.releaseFrameResources();
         const window = self.window orelse return true;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
@@ -264,6 +344,7 @@ pub const Backend = struct {
     pub fn showWindow(self: *Backend) void {
         // ShowWindow's return reports previous visibility, not success/failure.
         _ = raw.ShowWindow(self.window.?, self.show);
+        self.frame_timer = raw.SetTimer(self.window.?, frame_timer_id, frame_timer_period_ms, null);
     }
     pub fn getMessage(self: *Backend) i32 {
         // No HWND filter: WM_QUIT remains valid after the main HWND is gone.
@@ -276,10 +357,52 @@ pub const Backend = struct {
     }
 };
 
+fn backendForWindow(window: HWND) ?*Backend {
+    const stored = raw.GetWindowLongPtrW(window, gwlp_userdata);
+    if (stored == 0) return null;
+    return @ptrFromInt(@as(usize, @bitCast(stored)));
+}
+
 fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv(.winapi) isize {
-    if (message == 0x2) { // WM_DESTROY
+    if (message == wm_nccreate) {
+        if (lparam == 0) return 0;
+        const create: *const CREATESTRUCTW = @ptrFromInt(@as(usize, @bitCast(lparam)));
+        const backend = create.lpCreateParams orelse return 0;
+        _ = raw.SetWindowLongPtrW(window, gwlp_userdata, @as(isize, @bitCast(@intFromPtr(backend))));
+        return 1;
+    }
+    if (message == wm_paint) {
+        if (backendForWindow(window)) |backend| {
+            _ = raw.ValidateRect(window, null);
+            _ = backend.tickFrame();
+            return 0;
+        }
+    }
+    if (message == wm_size) {
+        if (wparam != size_minimized) {
+            if (backendForWindow(window)) |backend| {
+                if (backend.hasFrameResources()) {
+                    const size_bits: usize = @as(usize, @bitCast(lparam));
+                    const width: u32 = @intCast(size_bits & 0xffff);
+                    const height: u32 = @intCast((size_bits >> 16) & 0xffff);
+                    if (width != 0 and height != 0) _ = backend.resizeFrame(width, height);
+                    return 0;
+                }
+            }
+        }
+    }
+    if (message == wm_timer and isFrameTimerMessage(message, wparam)) {
+        if (backendForWindow(window)) |backend| {
+            _ = backend.tickFrame();
+            return 0;
+        }
+    }
+    if (message == wm_destroy) {
         raw.PostQuitMessage(0);
         return 0;
+    }
+    if (message == wm_ncdestroy) {
+        _ = raw.SetWindowLongPtrW(window, gwlp_userdata, 0);
     }
     return raw.DefWindowProcW(window, message, wparam, lparam);
 }

@@ -175,6 +175,10 @@ test "real native backend creates and presents its first frame before showing" {
     defer _ = backend.destroyWindow();
     try std.testing.expect(backend.hasFrameResources());
     try std.testing.expect(backend.renderFrame());
+    backend.showWindow();
+    try std.testing.expect(backend.frameTimerActive());
+    try std.testing.expect(backend.tickFrame());
+    try std.testing.expect(backend.resizeFrame(640, 480));
     try std.testing.expect(backend.destroyWindow());
     try std.testing.expect(!backend.hasFrameResources());
 }
@@ -185,4 +189,12 @@ test "native frame admission rejects device-loss present outcomes" {
     try std.testing.expect(!native.renderOutcomeUsable(.device_removed));
     try std.testing.expect(!native.renderOutcomeUsable(.device_reset));
     try std.testing.expect(!native.renderOutcomeUsable(.device_hung));
+}
+
+test "native shell routes only paint resize and its frame timer to rendering" {
+    try std.testing.expect(native.isPaintMessage(0x000f));
+    try std.testing.expect(native.isResizeMessage(0x0005));
+    try std.testing.expect(native.isFrameTimerMessage(0x0113, native.frame_timer_id));
+    try std.testing.expect(!native.isFrameTimerMessage(0x0113, native.frame_timer_id + 1));
+    try std.testing.expect(!native.isFrameTimerMessage(0x000f, native.frame_timer_id));
 }

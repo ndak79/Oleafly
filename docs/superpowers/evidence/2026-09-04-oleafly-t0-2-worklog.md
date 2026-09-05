@@ -1214,3 +1214,29 @@ remain later slices.
 
 Browser QA is not applicable: this increment is native Windows/D3D11 with no
 HTML/browser surface. Current quality streak is `1/1` under the user's policy.
+
+## T0.2c event-driven live render bridge (2026-09-05)
+
+The shell now advances beyond a one-shot first frame. `GWLP_USERDATA` binds the
+native `Backend` to its HWND during `WM_NCCREATE`; `WM_PAINT` and non-minimized
+`WM_SIZE` route through the same owned back-buffer, while a 16 ms OS timer
+drives live redraw. Timer and paint redraws call the DXGI frame-latency
+waitable handle with a zero-timeout probe before rendering, so the loop does
+not busy-wait or queue beyond the admitted maximum frame latency. Resize uses
+the existing unbind-before-`ResizeBuffers`/canonical-buffer rebind barrier and
+renders a fresh full frame after success. Timer teardown precedes all graphics
+resource release. Device-loss outcomes remain failures for the later recovery
+slice; minimized windows do not resize or render.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED/GREEN | Routing test first failed on missing `isPaintMessage`/`isResizeMessage`/timer contract; after implementation it passed. | The event contract was established before production routing. |
+| Real Windows runtime | Shell-native test created the real window/device/swap-chain, rendered twice, called `showWindow`, observed an active OS frame timer, ticked the frame path, resized to `640x480`, rendered again, and verified explicit cleanup. | Timer, waitable pacing, resize/rebind, and live render ownership work on x64 Windows. |
+| Windows matrix | `t0-2c-shell-native-test`: Debug, ReleaseSafe, ReleaseFast pass; presenter and graphics ReleaseSafe regressions pass. | Live routing did not regress the lower native barriers. |
+| Linux/product | `t0-2c-shell-native-check` Linux pass; `t0-2c-product-build` ReleaseSafe pass. | Non-Windows remains compile-only and the TExFlow executable links. |
+| Process smoke | Hidden `TExFlow.exe` stayed alive for 2 seconds with approximately `8.2 MB` working set before controlled termination. | The message loop/timer path does not immediately crash and remains lightweight in this smoke environment. |
+| Review/falsification | `git diff --check` and Zig formatting checks pass. External Luna max review again ended with `adapter_eof`; root review caught and fixed the paint pacing bypass, then reran the matrix clean. | No unsupported external clean-review claim; current quality streak is `1/1`. |
+
+Browser QA is not applicable: this is native Win32/D3D11 event routing with no
+HTML/browser surface. Continuous editor/compile worker scheduling is still a
+separate app-layer slice; this commit establishes the native live-render pump.
