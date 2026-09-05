@@ -115,11 +115,12 @@ pub fn build(b: *std.Build) void {
         }),
     });
     windows_argv_tests.root_module.addImport("windows_argv", windows_argv_module);
-    windows_argv_tests.root_module.addImport("windows_api", b.createModule(.{
+    const windows_api_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/platform/windows/api.zig"),
         .target = target,
         .optimize = optimize,
-    }));
+    });
+    windows_argv_tests.root_module.addImport("windows_api", windows_api_module);
     const argv_child_options = b.addOptions();
     if (target.result.os.tag == .windows) {
         const argv_child = b.addExecutable(.{
@@ -252,6 +253,27 @@ pub fn build(b: *std.Build) void {
     presenter_check_step.dependOn(&presenter_tests.step);
     t0_2c_models_test.dependOn(&run_presenter_tests.step);
     t0_2c_models_check.dependOn(&presenter_tests.step);
+    const graphics_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/graphics.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    graphics_module.addImport("windows_api", windows_api_module);
+    const graphics_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/graphics_device_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    graphics_tests.root_module.addImport("graphics", graphics_module);
+    const run_graphics_tests = b.addRunArtifact(graphics_tests);
+    const graphics_test_step = b.step("t0-2c-graphics-test", "Run the native D3D11 device and swap-chain contract tests");
+    graphics_test_step.dependOn(&run_graphics_tests.step);
+    const graphics_check_step = b.step("t0-2c-graphics-check", "Compile the native D3D11 device and swap-chain contracts");
+    graphics_check_step.dependOn(&graphics_tests.step);
+    t0_2c_models_test.dependOn(&run_graphics_tests.step);
+    t0_2c_models_check.dependOn(&graphics_tests.step);
     const ui_entry_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/platform/windows/ui_entry.zig"),
         .target = target,
@@ -307,8 +329,9 @@ pub fn build(b: *std.Build) void {
     shell_native_module.addImport("windows_com", windows_com_module);
     shell_native_module.addImport("ui_entry", ui_entry_module);
     shell_native_module.addImport("app_role", app_role_module);
+    shell_native_module.addImport("graphics", graphics_module);
     if (target.result.os.tag == .windows) {
-        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt" }) |library| shell_native_module.linkSystemLibrary(library, .{});
+        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "d3d11" }) |library| shell_native_module.linkSystemLibrary(library, .{});
     }
     const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
     if (product_target) {
@@ -1001,6 +1024,17 @@ pub fn build(b: *std.Build) void {
         .target = host_target,
         .optimize = .ReleaseSafe,
     });
+    if (target.result.os.tag == .windows) {
+        const zigwin32_target_module = b.createModule(.{
+            .root_source_file = zigwin32_export.path(
+                b,
+                "zigwin32-9f15c276b4e9d05afd34a10d8662a7dfc34647ea/win32.zig",
+            ),
+            .target = target,
+            .optimize = optimize,
+        });
+        windows_api_module.addImport("zigwin32", zigwin32_target_module);
+    }
 
     const export_attestation_inputs = b.addRunArtifact(deps_cache_audit_tool);
     export_attestation_inputs.addArgs(&.{

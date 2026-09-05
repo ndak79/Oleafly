@@ -98,9 +98,12 @@ zig build deps-manifest-test -Doptimize=Debug --summary all
 ```
 
 Non-Windows targets compile the portable contracts but install no lookalike
-product. The native HWND/PMv2 shell and version resources are admitted, but the
-D3D/DirectWrite presenter, editor, compiler workers, research ledger, and
-publishing pipeline remain later slices; this is not full application
+product. The native HWND/PMv2 shell now creates a real D3D11 device (hardware
+first, WARP fallback, D3D10+ admission floor) and validates the two-buffer
+flip-model descriptor; both flip challengers retain the frame-latency waitable
+flag, while `FLIP_DISCARD` requires full redraw. The waitable swap-chain,
+Direct2D/DirectWrite presenter, editor, compiler workers, research ledger, and
+publishing pipeline remain later slices. This is not full application
 completion. The Zig-owned `t0-2-repro` cutover is not implemented yet.
 
 ## Native dependency workflow (T0.2a)

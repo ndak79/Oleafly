@@ -715,3 +715,93 @@ Browser QA is not applicable to this native resource/build increment. Explorer,
 Alt-Tab/taskbar captures, D3D/DirectWrite presentation, waitable swap-chain
 behavior, and the remaining Task 3 visual/runtime obligations stay explicitly
 open for their owning slices.
+
+## T0.2c presenter decision research (2026-09-05)
+
+The presenter choice was re-opened before adding any D3D code. The decision gate
+used six distinct challenger rounds (five required deep-research rounds plus
+one additional confirmation) and two final no-improvement rounds. Evidence was
+restricted to the Microsoft SDK/architecture documentation and the pinned
+zigwin32/Zig documentation; no benchmark claim is inferred from the API docs.
+
+| Round | Challenger angle | Decision impact |
+| --- | --- | --- |
+| 1 | D3D11 hardware creation versus WARP/legacy reference drivers. | Keep hardware first with an explicit feature-level list, `BGRA_SUPPORT`, and WARP fallback; never pair a non-null adapter with `HARDWARE`. [`D3D11CreateDevice`](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-d3d11createdevice), [`DirectX WARP`](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/directx-warp) |
+| 2 | Flip-model presentation, dirty rectangles, and frame-latency waitable objects. | Baseline is two-buffer `FLIP_SEQUENTIAL` + waitable flag + `Present1`; dirty metadata is allowed only for coherent coverage, otherwise redraw fully. [`DXGI 1.2 presentation improvements`](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements) |
+| 3 | Resize, occlusion, device removal, and reference lifetime. | Release every direct/indirect back-buffer reference before `ResizeBuffers`; recreate the complete device-dependent chain after removal; standby on `DXGI_STATUS_OCCLUDED`. [`ResizeBuffers`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-resizebuffers), [`DXGI overview`](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-overviews) |
+| 4 | Direct2D/DirectWrite interop versus GDI or a separate renderer device. | Use the same DXGI device for D2D and a shared DirectWrite factory; do not target the flip HWND with GDI. [`Direct2D/D3D interop`](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-direct3d-interoperation-overview), [`DirectWrite`](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite) |
+| 5 | Composition swap chain, D3D12, and blt-model challengers. | Composition adds an unnecessary compositor/commit surface, D3D12 adds queue/fence overhead for no current benefit, and blt/GDI violates the ownership/performance contract. Keep composition as a reversible post-profile spike only. [`CreateSwapChainForComposition`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforcomposition), [`CreateSwapChainForHwnd`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforhwnd) |
+| 6 | Binding boundary: generated zigwin32 root versus a manually duplicated ABI. | Keep the pinned generated declarations behind `platform/windows/api.zig`; TExFlow code imports only that facade, avoiding a second hand-maintained ABI path. [`Zig @cImport/extern ABI`](https://ziglang.org/documentation/master/#cImport) |
+| Final 1 | `IDXGISwapChain2` maximum latency and waitable-flag restrictions. | `max_frame_latency = 1` remains the lowest admitted queue depth; both flip-model challengers retain the frame-latency waitable object, while the challenger differs only in preservation/partial-present semantics. [`SetMaximumFrameLatency`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgiswapchain2-setmaximumframelatency), [`GetFrameLatencyWaitableObject`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgiswapchain2-getframelatencywaitableobject), [`DXGI swap-chain flags`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ne-dxgi-dxgi_swap_chain_flag) |
+| Final 2 | HWND swap-chain descriptor restrictions and same-device D2D path. | Keep width/height zero (HWND-sized), BGRA8, sample count one, two buffers, and `CreateSwapChainForHwnd`; no material improvement over the selected D3D11/DXGI/D2D/DWrite path. |
+
+**Selected baseline:** D3D11 hardware creation with explicit feature levels and
+`D3D11_CREATE_DEVICE_BGRA_SUPPORT`, WARP fallback, `CreateSwapChainForHwnd`, a
+two-buffer `FLIP_SEQUENTIAL` descriptor with a frame-latency waitable object
+and maximum latency one, then Direct2D/DirectWrite on the same device. The
+`FLIP_DISCARD` path remains a full-redraw/no-partial-metadata challenger with
+the same waitable pacing gate.
+DirectComposition, D3D12, blt/GDI, WebView/Qt/Tauri/.NET, and a duplicated
+manual binding are rejected for this slice. Unknowns left for native runtime
+measurement are present/capture latency, WARP/RDP power behavior, and device
+loss recovery timing.
+
+## T0.2c native D3D11 admission probe (2026-09-05)
+
+This bounded implementation increment turns the selected device boundary into
+real Zig code. `platform/windows/graphics.zig` exposes an allocation-free,
+ABI-neutral swap-chain descriptor validator and calls the pinned zigwin32
+`D3D11CreateDevice` declaration on Windows. It requests hardware first, releases
+any partial COM outputs on failure, retries with WARP, and releases the immediate
+context before the device during teardown. `shell_native.zig` now refuses to
+leave a visible HWND alive unless this device exists; it never falls back to
+GDI. The generated binding is linked only through the `api.zig` facade and the
+product adds only `d3d11.dll` to its allowlisted imports.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t0-2c-graphics-test` initially failed because `graphics.zig` was absent. | The new acceptance gate was non-vacuous before implementation. |
+| Windows Debug | `t0-2c-graphics-test`: 5 passed, 1 skipped; `t0-2c-shell-native-test`: 7/7; `t0-2c-product-test`: 11/11. | Descriptor invariants, x64 binding layouts/GUID/vtable presence, real hardware-or-WARP creation, COM cleanup, and the actual GUI product are green in Debug. |
+| Linux portability | `t0-2c-graphics-check` and `t0-2c-shell-native-check`: compile-only ReleaseSafe gates passed for x86_64-linux-gnu; no Linux runtime is claimed. | Non-Windows builds retain a declaration-only graphics surface and install no product. |
+| Import/resource oracle | Product PE now requires `D3D11CreateDevice` and allowlists `d3d11.dll`; no GDI or alternate renderer import was added. | The binary contract matches the selected native path. |
+| Browser applicability | No HTML/browser surface exists in this native-only increment. | Native runtime/capture QA remains required for the later swap-chain, D2D/DWrite, and visual A05 slices. |
+
+The final review and the ReleaseSafe/ReleaseFast matrix are intentionally still
+open; this section does not pre-claim a quality-streak pass or full Task 3
+completion.
+
+## T0.2c presenter correction and final review (2026-09-05)
+
+The first closed review found three P2 gaps and reset this increment's streak to
+zero: the challenger incorrectly removed the frame-latency waitable flag,
+device admission could accept FL9_3, and CI had no explicit cold-cache
+acquisition edge. The fixes retain the waitable flag for both flip-model
+effects, request only FL11_0/10_1/10_0 and route any below-floor success through
+COM release and WARP retry, and run the locked `deps-fetch` step before cache
+consumers on both CI operating systems (with a 30-minute job budget for the
+network-capable bootstrap).
+
+The native adapter now calls the same exported `admitsFeatureLevel` predicate
+covered by the below-floor regression test; no duplicate threshold oracle
+remains. The validator/test/worklog policy now describes `FLIP_DISCARD` as a
+full-redraw challenger with the same waitable pacing gate.
+
+| Fresh post-review evidence | Result |
+| --- | --- |
+| `zig build deps-fetch --summary all -j1` | 11/11 steps, 9/9 tests; every ordinary artifact cache entry verified/cached. |
+| Windows `t0-2c-graphics-test` Debug/ReleaseSafe/ReleaseFast | 6 passed, 1 platform skip in each mode. |
+| Windows `t0-2c-shell-native-test` Debug/ReleaseSafe/ReleaseFast | 7/7 in each mode. |
+| Windows `t0-2c-product-test` Debug/ReleaseSafe/ReleaseFast | 11/11 in each mode; GUI PE imports `D3D11CreateDevice` and only the allowlisted system DLL set. |
+| Windows `t0-2c-models-test --release=safe` | 99 passed, 1 platform skip. |
+| Linux `t0-2c-graphics-check` and `t0-2c-shell-native-check` Debug/ReleaseSafe/ReleaseFast | 6/6 compile-only targets succeeded; no Linux runtime claim. |
+| Linux `t0-2c-models-check --release=safe` | 21/21 compile steps succeeded. |
+| `deps-manifest-test`, `deps-test`, `unicode-audit`, `deps-audit` | 17/17, 149/149, 44/44, and 45/45 respectively. |
+| Formatting, `git diff --check`, YAML parse, CI acquisition-order assertion | Clean/pass. |
+
+An attempted Linux `t0-2c-models-test` from this Windows host was rejected by
+Zig's cross-target execution guard; it is an expected environment limitation,
+not a product failure, and the matching Linux workflow runs that lane natively.
+No browser QA applies to this native-only increment. Reviewer result after the
+corrections is `CLEAN`; the required quality streak is now `1/1`. This closes
+only the bounded D3D11 admission/policy increment, not full Task 3 or the
+overall TExFlow roadmap.

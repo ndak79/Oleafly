@@ -8,6 +8,7 @@ const shell = @import("windows_shell");
 const com = @import("windows_com");
 const entry = @import("ui_entry");
 const role = @import("app_role");
+const graphics = @import("graphics");
 
 pub const HINSTANCE = *opaque {};
 pub const HWND = *opaque {};
@@ -104,6 +105,7 @@ pub const Backend = struct {
     instance: HINSTANCE,
     show: i32,
     window: ?HWND = null,
+    graphics_device: ?graphics.Device = null,
     message: MSG = undefined,
 
     pub fn restrictDllSearch(_: *Backend) bool {
@@ -153,9 +155,22 @@ pub const Backend = struct {
     pub fn createWindow(self: *Backend) bool {
         const use_default = std.math.minInt(i32); // CW_USEDEFAULT
         self.window = raw.CreateWindowExW(0, class_name, window_title, window_style, use_default, use_default, 960, 640, null, null, self.instance, null);
-        return self.window != null;
+        if (self.window == null) return false;
+        self.graphics_device = graphics.Device.create() catch {
+            // A visible window without a render device is not an admitted UI
+            // state.  Tear it down immediately so callers cannot observe a
+            // half-initialized shell or accidentally fall back to GDI.
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        };
+        return true;
     }
     pub fn destroyWindow(self: *Backend) bool {
+        if (self.graphics_device) |*device| {
+            device.deinit();
+            self.graphics_device = null;
+        }
         const window = self.window orelse return true;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
         if (raw.IsWindow(window) != 0 and raw.DestroyWindow(window) == 0) return false;

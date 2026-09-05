@@ -34,7 +34,7 @@ jobs:
   zig-windows:
     name: TExFlow native (Windows x64)
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -68,6 +68,16 @@ jobs:
           if ($version -ne $manifest.zig_version) { throw "Zig version mismatch: $version" }
           (Split-Path -Parent $zigExe) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "ZIG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Acquire and verify locked native dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          # deps-fetch is the only ordinary network acquisition lane. It
+          # verifies every locked archive and atomically activates the opaque
+          # cache before any generated Win32 binding or Unicode export edge.
+          zig build deps-fetch --summary all -j1
 
       - name: Verify dependency graph, formatting, and C layout
         shell: pwsh
@@ -120,6 +130,9 @@ jobs:
           zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-icon-test --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-icon-test --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-icon-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-graphics-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-graphics-test --summary all
+          zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-graphics-test --summary all
           zig build -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-shell-native-test --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-shell-native-test --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=fast t0-2c-shell-native-test --summary all
@@ -148,7 +161,7 @@ jobs:
   zig-linux:
     name: TExFlow native (Linux x64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -180,6 +193,15 @@ jobs:
           test "$($RUNNER_TEMP/$root/zig version)" = "$version"
           echo "$RUNNER_TEMP/$root" >> "$GITHUB_PATH"
           echo "ZIG_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Acquire and verify locked native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # deps-fetch is the only ordinary network acquisition lane. It
+          # verifies every locked archive and atomically activates the opaque
+          # cache before Unicode model gates consume generated tables.
+          zig build deps-fetch --summary all -j1
 
       - name: Verify dependency graph, formatting, and C layout
         shell: bash
@@ -227,6 +249,9 @@ jobs:
           zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-icon-test --summary all
           zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-icon-test --summary all
           zig build -Dtarget=x86_64-linux-gnu --release=fast t0-2c-icon-test --summary all
+          zig build -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-graphics-check --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-graphics-check --summary all
+          zig build -Dtarget=x86_64-linux-gnu --release=fast t0-2c-graphics-check --summary all
           zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-models-test --summary all
 
       - name: Prove two clean ReleaseSafe Linux install graphs are empty

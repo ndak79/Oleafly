@@ -1,7 +1,21 @@
-//! Declarative inventory for the future verified zigwin32 adapter. No binding
-//! package, loader, COM activation, or runtime behavior is admitted by this file.
-//! SDK ABI/layout/vtable/GUID probes and the content-hash gate remain separate
-//! T0.2b obligations before namespaces can become actual imported bindings.
+//! The only TExFlow-owned entry point for the pinned zigwin32 snapshot.  Keep
+//! the generated package behind this narrow facade: product code never imports
+//! the root package or `everything.zig` directly.  Non-Windows builds retain a
+//! declaration-only surface so portable contracts can compile without a
+//! Windows binding module.
+const builtin = @import("builtin");
+
+const bound = builtin.os.tag == .windows;
+const zigwin32 = if (bound) @import("zigwin32") else struct {};
+
+pub const d3d11 = if (bound) zigwin32.graphics.direct3d11 else struct {};
+pub const direct3d = if (bound) zigwin32.graphics.direct3d else struct {};
+pub const dxgi = if (bound) zigwin32.graphics.dxgi else struct {};
+pub const foundation = if (bound) zigwin32.foundation else struct {};
+pub const com = if (bound) zigwin32.system.com else struct {};
+pub const d3d11_dll = if (bound) zigwin32.d3d11 else struct {};
+pub const dxgi_dll = if (bound) zigwin32.dxgi else struct {};
+
 pub const Namespace = enum {
     foundation,
     com,

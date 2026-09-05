@@ -545,7 +545,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
     const required = [_][]const u8{
         "GetCommandLineW",  "CommandLineToArgvW", "SetDefaultDllDirectories", "SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual",
         "CoInitializeEx",   "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",               "ShowWindow",                   "GetMessageW",
-        "TranslateMessage", "DispatchMessageW",   "DestroyWindow",            "UnregisterClassW",              "BCryptGenRandom",
+        "TranslateMessage", "DispatchMessageW",   "DestroyWindow",            "UnregisterClassW",              "BCryptGenRandom",              "D3D11CreateDevice",
     };
     var found = [_]bool{false} ** required.len;
     var descriptor = try rvaOffset(bytes, pe, try read(u32, bytes, pe + 24 + 120));
@@ -555,7 +555,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         if (imported_dlls > 16) return error.ExcessiveImports;
         const dll = try peString(bytes, try rvaOffset(bytes, pe, try read(u32, bytes, descriptor + 12)));
         var allowed = false;
-        for ([_][]const u8{ "kernel32.dll", "ntdll.dll", "user32.dll", "shell32.dll", "ole32.dll", "bcrypt.dll" }) |name| {
+        for ([_][]const u8{ "kernel32.dll", "ntdll.dll", "user32.dll", "shell32.dll", "ole32.dll", "bcrypt.dll", "d3d11.dll" }) |name| {
             allowed = allowed or std.ascii.eqlIgnoreCase(dll, name);
         }
         try std.testing.expect(allowed);
