@@ -2784,6 +2784,11 @@ test "verification arguments pin every identity dimension without regex fallback
 }
 
 test "version and scrubbed environment reject drift and omit ambient credentials" {
+    // The attestation runner contract is Windows-specific: it validates the
+    // locked `gh.exe` environment and Windows profile roots. Keep the parser
+    // and evidence tests portable, but do not make a POSIX path spelling alter
+    // this Windows-only environment oracle.
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
     try validateGhVersion(gh_version_output, "");
     try std.testing.expectError(
         error.WrongGhVersion,

@@ -4355,7 +4355,7 @@ test "read-only cache locks share while excluding a fetch lock" {
     var excluded = try tmp.dir.openFile(io, ".lock", .{
         .mode = .read_write,
         .allow_directory = false,
-        .path_only = true,
+        .path_only = builtin.os.tag == .windows,
         .follow_symlinks = false,
         .resolve_beneath = true,
     });
