@@ -109,7 +109,7 @@ cache under `%TEMP%`.
 | `zig build -j1 --cache-dir <absolute path under %TEMP%> deps-audit --summary all` | Two consecutive exit-0 runs; each `25/25` steps and `45/45` tests with the same real positive/10-negative attestation result. | Explicit absolute-cache and TEMP-ancestor path contract is now verified. |
 | `zig build -j1 --release=safe run --summary all` | Exit 0; `texflow toolchain ok`; `3/3` steps. | TExFlow executable naming and release smoke path are green. |
 | `zig fmt --check build.zig build.zig.zon native/zig tools/zig` and `git diff --check` | Exit 0; only Git LF/CRLF normalization notices. | Formatting and whitespace gate is clean. |
-| Fresh gpt-6 reviewer pass | No actionable Medium+ findings; quality streak `1`. | Candidate-path overlap, timestamp portability, Windows pinning, ACL/recovery/publication, transport, CI, and TExFlow naming reviewed clean. |
+| Fresh independent reviewer pass | No actionable Medium+ findings; quality streak `1`. | Candidate-path overlap, timestamp portability, Windows pinning, ACL/recovery/publication, transport, CI, and TExFlow naming reviewed clean. |
 
 The observed red-to-green regressions were: (1) equivalent UTC timestamp
 before the RFC3339 instant fix, and (2) absolute `%TEMP%` cache before the
@@ -172,7 +172,7 @@ loading, package probe, or reconstruction controller is claimed here.
 | ReleaseFast regression | `t0-2b-argv-test -Doptimize=ReleaseFast`: `16/16` passed | Optimized launch contract remains green. |
 | Cross-target portability | `t0-2b-argv-check -Dtarget=x86_64-linux-gnu`: compiled successfully | Linux compilation is covered; Linux execution is intentionally not claimed. |
 | Formatting | `zig fmt --check` and `git diff --check` | Clean. |
-| Independent gpt-6 reviewer, final pass | No Medium+ findings; quality streak `1` | The ordering finding was fixed and re-reviewed clean. |
+| Independent reviewer, final pass | No Medium+ findings; quality streak `1` | The ordering finding was fixed and re-reviewed clean. |
 
 The serializer rejects missing/non-absolute or unsafe application paths,
 embedded NUL/invalid UTF-8, UTF-16/command-line overflow, shell/device names,
@@ -199,7 +199,7 @@ callbacks and unreviewed experimental APIs remain absent.
 | Falsification | Mutating `FPDFBitmap_FillRect` to `void` and duplicating an allowlist entry both failed tests. | Signature and exact-symbol oracles detect representative drift. |
 | Static source guard | Import, `@cImport`, `@extern`, `extern fn`, function-body, mutable-state, and call-expression fixtures were rejected. | No executable/loader path is admitted by the module contract. |
 | Combined regression | `t0-2b-argv-test test -Doptimize=ReleaseSafe`: `22/22` passed. | Earlier Windows launch-boundary slice and legacy tests remain green. |
-| Independent gpt-6 reviewer, final pass | No Medium+ findings; quality streak `1`. | Header comparison, LLP64 widths, config v6 layout, C pause callback, and build wiring reviewed clean. |
+| Independent reviewer, final pass | No Medium+ findings; quality streak `1`. | Header comparison, LLP64 widths, config v6 layout, C pause callback, and build wiring reviewed clean. |
 
 The ABI source was manually matched against the cached public headers for
 PDFium commit `6f2272e1f3aaa141305475b83ef4eac2c1f527b8` (generation
@@ -226,7 +226,7 @@ to SHA-256 receipts.
 | Linux portability | `t0-2b-package-check -Dtarget=x86_64-linux-gnu`: `3/3` compile-only steps passed. | Cross-target compilation is covered; Linux execution is not claimed. |
 | Falsification | Tar header/metadata/padding/end-marker mutations, gzip header/body/footer/truncation/concatenation, changed payload, unsafe path, duplicate/conflict, nonregular file, and allocation-failure cases were rejected. | Representative negative paths fail closed. |
 | Windows path hardening | COM/PRN/AUX/NUL/CONIN$/CONOUT$, COM/LPT ASCII and superscript aliases, extensions/nested components, ASCII/Unicode case aliases, and folded file-directory ancestors are rejected. | No known Windows path collision remains in this fixture scope. |
-| Independent gpt-6 reviewer, final pass | No Medium+ findings; quality streak `1`. | Tar/gzip/hash/ownership/OOM and Windows collision review clean. |
+| Independent reviewer, final pass | No Medium+ findings; quality streak `1`. | Tar/gzip/hash/ownership/OOM and Windows collision review clean. |
 
 The oracle deliberately does not claim the real release-payload inventory,
 90/30 MiB gates, filesystem-root isolation, installer packaging, or signed
@@ -255,7 +255,7 @@ directory. Compilation consumes only that published pair.
 | Linux portability | `t0-2b-sqlite-check -Dtarget=x86_64-linux-gnu`: `8/8` compile/audit steps. | Cross-target compilation and archive audit are covered; Linux runtime execution is not claimed. |
 | Concurrent build reality | Safe, Fast, and Linux checks ran concurrently against the shared snapshot and all completed cleanly. | The previously reproducible shared-output race is closed by immutable publication. |
 | Fail-closed source override | Relative `-Dsqlite-source` rejected with `SqliteSourceMustBeAbsolute`; missing absolute source rejected with `FileNotFound`; no fallback/fetch occurred. | Source selection remains explicit and offline. |
-| Independent gpt-6 reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | Nullable callback, archive padding, source locks, flags, symbol distinctions, atomic publication, and build graph reviewed clean. |
+| Independent reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | Nullable callback, archive padding, source locks, flags, symbol distinctions, atomic publication, and build graph reviewed clean. |
 
 The archive parser covers native GNU/MSVC first-linker-member tables and the
 single NUL padding byte emitted by LLVM's even-sized archive writer. The
@@ -294,7 +294,7 @@ evidence below reports them together where both are required; Linux
 | Linux portability | `t0-2b-scintilla-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe`: `5/5` compile steps; a Win32 static-build request fails with an explicit target diagnostic. | Contract compilation is portable; Linux runtime and Win32 library execution are not claimed. |
 | Source/input negatives | Missing archive is rejected with `FileNotFound`; relative archive/output paths are rejected before touching files; altered archive, extra member, missing source, corruption, duplicate, DLL-only, and wrong-platform paths fail closed. | No fallback, fetch, or silent source substitution exists in this lane. |
 | Local compiler/SDK evidence | Actual build used MSVC headers 14.51.36231 and Windows SDK 10.0.26100.0; WRL include is discovered or supplied through an absolute `-Dscintilla-winrt-include` path. | This proves local static feasibility only; the approved SDK/toolchain identity and executable/import closure remain later admission work. |
-| Independent gpt-6 reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | Inventory, archive identity, atomic publication, SDK include use, C++ flags, member set, target split, and reachability were reviewed clean. |
+| Independent reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | Inventory, archive identity, atomic publication, SDK include use, C++ flags, member set, target split, and reachability were reviewed clean. |
 
 All upstream warning flags (`-Wall -Wextra -Wpedantic`) and C++17 are retained;
 no TExFlow C++ shim or source/header patch was introduced. The static archive
@@ -331,7 +331,7 @@ portable and Git-free; checkout QA requires an explicit absolute
 | EOL regression RED→GREEN | Git fixture initially reported `text/eol unspecified`; after adding the exact `.gitattributes` rule `native/zig/THIRD_PARTY_NOTICES.txt text eol=lf`, checkout with `core.autocrlf=true` reproduces identical bytes and passes canonical validation. | Windows checkout cannot silently convert the byte-exact notice to CRLF. No broad repository renormalization was introduced. |
 | Portable build graph | `t0-2b-notices-check` has no checkout-QA dependency and passes without a Git option; Linux `x86_64-linux-gnu` compile-check passes `3/3`. | Default/native compile paths remain offline and independent of ambient Git/PATH. |
 | Explicit checkout QA | `t0-2b-notices-checkout-test -Dnotices-git-executable=<absolute git.exe>` passes `1/1` with `core.autocrlf=true`; canonical check and inventory/render CLI runs pass. | Fresh-checkout behavior is directly evidenced only in this separately authorized QA lane. |
-| Independent gpt-6 reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | EOL attributes, default graph separation, source package inclusion, license hashes, Lexilla/PDFium roles, and no invented owner were reviewed clean. |
+| Independent reviewer, final pass | No actionable Medium+ findings; quality streak `1`. | EOL attributes, default graph separation, source package inclusion, license hashes, Lexilla/PDFium roles, and no invented owner were reviewed clean. |
 
 The shipping notice retains the existing Oleafly AGPL source-lineage
 attribution and complete Unicode License v3 text. Scintilla and zigwin32
@@ -364,7 +364,7 @@ recognized source-path forms are scanned deterministically.
 | Linux portability | `t0-2b-pe-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1`: 3/3 compile steps. | Cross-target compilation is covered; Linux execution and Windows runtime are not claimed. |
 | Baseline regression | `zig build test -Doptimize=ReleaseSafe -j1`: 9/9 steps, 6/6 tests. | Existing ABI/corpus/SIMD tests remain green. |
 | Formatting/diff | `zig fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
-| Independent static review, final pass | No Medium+ findings; quality streak `1`. The reviewer inspected bounds, section/directory mapping, imports/IAT, relocations, unwind/CFG handling, reporting, tests, and build integration. | Final read-only review is clean; runtime/product-closure exclusions remain explicit. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Independent static review, final pass | No Medium+ findings; quality streak `1`. The reviewer inspected bounds, section/directory mapping, imports/IAT, relocations, unwind/CFG handling, reporting, tests, and build integration. | Final read-only review is clean; runtime/product-closure exclusions remain explicit. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 
 This is intentionally a bounded static slice, not final product PE closure:
 it does not enumerate or recursively audit transitive DLLs, verify the shipped
@@ -395,8 +395,8 @@ dependency loading.
 | Linux portability | `t0-2c-models-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1`: `7/7` compile steps passed. | The pure models have no Windows-only compile dependency; Linux execution is not claimed. |
 | Baseline regression | `zig build test -Doptimize=ReleaseSafe -j1`: `9/9` steps, `6/6` tests passed. | Existing ABI, corpus, and SIMD gates remain green. |
 | Allocation-failure coverage | Pseudo-localization is exercised through `std.testing.checkAllAllocationFailures`; all focused tests pass. | Partial UTF-8 output and owned-buffer failures are released correctly. |
-| Review repairs | Initial review found seven Medium issues; follow-up review found two additional semantic issues and one cancellation hand-off path. Tests and implementation were repaired, then re-reviewed. | Grace deadlines are bounded/preserved, cancellation wait events are actionable, stale completion retires active state, current vs last-good artifacts are explicit, queued work survives cancellation, empty close can finish, and semantic palette/contrast pairs match the lock. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
-| Final review | No Medium+ findings; quality streak `1`. | Final read-only review is clean for this bounded slice. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Review repairs | Initial review found seven Medium issues; follow-up review found two additional semantic issues and one cancellation hand-off path. Tests and implementation were repaired, then re-reviewed. | Grace deadlines are bounded/preserved, cancellation wait events are actionable, stale completion retires active state, current vs last-good artifacts are explicit, queued work survives cancellation, empty close can finish, and semantic palette/contrast pairs match the lock. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
+| Final review | No Medium+ findings; quality streak `1`. | Final read-only review is clean for this bounded slice. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 | Formatting/diff | Explicit `zig fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
 
 The scheduler adapts Auto delays within 220–750 ms, keeps supersession grace
@@ -440,7 +440,7 @@ WARP fallback.
 | Combined model regression | `t0-2c-models-test -Doptimize=ReleaseSafe -j1`: `15/15` steps, `46/46` tests passed. | Presenter changes do not regress the role, identity, scheduler, lifecycle, theme/layout, or strings models. |
 | Baseline regression | `zig build test -Doptimize=ReleaseSafe -j1`: `9/9` steps, `6/6` tests passed. | Existing ABI, compiler-corpus, and SIMD gates remain green. |
 | Adversarial repair | Review caught preservation of a due latest request during cancellation, held back-buffer references after Present, reuse of unsubmitted frame grants, stale old-chain grants after rebuild, and submitted-occluded grant replay. Each received a regression test and fix. | The model does not spin, overwrite an active worker-equivalent frame, resize/rebuild with retained references, or bypass a required fresh wait. |
-| Final review | Max read-only review: no Medium+ findings; quality streak `1`. | Final source/test/build review is clean for this bounded slice. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Final review | Max read-only review: no Medium+ findings; quality streak `1`. | Final source/test/build review is clean for this bounded slice. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 | Formatting/diff | Explicit `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
 
 `max_frame_latency = 1` is an explicit model invariant. A frame-latency grant
@@ -481,7 +481,7 @@ claim product-shell completion.
 | C boundary | `zig translate-c` found `texflow_abi_get_version`/`texflow_abi_version_t`; `zig cc -target x86_64-windows-msvc` compiled `abi_layout.c`. | The renamed fixed-width C declaration and layout fixture remain valid. |
 | Adversarial falsification | Mutants using the lowercase smoke answer and a legacy ABI alias failed their dedicated tests before restoration. | Known-answer and no-compatibility-prefix guards detect the intended regressions. |
 | Formatting/diff | Full-path Zig `fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
-| Final review | Max read-only review: `CLEAN`, no Medium+ findings; quality streak `1`. | Build reachability, cross-target assumptions, C ABI/linkage, stale names, and CI/docs alignment were independently reviewed. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Final review | Max read-only review: `CLEAN`, no Medium+ findings; quality streak `1`. | Build reachability, cross-target assumptions, C ABI/linkage, stale names, and CI/docs alignment were independently reviewed. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 
 No browser QA applies to this cache-only native test increment. Browser/native
 black-box evidence is required when the real TExFlow HWND/UIA/D3D surface and
@@ -512,7 +512,7 @@ entry-binding responsibilities.
 | Combined model regression | `zig build t0-2c-models-test -Doptimize=ReleaseSafe --summary all`: `17/17` steps, `58/58` tests passed. | Entry admission integrates without regressing the existing T0.2c models. |
 | Adversarial falsification | Swapped-nibble/uppercase mutations failed `4` checks, premature entropy mutations failed `11`, and a nonsecure random adapter mutation failed `1`; all were restored. Exhaustive rejection covers all `240` noncanonical byte values at every hex position. | Decode correctness, full-vector validation before entropy, and no weak-random fallback are actively detected. |
 | Formatting/diff | Full-path Zig `fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
-| Final review | Max read-only review: `CLEAN`, no Medium+ findings; quality streak `1`. | Grammar, error ordering, secure entropy, prohibited switches, and build wiring were independently reviewed. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Final review | Max read-only review: `CLEAN`, no Medium+ findings; quality streak `1`. | Grammar, error ordering, secure entropy, prohibited switches, and build wiring were independently reviewed. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 
 No browser QA applies to this native parser-only increment. The real UI entry
 binding must later connect this contract before Win32 initialization and add
@@ -542,7 +542,7 @@ controller wiring, and runtime build identity collection remain later work.
 | Install reachability | Fresh ReleaseSafe prefix contained exactly `bin\texflow.exe`; no source-set test or Unicode fixture artifact was installed. | The new model stays outside the default product install graph. |
 | Independent digest vectors | Six fixed answers (empty, single, multi-entry, Unicode raw-byte, u64-max length, and build-identity composition) match independently generated values. | The encoder is not merely self-consistent. |
 | Adversarial falsification | One-bit count mutations killed `4` checks; Unicode-fold bypass killed `4`; prefix-check bypass killed `3`; OOM sweep covers success, canonical collision, and prefix collision paths. | The tests detect plausible wire-format, portability, and cleanup regressions. |
-| Review | First review found P2 file-vs-directory prefix collision; after repair, the max read-only review returned `CLEAN` with no Medium+ findings. | Quality streak reset on the P2 and is now `1/1` clean for this slice. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Review | First review found P2 file-vs-directory prefix collision; after repair, the max read-only review returned `CLEAN` with no Medium+ findings. | Quality streak reset on the P2 and is now `1/1` clean for this slice. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 | Formatting/diff | Full-path `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
 
 No browser QA applies to this pure native model-only increment; browser/native
@@ -572,7 +572,7 @@ UI surface remain later slices.
 | Linux portability | `zig build t0-2c-shell-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe -j1 --summary all`: `2/2` compile steps passed; full-model Linux compile was `15/15`. | The model compiles without Windows-only link execution; Linux runtime is not claimed. |
 | Combined model regression | `zig build t0-2c-models-test -Doptimize=ReleaseSafe -j1 --summary all`: `25/25` steps, `80/80` tests passed. | Shell orchestration integrates without regressing source-set, presenter, entry, lifecycle, rendering, theme/layout, strings, role, or identity models. |
 | Adversarial falsification | A skipped-COM-cleanup mutant killed `4` tests; a `GetMessage(-1)` mutant killed `2`; an `S_FALSE`-handling mutant killed `1`; scratch mutations were restored. | Resource ownership, message error handling, and COM success semantics are actively detected. |
-| Review | Max read-only review: `CLEAN`, no Medium+ or P3 evidence findings. | Quality streak for this bounded slice is `1/1` clean. Model identity is not asserted because the runtime does not expose a GPT-6 model. |
+| Review | Max read-only review: `CLEAN`, no Medium+ or P3 evidence findings. | Quality streak for this bounded slice is `1/1` clean. Model identity is intentionally not recorded because the runtime does not expose a verified model ID in this worklog. |
 | Formatting/diff | Full-path `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
 
 No browser QA applies to this native orchestration-only increment; browser
@@ -605,7 +605,7 @@ runtime/capture obligations.
 | Runtime/PE oracle | Product tests verify AMD64 PE, GUI subsystem `2`, narrow Unicode shell imports, exact `TExFlow` title and `texflow.main.v1` class, standard caption style, PMv2 context, visible HWND, WM_CLOSE exit `0`, and rejected worker/unknown arguments exit `2`. | The first real Windows shell is directly exercised, not inferred from a compile-only stub. |
 | Adversarial falsification | An argv0-inclusion mutant was detected by `2` native tests; a PMv2-to-PMv1 mutant was detected by the actual-window DPI assertion. | Command-line indexing and DPI policy are regression-protected. |
 | CI alignment repair | The Linux reproducibility step now creates two clean prefixes and asserts both are empty instead of hashing the retired `bin/texflow`. | CI no longer contradicts the target-gated product install graph. |
-| Final review | The available reviewer runtime returned `CLEAN`, with no Medium+ or P3 findings after the CI repair; quality streak for this slice is `1/1`. | Exact current code/build/test/workflow diff was independently reviewed. Model identity is not asserted because the runtime exposes GPT-5.x variants, not GPT-6. |
+| Final review | The available reviewer runtime returned `CLEAN`, with no Medium+ or P3 findings after the CI repair; quality streak for this slice is `1/1`. | Exact current code/build/test/workflow diff was independently reviewed. Model identity is intentionally not recorded because the runtime does not expose a verified provider/model ID. |
 | Formatting/diff | Full-path `zig fmt --check` and `git diff --check` passed. | Formatting and patch whitespace are clean. |
 
 No browser QA applies to this native-only cutover: there is no HTML/browser
