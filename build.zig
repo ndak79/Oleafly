@@ -207,6 +207,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const app_editor_buffer_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/editor_buffer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const texflow_icon_module = b.createModule(.{
         .root_source_file = b.path("native/zig/assets/texflow_icon.zig"),
         .target = target,
@@ -236,6 +241,21 @@ pub fn build(b: *std.Build) void {
     workspace_check_step.dependOn(&workspace_tests.step);
     t0_2c_models_test.dependOn(&run_workspace_tests.step);
     t0_2c_models_check.dependOn(&workspace_tests.step);
+    const editor_buffer_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/editor_buffer_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    editor_buffer_tests.root_module.addImport("editor_buffer", app_editor_buffer_module);
+    const run_editor_buffer_tests = b.addRunArtifact(editor_buffer_tests);
+    const editor_buffer_test_step = b.step("t1-1b-editor-buffer-test", "Run T1.1b revisioned editor-buffer tests");
+    editor_buffer_test_step.dependOn(&run_editor_buffer_tests.step);
+    const editor_buffer_check_step = b.step("t1-1b-editor-buffer-check", "Compile T1.1b revisioned editor-buffer tests");
+    editor_buffer_check_step.dependOn(&editor_buffer_tests.step);
+    t0_2c_models_test.dependOn(&run_editor_buffer_tests.step);
+    t0_2c_models_check.dependOn(&editor_buffer_tests.step);
     const icon_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/icon_gen_test.zig"),

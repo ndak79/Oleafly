@@ -1294,3 +1294,27 @@ Browser QA is not applicable: T1.1a is a native/portable filesystem model with n
 HTML or browser surface. The next slice is T1.1b editor buffer ownership and
 save semantics; external-change watching and multi-file outline remain later
 T1.1 work.
+
+## T1.1b revisioned editor buffer and dirty-state model (2026-09-05)
+
+T1.1b adds the first editor-core value behind the future Scintilla bridge. The
+buffer owns canonical path bytes, immutable original UTF-8 text, append-only
+inserted bytes, compact piece descriptors, saved/current SHA-256 identity,
+revision counters, BOM/newline policy, and an ordered edit journal. Edits require
+the exact next sequence, validate UTF-8/ranges, rebuild descriptors before the
+swap, and invalidate only the lazy current hash. `materialize` is an explicit
+snapshot operation; it is not part of the normal keystroke path. Conflicted and
+missing states remain sticky until a later merge/reload slice resolves them.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | `t1-1b-editor-buffer-test` first failed because the registered `editor_buffer.zig` module did not exist. | The public test/build contract preceded implementation. |
+| Windows Debug/Safe | `t1-1b-editor-buffer-test -Dtarget=x86_64-windows-msvc` passed in Debug and ReleaseSafe. | BOM/CRLF identity, piece-table edits, contiguous sequences, stale/gap rejection, invalid UTF-8/range handling, lazy hash refresh, save-hash gating, sticky conflict/missing state, and boundary/reference edits are green. |
+| Linux portability | `t1-1b-editor-buffer-check -Dtarget=x86_64-linux -Doptimize=Debug` passed. | The portable editor model compiles for Linux; runtime execution remains unavailable from this Windows host. |
+| Aggregate/product regression | Windows `t0-2c-models-test`, Linux `t0-2c-models-check`, and Windows `t0-2c-product-build` passed after the final reference-test addition. | The module is isolated from the native/product graph except for the intended model aggregate edge. |
+| Falsification/review | Zig formatting and `git diff --check` passed. The piece-table reference test exercises insert-at-start/end, deletion across piece boundaries, replacement, empty insertion, Unicode insertion, and full-prefix replacement. Root review checked sequence atomicity, allocator rollback, descriptor range math, BOM/newline round-trip, hash invalidation, and state transitions. Luna max review again ended with `adapter_eof`, so it is not counted as external clean review. | No Medium+ finding remains in this slice; current quality streak stays `1/1`. |
+
+Browser QA is not applicable: T1.1b is a portable native editor model with no
+HTML/browser surface. Scintilla attachment, filesystem save/atomic replacement,
+ReadDirectoryChangesW overflow recovery, and three-way external merge remain
+explicit later T1.1 slices.
