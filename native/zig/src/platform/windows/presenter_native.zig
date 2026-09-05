@@ -3,7 +3,8 @@
 //! The policy/state machine lives in `presenter.zig`; this adapter owns only
 //! the COM interfaces, DXGI frame-latency handle, and acquired back-buffer
 //! resource/render-target-view pair, and the bounded Present1/rebind barrier.
-//! ResizeBuffers, drawing, and device-loss recovery remain deferred.
+//! ResizeBuffers ownership/rebind is also bounded here; drawing and device-loss
+//! recovery remain deferred.
 //! Every Windows call is behind the curated `windows_api` facade, while
 //! non-Windows builds retain a compile-only surface for the portable model
 //! lane.
@@ -67,6 +68,15 @@ pub const PresentError = error{
     UnsupportedTarget,
 };
 
+pub const ResizeError = error{
+    InvalidBackBuffer,
+    InvalidDevice,
+    InvalidSwapChain,
+    RebindFailed,
+    ResizeFailed,
+    UnsupportedTarget,
+};
+
 pub const Rect = extern struct {
     left: i32,
     top: i32,
@@ -88,6 +98,20 @@ pub const PresentOutcome = enum {
     device_hung,
 };
 
+pub const ResizeRequest = struct {
+    /// A zero dimension delegates sizing to DXGI (the HWND's current client
+    /// size), matching the descriptor admitted by this presenter.
+    width: u32 = 0,
+    height: u32 = 0,
+};
+
+pub const ResizeOutcome = enum {
+    resized,
+    device_removed,
+    device_reset,
+    device_hung,
+};
+
 pub const wait_object_0: u32 = 0;
 pub const wait_abandoned: u32 = 128;
 pub const wait_timeout: u32 = 258;
@@ -100,6 +124,7 @@ pub const dxgi_error_device_removed: u32 = 0x887A0005;
 pub const dxgi_error_device_reset: u32 = 0x887A0007;
 pub const max_present_sync_interval: u32 = 4;
 pub const present_flags_none: u32 = 0;
+const admitted_buffer_count: u32 = 2;
 
 /// Convert a `WaitForSingleObject` result without hiding failure or unknown
 /// status values as a timeout. `WAIT_ABANDONED` and `WAIT_ABANDONED_0` are
@@ -122,6 +147,16 @@ pub fn mapPresentResult(result: u32) PresentError!PresentOutcome {
         dxgi_error_device_reset => .device_reset,
         dxgi_error_device_hung => .device_hung,
         else => error.PresentFailed,
+    };
+}
+
+pub fn mapResizeResult(result: u32) ResizeError!ResizeOutcome {
+    return switch (result) {
+        present_s_ok => .resized,
+        dxgi_error_device_removed => .device_removed,
+        dxgi_error_device_reset => .device_reset,
+        dxgi_error_device_hung => .device_hung,
+        else => error.ResizeFailed,
     };
 }
 
@@ -151,7 +186,7 @@ pub fn nativeDescriptor(effect: graphics.SwapEffect) NativeDescriptor {
         .Stereo = 0,
         .SampleDesc = .{ .Count = 1, .Quality = 0 },
         .BufferUsage = 0x20, // DXGI_USAGE_RENDER_TARGET_OUTPUT
-        .BufferCount = 2,
+        .BufferCount = admitted_buffer_count,
         .Scaling = .stretch,
         .SwapEffect = switch (effect) {
             .flip_sequential => .flip_sequential,
@@ -198,6 +233,14 @@ const PresentFn = *const fn (
 
 const PresentBackendImpl = struct {
     present: PresentFn,
+    release: BackBufferReleaseFn,
+    acquire: *const fn (?*anyopaque, u32) BackBufferError!BackBuffer,
+};
+
+const ResizeFn = *const fn (?*anyopaque, u32, u32) callconv(.c) u32;
+
+const ResizeBackendImpl = struct {
+    resize: ResizeFn,
     release: BackBufferReleaseFn,
     acquire: *const fn (?*anyopaque, u32) BackBufferError!BackBuffer,
 };
@@ -288,6 +331,35 @@ pub const SwapChain = struct {
             request,
             .{
                 .present = present1Windows,
+                .release = releaseBackBufferInterface,
+                .acquire = acquireBackBufferWindowsFromContext,
+            },
+            @ptrCast(&context),
+        );
+    }
+
+    pub fn resizeAndRebind(
+        self: *const SwapChain,
+        device: ?*const graphics.Device,
+        buffer: *BackBuffer,
+        request: ResizeRequest,
+    ) ResizeError!ResizeOutcome {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        const device_value = device orelse return error.InvalidDevice;
+        const device_handle = device_value.deviceHandle() orelse return error.InvalidDevice;
+        const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
+        var context = WindowsAcquireContext{
+            .device_handle = device_handle,
+            .swap_chain_handle = @ptrCast(swap_chain),
+        };
+        return resizeAndRebindWithImpl(
+            self,
+            device_handle,
+            @ptrCast(swap_chain),
+            buffer,
+            request,
+            .{
+                .resize = resizeBuffersWindows,
                 .release = releaseBackBufferInterface,
                 .acquire = acquireBackBufferWindowsFromContext,
             },
@@ -392,6 +464,34 @@ fn presentAndRebindWithImpl(
     };
     buffer.* = rebound;
     return .presented;
+}
+
+fn resizeAndRebindWithImpl(
+    self: *const SwapChain,
+    device_handle: ?*anyopaque,
+    swap_chain_handle: ?*anyopaque,
+    buffer: *BackBuffer,
+    request: ResizeRequest,
+    backend: ResizeBackendImpl,
+    context: ?*anyopaque,
+) ResizeError!ResizeOutcome {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    if (device_handle == null) return error.InvalidDevice;
+    if (swap_chain_handle == null or self.swap_chain1 == null) return error.InvalidSwapChain;
+    if (!buffer.complete()) return error.InvalidBackBuffer;
+
+    // DXGI requires every reference to an old back buffer to be released
+    // before ResizeBuffers.  The owner intentionally stays empty until the
+    // new canonical buffer (index zero) has been acquired successfully.
+    deinitBackBufferWithImpl(buffer, context, backend.release);
+    const outcome = try mapResizeResult(backend.resize(context, request.width, request.height));
+    if (outcome != .resized) return outcome;
+
+    const rebound = backend.acquire(context, 0) catch {
+        return error.RebindFailed;
+    };
+    buffer.* = rebound;
+    return .resized;
 }
 
 fn deinitBackBufferWithImpl(
@@ -531,6 +631,24 @@ fn present1Windows(
     return @bitCast(swap_chain.Present1(sync_interval, present_flags, &parameters));
 }
 
+fn resizeBuffersWindows(
+    context: ?*anyopaque,
+    width: u32,
+    height: u32,
+) callconv(.c) u32 {
+    if (comptime builtin.os.tag != .windows) unreachable;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const swap_chain: *api.dxgi.IDXGISwapChain1 = @ptrCast(@alignCast(windows_context.swap_chain_handle));
+    const result: u32 = @bitCast(swap_chain.IDXGISwapChain.ResizeBuffers(
+        admitted_buffer_count,
+        width,
+        height,
+        api.dxgi.common.DXGI_FORMAT_UNKNOWN,
+        graphics.swap_chain_flags.frame_latency_waitable_object,
+    ));
+    return result;
+}
+
 fn acquireBackBufferWindowsFromContext(
     context: ?*anyopaque,
     buffer_index: u32,
@@ -571,10 +689,12 @@ pub const testing = if (builtin.is_test) struct {
     pub const ReleaseKind = BackBufferReleaseKind;
     pub const Backend = BackBufferBackend;
     pub const PresentBackend = PresentBackendImpl;
+    pub const ResizeBackend = ResizeBackendImpl;
     pub const acquireBackBufferWith = acquireBackBufferWithImpl;
     pub const deinitBackBufferWith = deinitBackBufferWithImpl;
     pub const present1With = present1WithImpl;
     pub const presentAndRebindWith = presentAndRebindWithImpl;
+    pub const resizeAndRebindWith = resizeAndRebindWithImpl;
     pub const waitForFrameWith = waitForFrameWithImpl;
 } else struct {};
 

@@ -146,6 +146,56 @@ const RebindStub = struct {
     }
 };
 
+const ResizeStub = struct {
+    result: u32 = native.present_s_ok,
+    resize_calls: usize = 0,
+    last_width: u32 = undefined,
+    last_height: u32 = undefined,
+    release_calls: usize = 0,
+    acquire_calls: usize = 0,
+    acquire_fails: bool = false,
+    events: [4]u8 = undefined,
+
+    fn resize(context: ?*anyopaque, width: u32, height: u32) callconv(.c) u32 {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls] = 'z';
+        self.resize_calls += 1;
+        self.last_width = width;
+        self.last_height = height;
+        return self.result;
+    }
+
+    fn release(
+        context: ?*anyopaque,
+        _: native.testing.ReleaseKind,
+        _: *anyopaque,
+    ) callconv(.c) void {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls] = 'r';
+        self.release_calls += 1;
+    }
+
+    fn acquire(context: ?*anyopaque, index: u32) native.BackBufferError!native.BackBuffer {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.events[self.release_calls + self.resize_calls + self.acquire_calls] = 'a';
+        self.acquire_calls += 1;
+        if (self.acquire_fails) return error.BackBufferAcquisitionFailed;
+        return .{
+            .buffer_index = @intCast(index),
+            .resource = @ptrFromInt(0x3000),
+            .render_target_view = @ptrFromInt(0x4000),
+        };
+    }
+
+    fn backend() native.testing.ResizeBackend {
+        return .{
+            .resize = resize,
+            .release = release,
+            .acquire = acquire,
+        };
+    }
+};
+
 test "back-buffer owner is empty and deinit is idempotent" {
     var buffer = native.BackBuffer{};
     buffer.deinit();
@@ -343,6 +393,149 @@ test "present mapping preserves success, occlusion, and device-loss classes" {
     try std.testing.expectEqual(native.PresentOutcome.device_reset, try native.mapPresentResult(native.dxgi_error_device_reset));
     try std.testing.expectEqual(native.PresentOutcome.device_hung, try native.mapPresentResult(native.dxgi_error_device_hung));
     try std.testing.expectError(error.PresentFailed, native.mapPresentResult(0x887A0001));
+}
+
+test "resize mapping preserves success and device-loss classes" {
+    try std.testing.expectEqual(native.ResizeOutcome.resized, try native.mapResizeResult(native.present_s_ok));
+    try std.testing.expectEqual(native.ResizeOutcome.device_removed, try native.mapResizeResult(native.dxgi_error_device_removed));
+    try std.testing.expectEqual(native.ResizeOutcome.device_reset, try native.mapResizeResult(native.dxgi_error_device_reset));
+    try std.testing.expectEqual(native.ResizeOutcome.device_hung, try native.mapResizeResult(native.dxgi_error_device_hung));
+    try std.testing.expectError(error.ResizeFailed, native.mapResizeResult(0x887A0001));
+}
+
+test "resize seam releases the old buffer before resizing and reacquires buffer zero" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x5000) };
+    var buffer: native.BackBuffer = .{
+        .buffer_index = 1,
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = ResizeStub{};
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+
+    try std.testing.expectEqual(
+        native.ResizeOutcome.resized,
+        try native.testing.resizeAndRebindWith(
+            &chain,
+            device_handle,
+            chain_handle,
+            &buffer,
+            .{ .width = 1280, .height = 720 },
+            ResizeStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.resize_calls);
+    try std.testing.expectEqual(@as(u32, 1280), stub.last_width);
+    try std.testing.expectEqual(@as(u32, 720), stub.last_height);
+    try std.testing.expectEqual(@as(usize, 2), stub.release_calls);
+    try std.testing.expectEqual(@as(usize, 1), stub.acquire_calls);
+    try std.testing.expectEqualSlices(u8, "rrza", stub.events[0..]);
+    try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
+    try std.testing.expect(buffer.resource != null);
+    try std.testing.expect(buffer.render_target_view != null);
+}
+
+test "resize device loss empties ownership and invalid inputs stop before callbacks" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_discard, .swap_chain1 = @ptrFromInt(0x5000) };
+    var buffer: native.BackBuffer = .{
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = ResizeStub{ .result = native.dxgi_error_device_removed };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+    const device_handle = @as(?*anyopaque, @ptrFromInt(0x3000));
+    const chain_handle = @as(?*anyopaque, @ptrFromInt(0x4000));
+
+    try std.testing.expectEqual(
+        native.ResizeOutcome.device_removed,
+        try native.testing.resizeAndRebindWith(
+            &chain,
+            device_handle,
+            chain_handle,
+            &buffer,
+            .{},
+            ResizeStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.resize_calls);
+    try std.testing.expectEqual(@as(usize, 2), stub.release_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.acquire_calls);
+    try std.testing.expect(buffer.resource == null);
+    try std.testing.expect(buffer.render_target_view == null);
+
+    var invalid_buffer = native.BackBuffer{};
+    try std.testing.expectError(
+        error.InvalidDevice,
+        native.testing.resizeAndRebindWith(
+            &chain,
+            null,
+            chain_handle,
+            &invalid_buffer,
+            .{},
+            ResizeStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidSwapChain,
+        native.testing.resizeAndRebindWith(
+            &chain,
+            device_handle,
+            null,
+            &invalid_buffer,
+            .{},
+            ResizeStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectError(
+        error.InvalidBackBuffer,
+        native.testing.resizeAndRebindWith(
+            &chain,
+            device_handle,
+            chain_handle,
+            &invalid_buffer,
+            .{},
+            ResizeStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectEqual(@as(usize, 1), stub.resize_calls);
+    try std.testing.expectEqual(@as(usize, 2), stub.release_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.acquire_calls);
+}
+
+test "resize rebind failure leaves the owner empty after the new buffers exist" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x5000) };
+    var buffer: native.BackBuffer = .{
+        .resource = @ptrFromInt(0x1000),
+        .render_target_view = @ptrFromInt(0x2000),
+    };
+    var stub = ResizeStub{ .acquire_fails = true };
+    const context = @as(?*anyopaque, @ptrCast(&stub));
+
+    try std.testing.expectError(
+        error.RebindFailed,
+        native.testing.resizeAndRebindWith(
+            &chain,
+            @ptrFromInt(0x3000),
+            @ptrFromInt(0x4000),
+            &buffer,
+            .{},
+            ResizeStub.backend(),
+            context,
+        ),
+    );
+    try std.testing.expectEqualSlices(u8, "rrza", stub.events[0..]);
+    try std.testing.expect(buffer.resource == null);
+    try std.testing.expect(buffer.render_target_view == null);
 }
 
 test "present seam always supplies non-null parameters and preserves dirty metadata" {
@@ -811,6 +1004,25 @@ test "native swap chain presents with non-null parameters and rebinds both effec
                 try std.testing.expect(buffer.render_target_view != null);
             },
         }
+        buffer.deinit();
+    }
+}
+
+test "native swap chain resizes and rebinds both effects" {
+    if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
+    var device = try graphics.Device.create();
+    defer device.deinit();
+    var window = try TestWindow.init();
+    defer window.deinit();
+    for ([_]graphics.SwapEffect{ .flip_sequential, .flip_discard }) |effect| {
+        var chain = try native.create(&device, window.hwnd, effect);
+        defer chain.deinit();
+        var buffer = try chain.acquireBackBuffer(&device, 0);
+        const outcome = try chain.resizeAndRebind(&device, &buffer, .{ .width = 64, .height = 64 });
+        try std.testing.expectEqual(native.ResizeOutcome.resized, outcome);
+        try std.testing.expect(buffer.resource != null);
+        try std.testing.expect(buffer.render_target_view != null);
+        try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
         buffer.deinit();
     }
 }

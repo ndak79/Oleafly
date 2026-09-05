@@ -1062,3 +1062,46 @@ failure-state, test-vacuity, portability, and scope checklist with no
 Medium+ finding. The quality streak is therefore `1/1` based on that review
 and the fresh post-review matrix; the external reviewer evidence remains
 unavailable and is not represented as clean.
+
+## T0.2c ResizeBuffers ownership/rebind barrier (2026-09-05)
+
+This bounded slice adds `SwapChain.resizeAndRebind` for the admitted two-buffer
+flip-model HWND presenter. It first validates the device, swap-chain, and
+complete `BackBuffer` owner; releases the RTV before the resource; calls the
+curated `IDXGISwapChain::ResizeBuffers` ABI; and reacquires canonical buffer
+index `0` only after `S_OK`. The owner remains empty on resize/device-loss or
+rebind failure, so the later recovery slice cannot accidentally draw through a
+stale interface. `S_OK`, `DXGI_ERROR_DEVICE_REMOVED`,
+`DXGI_ERROR_DEVICE_RESET`, and `DXGI_ERROR_DEVICE_HUNG` have distinct typed
+outcomes; other HRESULTs remain `ResizeFailed`.
+
+The resize call preserves the descriptor's admitted buffer count (`2`) and
+`DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`. A runtime falsification
+showed that passing `BufferCount=0` and flags `0` returned `E_INVALIDARG` on the
+real flip-model waitable chain even after the old RTV/resource pair had been
+released. The corrected call preserves the original contract and returns
+`S_OK` for both `FLIP_SEQUENTIAL` and `FLIP_DISCARD`. Drawing,
+`OMSetRenderTargets`, D2D/DirectWrite, WARP switching, and device-rebuild
+policy remain deliberately out of scope for this slice. The ABI follows
+Microsoft's [`IDXGISwapChain::ResizeBuffers`](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-resizebuffers)
+and [flip-model presentation guidance](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-1-2-presentation-improvements).
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Before production symbols existed, the focused Windows Debug build failed on missing `ResizeOutcome`, `resizeAndRebindWith`, and the runtime method. | The new API and runtime test were non-vacuous before implementation. |
+| Runtime falsification | The first implementation used `ResizeBuffers(0, width, height, UNKNOWN, 0)` and the real x64 test returned `0x80070057` (`E_INVALIDARG`). | Flip-model waitable resize must preserve the admitted buffer-count/flag contract; a superficially legal zero/zero call was rejected by the real runtime. |
+| Deterministic resize seam | Success records `r,r,z,a` (RTV, resource, resize, acquire), exact width/height, and canonical index `0`; invalid device/chain/owner inputs make zero backend calls. | Release-before-resize and preflight invariants are directly observable. |
+| Failure-state seam | Device removed/reset/hung mappings are typed; device-loss leaves the owner empty; post-resize acquire failure returns `RebindFailed` and leaves the owner empty. | No stale COM pair survives a failed transition. |
+| Windows Debug/Safe/Fast | `t0-2c-presenter-native-test`: `31` passed, `1` expected non-Windows skip in each mode. | Both real x64 Windows effects resize and rebind successfully across optimization modes. |
+| Linux Debug/Safe/Fast | `t0-2c-presenter-native-check`: `2/2` compile steps succeeded per mode for `x86_64-linux-gnu`. | Linux remains a compile-only portability guard; no Linux runtime/product claim is made. |
+| Impacted gates | `t0-2c-models-test -Doptimize=ReleaseSafe`: `39/39` steps, `130` passed, `2` skips; baseline `test`: `13/13`, `10/10`; `deps-test`: `18/18`, `152/152`. | Existing model, baseline, and dependency contracts remain green. |
+| Formatting/scope | `zig fmt` and `git diff --check` passed; only presenter source, presenter tests, and this worklog changed. | The change is bounded and reviewable without facade/build-graph expansion. |
+
+Browser QA is not applicable: this is a native Windows API increment with no
+HTML/browser surface. The requested Luna max reviewer turn terminated with
+`adapter_eof` before producing a review artifact and is not counted as clean.
+A root-agent multi-pass review checked ABI shape, descriptor/resize invariants,
+HRESULT classes, release ordering, owner-empty failure states, test vacuity,
+Linux portability, and scope with no Medium+ finding. The quality streak is
+`1/1` under the current policy; unavailable external-review evidence is stated
+explicitly rather than represented as a clean pass.
