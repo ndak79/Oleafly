@@ -1347,3 +1347,31 @@ This is a bounded contract slice, not full T0.2c admission. It does not claim
 COM UIA provider registration, native child controls, ETW provider registration,
 screen capture, or Task 7's physical-matrix campaign; those runtime obligations
 remain open and must consume this contract rather than reimplement it.
+
+## T0.2c presenter baseline and first-frame pacing correction (2026-09-05)
+
+Review of the native product path found two real closure gaps. The shell had
+hard-coded `FLIP_DISCARD`, despite the T0.2c plan admitting `FLIP_SEQUENTIAL` as
+the default baseline, and it rendered the first hidden frame without waiting on
+the DXGI frame-latency grant. The build now accepts only the explicit
+`-Dswap-effect=flip_sequential` (default) or `-Dswap-effect=flip_discard`
+challenger, passes that choice through a compile-time option, and uses the
+selected effect for creation and recovery without per-machine switching. The
+first hidden frame uses a bounded 1-second wait; normal/ticker renders use a
+zero-timeout grant check and never treat a timeout as a displayed frame.
+
+The product PE import oracle was also corrected to include the already-owned
+`dxgi.dll`, and `SetWindowTextW` is checked after HWND creation so the visible
+caption identity is deterministic on the tested Windows host.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Native Debug/Safe | `t0-2c-shell-native-test` passed in Windows Debug and ReleaseSafe. | Shell ABI, first-frame/recovery paths, and explicit effect selection compile and run. |
+| Explicit challenger | `t0-2c-shell-native-test -Dswap-effect=flip_discard -Doptimize=ReleaseSafe` and `t0-2c-product-build -Dswap-effect=flip_discard -Doptimize=ReleaseSafe` passed. | The challenger is reproducible and opt-in; it is not silently selected. |
+| Linux portability | `t0-2c-shell-native-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe` passed. | Native declarations retain the compile-only non-Windows lane. |
+| Product runtime | `t0-2c-product-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe -j1`: `11/11` tests passed. | PE imports, exact TExFlow caption/class/PMv2, malformed-argument exits, and real GUI close path are green. |
+| Review/repair | Root review reproduced an empty-caption failure and an under-allowlisted `dxgi.dll`; both were fixed before the green rerun. | The quality streak reset on the discovered bug and is now `1/1` for this correction slice. |
+
+This correction closes only the bounded baseline/first-frame seam. It does not
+close T0.2c's full capture, ETW runtime, UIA journey, DPI/occlusion matrix, or
+Task 7 admission obligations.

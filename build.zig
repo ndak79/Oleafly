@@ -29,6 +29,24 @@ pub fn build(b: *std.Build) void {
         .small => .ReleaseSmall,
     };
 
+    // FLIP_SEQUENTIAL is the admitted T0.2c baseline because it preserves
+    // tracked back-buffer history for Present1 dirty metadata.  The discard
+    // path remains an explicit challenger only; it can never be selected
+    // implicitly per machine.
+    const swap_effect_name = b.option(
+        []const u8,
+        "swap-effect",
+        "Presenter effect: flip_sequential (admitted baseline) or flip_discard (challenger)",
+    ) orelse "flip_sequential";
+    const use_discard_swap_effect = if (std.mem.eql(u8, swap_effect_name, "flip_sequential"))
+        false
+    else if (std.mem.eql(u8, swap_effect_name, "flip_discard"))
+        true
+    else
+        @panic("swap-effect must be flip_sequential or flip_discard");
+    const presenter_options = b.addOptions();
+    presenter_options.addOption(bool, "use_discard", use_discard_swap_effect);
+
     // Product admission is deliberately narrower than the portable test graph.
     const product_target = target.result.os.tag == .windows and target.result.cpu.arch == .x86_64;
     var executable: ?*std.Build.Step.Compile = null;
@@ -450,6 +468,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    shell_native_module.addOptions("presenter_config", presenter_options);
     shell_native_module.addImport("windows_shell", windows_shell_module);
     shell_native_module.addImport("windows_com", windows_com_module);
     shell_native_module.addImport("ui_entry", ui_entry_module);
@@ -510,6 +529,7 @@ pub fn build(b: *std.Build) void {
     shell_native_tests.root_module.addImport("shell_native", shell_native_module);
     shell_native_tests.root_module.addImport("windows_shell", windows_shell_module);
     shell_native_tests.root_module.addImport("windows_com", windows_com_module);
+    shell_native_tests.root_module.addImport("graphics", graphics_module);
     b.step("t0-2c-shell-native-test", "Test narrow Win32 ABI command line and COM contracts").dependOn(&b.addRunArtifact(shell_native_tests).step);
     b.step("t0-2c-shell-native-check", "Compile narrow Win32 ABI contracts").dependOn(&shell_native_tests.step);
     const product_contract = b.addOptions();

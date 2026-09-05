@@ -11,6 +11,7 @@ const entry = @import("ui_entry");
 const role = @import("app_role");
 const graphics = @import("graphics");
 const presenter = @import("presenter_native");
+const presenter_config = @import("presenter_config");
 
 pub const HINSTANCE = *opaque {};
 pub const HWND = *opaque {};
@@ -63,6 +64,12 @@ pub const window_style: u32 = 0xcf0000; // WS_OVERLAPPEDWINDOW, system caption
 pub const dpi_pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
 pub const frame_timer_id: usize = 1;
 pub const frame_timer_period_ms: u32 = 16;
+
+/// The build selects the admitted baseline explicitly.  A discard build is a
+/// reproducible challenger and is never chosen from adapter/runtime state.
+pub fn configuredSwapEffect() graphics.SwapEffect {
+    return if (presenter_config.use_discard) .flip_discard else .flip_sequential;
+}
 const wm_nccreate: u32 = 0x0081;
 const wm_ncdestroy: u32 = 0x0082;
 const wm_destroy: u32 = 0x0002;
@@ -110,6 +117,7 @@ const raw = struct {
     extern "user32" fn RegisterClassExW(*const WNDCLASSEXW) callconv(.winapi) u16;
     extern "user32" fn UnregisterClassW([*:0]const u16, HINSTANCE) callconv(.winapi) i32;
     extern "user32" fn CreateWindowExW(u32, [*:0]const u16, [*:0]const u16, u32, i32, i32, i32, i32, ?HWND, ?*anyopaque, HINSTANCE, ?*anyopaque) callconv(.winapi) ?HWND;
+    extern "user32" fn SetWindowTextW(HWND, [*:0]const u16) callconv(.winapi) i32;
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
     extern "user32" fn SetTimer(HWND, usize, u32, ?*anyopaque) callconv(.winapi) usize;
     extern "user32" fn KillTimer(HWND, usize) callconv(.winapi) i32;
@@ -222,6 +230,14 @@ pub const Backend = struct {
         const use_default = std.math.minInt(i32); // CW_USEDEFAULT
         self.window = raw.CreateWindowExW(0, class_name, window_title, window_style, use_default, use_default, 960, 640, null, null, self.instance, @ptrCast(self));
         if (self.window == null) return false;
+        // Keep the caption identity explicit after creation.  This avoids a
+        // host-specific CreateWindowEx caption quirk while preserving the
+        // system-owned title bar and standard caption buttons.
+        if (raw.SetWindowTextW(self.window.?, window_title) == 0) {
+            _ = raw.DestroyWindow(self.window.?);
+            self.window = null;
+            return false;
+        }
         var device = graphics.Device.create() catch {
             // A visible window without a render device is not an admitted UI
             // state.  Tear it down immediately so callers cannot observe a
@@ -230,7 +246,7 @@ pub const Backend = struct {
             self.window = null;
             return false;
         };
-        var swap_chain = presenter.create(&device, @ptrCast(self.window.?), .flip_discard) catch {
+        var swap_chain = presenter.create(&device, @ptrCast(self.window.?), configuredSwapEffect()) catch {
             device.deinit();
             _ = raw.DestroyWindow(self.window.?);
             self.window = null;
@@ -246,7 +262,7 @@ pub const Backend = struct {
         self.graphics_device = device;
         self.swap_chain = swap_chain;
         self.back_buffer = back_buffer;
-        if (!self.renderFrame()) {
+        if (!self.renderInitialFrame()) {
             self.releaseFrameResources();
             _ = raw.DestroyWindow(self.window.?);
             self.window = null;
@@ -295,9 +311,30 @@ pub const Backend = struct {
     }
 
     pub fn renderFrame(self: *Backend) bool {
+        // The DXGI frame-latency grant is part of every normal render. The
+        // initial hidden frame uses a bounded bootstrap wait below because
+        // newly-created waitable chains commonly start unsignaled until their
+        // first compositor grant is published.
+        return self.waitAndRender(0, true);
+    }
+
+    fn renderInitialFrame(self: *Backend) bool {
+        return self.waitAndRender(1_000, false);
+    }
+
+    fn waitAndRender(self: *Backend, timeout_ms: u32, recover: bool) bool {
+        if (self.swap_chain) |*swap_chain| {
+            switch (swap_chain.waitForFrame(timeout_ms) catch return false) {
+                .signaled => {},
+                // A caller asking for a frame must not treat a timeout as a
+                // displayed frame: this path is used before first show and
+                // after resource rebuilds.
+                .timeout => return false,
+            }
+        } else return false;
         return switch (self.renderFrameOnce()) {
             .presented, .occluded => true,
-            .device_lost => self.rebuildFrameResources(),
+            .device_lost => if (recover) self.rebuildFrameResources() else false,
             .failed => false,
         };
     }
@@ -308,11 +345,16 @@ pub const Backend = struct {
 
     pub fn tickFrame(self: *Backend) bool {
         if (self.swap_chain) |*swap_chain| {
-            const wait = swap_chain.waitForFrame(0) catch return false;
-            return switch (wait) {
-                .signaled => self.renderFrame(),
-                .timeout => true,
-            };
+            switch (swap_chain.waitForFrame(0) catch return false) {
+                .signaled => return switch (self.renderFrameOnce()) {
+                    .presented, .occluded => true,
+                    .device_lost => self.rebuildFrameResources(),
+                    .failed => false,
+                },
+                // A periodic/posted tick may legitimately find no grant yet;
+                // keep the message loop alive without rendering stale data.
+                .timeout => return true,
+            }
         }
         return false;
     }
@@ -359,7 +401,7 @@ pub const Backend = struct {
 
         for (paths[0..path_count]) |path| {
             var device = graphics.Device.createWithPath(path) catch continue;
-            var swap_chain = presenter.create(&device, @ptrCast(window), .flip_discard) catch {
+            var swap_chain = presenter.create(&device, @ptrCast(window), configuredSwapEffect()) catch {
                 device.deinit();
                 continue;
             };
@@ -371,10 +413,8 @@ pub const Backend = struct {
             self.graphics_device = device;
             self.swap_chain = swap_chain;
             self.back_buffer = back_buffer;
-            switch (self.renderFrameOnce()) {
-                .presented, .occluded => return true,
-                .device_lost, .failed => self.releaseFrameResources(),
-            }
+            if (self.renderInitialFrame()) return true;
+            self.releaseFrameResources();
         }
         return false;
     }

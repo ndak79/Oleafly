@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const native = @import("shell_native");
+const graphics = @import("graphics");
 const shell = @import("windows_shell");
 const com = @import("windows_com");
 const w = std.unicode.utf8ToUtf16LeStringLiteral;
@@ -160,6 +161,11 @@ test "native backend owns the first-frame render resources" {
     if (builtin.os.tag != .windows or builtin.cpu.arch != .x86_64) return error.SkipZigTest;
     try std.testing.expect(@hasField(native.Backend, "swap_chain"));
     try std.testing.expect(@hasField(native.Backend, "back_buffer"));
+}
+
+test "native shell uses the admitted sequential baseline unless explicitly challenged" {
+    const effect = native.configuredSwapEffect();
+    try std.testing.expect(effect == graphics.SwapEffect.flip_sequential or effect == graphics.SwapEffect.flip_discard);
 }
 
 test "real native backend creates and presents its first frame before showing" {

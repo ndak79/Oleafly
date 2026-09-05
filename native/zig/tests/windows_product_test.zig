@@ -544,7 +544,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
     try std.testing.expect((try read(u32, bytes, pe + 24 + 16)) != 0);
     const required = [_][]const u8{
         "GetCommandLineW",  "CommandLineToArgvW", "SetDefaultDllDirectories", "SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual",
-        "CoInitializeEx",   "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",               "ShowWindow",                   "GetMessageW",
+        "CoInitializeEx",   "CoUninitialize",     "RegisterClassExW",         "CreateWindowExW",               "SetWindowTextW",               "ShowWindow",                   "GetMessageW",
         "TranslateMessage", "DispatchMessageW",   "DestroyWindow",            "UnregisterClassW",              "BCryptGenRandom",              "D3D11CreateDevice",
     };
     var found = [_]bool{false} ** required.len;
@@ -555,7 +555,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         if (imported_dlls > 16) return error.ExcessiveImports;
         const dll = try peString(bytes, try rvaOffset(bytes, pe, try read(u32, bytes, descriptor + 12)));
         var allowed = false;
-        for ([_][]const u8{ "kernel32.dll", "ntdll.dll", "user32.dll", "shell32.dll", "ole32.dll", "bcrypt.dll", "d3d11.dll" }) |name| {
+        for ([_][]const u8{ "kernel32.dll", "ntdll.dll", "user32.dll", "shell32.dll", "ole32.dll", "bcrypt.dll", "d3d11.dll", "dxgi.dll" }) |name| {
             allowed = allowed or std.ascii.eqlIgnoreCase(dll, name);
         }
         try std.testing.expect(allowed);
@@ -857,9 +857,11 @@ test "real GUI process shows exact title class standard caption PMv2 and closes"
         const class_len = raw.GetClassNameW(hwnd, &text, text.len);
         try std.testing.expect(class_len > 0);
         try std.testing.expectEqualSlices(u16, w("texflow.main.v1"), text[0..@intCast(class_len)]);
-        try std.testing.expectEqual(@as(isize, 0xcf0000), raw.GetWindowLongPtrW(hwnd, -16) & 0xcf0000);
+        const style = raw.GetWindowLongPtrW(hwnd, -16) & 0xcf0000;
+        try std.testing.expectEqual(@as(isize, 0xcf0000), style);
         const pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
-        try std.testing.expect(raw.AreDpiAwarenessContextsEqual(raw.GetWindowDpiAwarenessContext(hwnd), pmv2) != 0);
+        const dpi_equal = raw.AreDpiAwarenessContextsEqual(raw.GetWindowDpiAwarenessContext(hwnd), pmv2);
+        try std.testing.expect(dpi_equal != 0);
         try std.testing.expect(raw.PostMessageW(hwnd, 0x10, 0, 0) != 0); // WM_CLOSE
         try std.testing.expectEqual(@as(u32, 0), try child.exitCode());
     }
