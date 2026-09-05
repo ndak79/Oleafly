@@ -7,7 +7,7 @@ pub const AbiVersion = extern struct {
 pub const abi_ok: i32 = 0;
 pub const abi_invalid_argument: i32 = -1;
 
-pub export fn oleafly_abi_get_version(out: ?*AbiVersion) callconv(.c) i32 {
+pub export fn texflow_abi_get_version(out: ?*AbiVersion) callconv(.c) i32 {
     const destination = out orelse return abi_invalid_argument;
     destination.* = .{
         .major = 0,
@@ -17,6 +17,6 @@ pub export fn oleafly_abi_get_version(out: ?*AbiVersion) callconv(.c) i32 {
     return abi_ok;
 }
 
-pub export fn oleafly_abi_add(a: i64, b: i64) callconv(.c) i64 {
+pub export fn texflow_abi_add(a: i64, b: i64) callconv(.c) i64 {
     return a +% b;
 }

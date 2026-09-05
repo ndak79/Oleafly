@@ -459,3 +459,32 @@ handle, Direct2D/DirectWrite drawing, actual COM reference release, WARP device,
 ETW/QoS runtime, DWM-visible pixel preservation, or authoritative capture.
 Those native/runtime/capture obligations remain open in Task 3 and later QA
 tasks; this commit must not be represented as product presentation closure.
+
+## T0.2c bounded smoke/ABI namespace cutover evidence (2026-09-05)
+
+This increment moves the T0.1 toolchain smoke intent into a cache-only
+`t0-1-smoke` Zig test, retires the legacy `run` step, and renames the internal
+static C ABI namespace from `oleafly_abi` to `texflow_abi`. The public header is
+now `native/zig/include/texflow_abi.h`; the old header, symbols, and library
+name are not compatibility aliases. The placeholder `texflow` executable
+remains installed only until the later native GUI cutover; this slice does not
+claim product-shell completion.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | New smoke/header contracts initially failed when their implementation/artifact paths were absent; the install-reachability guard also failed before the ABI library was removed from the default install graph. | The tests exercised missing behavior and the accidental-install regression rather than passing vacuously. |
+| Windows Debug | `zig build test -Doptimize=Debug --summary all`: `13/13` steps, `10/10` tests passed; `t0-1-smoke` contributed `2/2`. | Smoke, renamed ABI, FNV, and SIMD contracts are green in Debug. |
+| Windows ReleaseSafe | `zig build test -Doptimize=ReleaseSafe --summary all`: `13/13` steps, `10/10` tests passed; `t0-1-smoke` contributed `2/2`. | Safe optimized behavior remains deterministic. |
+| Windows ReleaseFast | `zig build test -Doptimize=ReleaseFast --summary all`: `13/13` steps, `10/10` tests passed; `t0-1-smoke` contributed `2/2`. | Fast comparison mode preserves the same ABI/smoke answers. |
+| Linux compile-only | `zig build t0-1-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all`: `9/9` compile steps passed. | The cache-only smoke and renamed ABI paths compile without Windows-only dependencies. Linux runtime is not claimed. |
+| Default install reachability | Fresh Windows ReleaseSafe prefix contained exactly `bin\texflow.exe`; no ABI or smoke artifact was installed. | The renamed ABI and test-only smoke remain outside the default product install graph. |
+| C boundary | `zig translate-c` found `texflow_abi_get_version`/`texflow_abi_version_t`; `zig cc -target x86_64-windows-msvc` compiled `abi_layout.c`. | The renamed fixed-width C declaration and layout fixture remain valid. |
+| Adversarial falsification | Mutants using the lowercase smoke answer and a legacy ABI alias failed their dedicated tests before restoration. | Known-answer and no-compatibility-prefix guards detect the intended regressions. |
+| Formatting/diff | Full-path Zig `fmt --check` and `git diff --check` passed. | Source formatting and patch whitespace are clean. |
+| Final GPT-6 review | `gpt-6-astra` max read-only review: `CLEAN`, no Medium+ findings; quality streak `1`. | Build reachability, cross-target assumptions, C ABI/linkage, stale names, and CI/docs alignment were independently reviewed. |
+
+No browser QA applies to this cache-only native test increment. Browser/native
+black-box evidence is required when the real TExFlow HWND/UIA/D3D surface and
+HTML/live-render evidence lane exist. The GUI-subsystem entry point, Win32
+window/resources, `t0-2-repro`, actual D3D/DWM presentation, and full Task 3
+acceptance remain open.

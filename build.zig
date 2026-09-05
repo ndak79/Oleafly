@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(executable);
 
     const abi_library = b.addLibrary(.{
-        .name = "oleafly_abi",
+        .name = "texflow_abi",
         .linkage = .static,
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/src/abi.zig"),
@@ -40,11 +40,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    b.installArtifact(abi_library);
-
-    const run_executable = b.addRunArtifact(executable);
-    const run_step = b.step("run", "Run the TExFlow executable");
-    run_step.dependOn(&run_executable.step);
+    // The portable ABI corpus belongs only to explicit cache/test paths.
+    // The placeholder executable remains until the native GUI cutover.
 
     const abi_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -54,7 +51,31 @@ pub fn build(b: *std.Build) void {
         }),
     });
     abi_tests.root_module.linkLibrary(abi_library);
+    abi_tests.root_module.addIncludePath(b.path("native/zig/include"));
+    abi_tests.root_module.addCSourceFile(.{ .file = b.path("native/zig/fixtures/abi_layout.c"), .flags = &.{"-std=c11"} });
+    const abi_contract = b.addOptions();
+    abi_contract.addOption([]const u8, "library_name", abi_library.name);
+    abi_contract.addOptionPath("library_path", abi_library.getEmittedBin());
+    abi_contract.addOptionPath("header_root", b.path("native/zig/include"));
+    abi_tests.root_module.addOptions("abi_contract", abi_contract);
     const run_abi_tests = b.addRunArtifact(abi_tests);
+
+    const smoke_tests = b.addTest(.{
+        .name = "texflow-t0-1-smoke",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/t0_1_smoke.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const smoke_contract = b.addOptions();
+    smoke_tests.root_module.addOptions("smoke_contract", smoke_contract);
+    const run_smoke_tests = b.addRunArtifact(smoke_tests);
+    const smoke_step = b.step("t0-1-smoke", "Run the cache-only TExFlow toolchain smoke test");
+    smoke_step.dependOn(&run_smoke_tests.step);
+    const t0_1_check = b.step("t0-1-check", "Compile portable smoke, ABI, miscompile, and SIMD tests without running");
+    t0_1_check.dependOn(&smoke_tests.step);
+    t0_1_check.dependOn(&abi_tests.step);
 
     const corpus_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -64,6 +85,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_corpus_tests = b.addRunArtifact(corpus_tests);
+    t0_1_check.dependOn(&corpus_tests.step);
 
     const simd_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -73,8 +95,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_simd_tests = b.addRunArtifact(simd_tests);
+    t0_1_check.dependOn(&simd_tests.step);
 
-    const test_step = b.step("test", "Run ABI, miscompile, and SIMD tests");
+    const test_step = b.step("test", "Run smoke, ABI, miscompile, and SIMD tests");
+    test_step.dependOn(&run_smoke_tests.step);
     test_step.dependOn(&run_abi_tests.step);
     test_step.dependOn(&run_corpus_tests.step);
     test_step.dependOn(&run_simd_tests.step);
@@ -926,6 +950,10 @@ pub fn build(b: *std.Build) void {
     deps_audit_step.dependOn(unicode_audit_step);
     scintilla_contract.addOption(bool, "install_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, b.getInstallStep(), library) else false);
     scintilla_contract.addOption(bool, "product_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, &executable.step, library) else false);
+    abi_contract.addOption(bool, "install_reaches_library", buildReachesLibrary(b, b.getInstallStep(), abi_library));
+    abi_contract.addOption(bool, "product_reaches_library", buildReachesLibrary(b, &executable.step, abi_library));
+    smoke_contract.addOption(bool, "install_reaches_smoke", buildReachesLibrary(b, b.getInstallStep(), smoke_tests));
+    smoke_contract.addOption(bool, "product_reaches_smoke", buildReachesLibrary(b, &executable.step, smoke_tests));
 }
 
 // Inspect actual build steps and transitive module/library edges. Checking only

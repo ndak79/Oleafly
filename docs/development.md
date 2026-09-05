@@ -71,16 +71,25 @@ zig build --release=fast abi --summary all
 zig build --release=safe miscompile-corpus --summary all
 zig build --release=safe simd-corpus --summary all
 zig build --release=fast simd-corpus --summary all
-zig build --release=safe run --summary all
+zig build --release=safe t0-1-smoke --summary all
+zig build -Dtarget=x86_64-linux-gnu --release=safe t0-1-check --summary all
 ```
 
-The last command runs the native `texflow` executable and prints
-`texflow toolchain ok`, preserving the T0.1 smoke check under the product's
-current executable identity. ReleaseSafe is the shipping
-default; ReleaseFast is used only to expose optimizer-dependent ABI, FNV, or
-SIMD known-answer regressions. The full application, native Windows UI, editor,
-compiler workers, research ledger, and publishing pipeline remain future
-bounded slices.
+`t0-1-smoke` runs a portable Zig test that asserts the exact known answer
+`TExFlow toolchain ok`; it creates no installed executable. `t0-1-check`
+compiles the smoke, ABI, FNV, and SIMD tests without executing them, including
+when cross-compiling from Windows to Linux. The renamed internal
+`texflow_abi` library and `texflow_abi.h` preserve the T0.1 C layout, status,
+and arithmetic contract. The library remains in the test cache and cannot
+enter the default install graph; it has no compatibility exports.
+
+ReleaseSafe is the shipping default; ReleaseFast is used only to expose
+optimizer-dependent known-answer regressions. The legacy `run` step has been
+retired. The current placeholder executable/install and transitional CI hash
+checks remain until the separate native GUI and Zig-owned `t0-2-repro`
+cutover; `t0-2-repro` is not implemented yet. These smoke/ABI tests do not claim
+that cutover or full application, native Windows UI, editor, compiler workers,
+research ledger, and publishing pipeline completion.
 
 ## Native dependency workflow (T0.2a)
 

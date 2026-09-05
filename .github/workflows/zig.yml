@@ -1,4 +1,4 @@
-name: Zig T0.1
+name: TExFlow native checks
 
 on:
   push:
@@ -25,12 +25,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: zig-t0.1-${{ github.ref }}
+  group: texflow-native-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   zig-windows:
-    name: Zig T0.1 (Windows x64)
+    name: TExFlow native (Windows x64)
     runs-on: windows-2022
     timeout-minutes: 15
     steps:
@@ -74,11 +74,11 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           zig build --fetch=all
           zig fmt --check build.zig build.zig.zon native/zig
-          $translated = Join-Path $env:RUNNER_TEMP "oleafly-abi-translated.zig"
-          zig translate-c -I native/zig/include native/zig/include/oleafly_abi.h | Out-File -FilePath $translated -Encoding utf8
-          if (-not (Select-String -LiteralPath $translated -Pattern "oleafly_abi_get_version" -Quiet)) { throw "translated header omitted oleafly_abi_get_version" }
-          if (-not (Select-String -LiteralPath $translated -Pattern "oleafly_abi_version_t" -Quiet)) { throw "translated header omitted oleafly_abi_version_t" }
-          zig cc -target x86_64-windows-msvc -std=c11 -I native/zig/include -c native/zig/fixtures/abi_layout.c -o (Join-Path $env:RUNNER_TEMP "oleafly-abi-layout.obj")
+          $translated = Join-Path $env:RUNNER_TEMP "texflow-abi-translated.zig"
+          zig translate-c -I native/zig/include native/zig/include/texflow_abi.h | Out-File -FilePath $translated -Encoding utf8
+          if (-not (Select-String -LiteralPath $translated -Pattern "texflow_abi_get_version" -Quiet)) { throw "translated header omitted texflow_abi_get_version" }
+          if (-not (Select-String -LiteralPath $translated -Pattern "texflow_abi_version_t" -Quiet)) { throw "translated header omitted texflow_abi_version_t" }
+          zig cc -target x86_64-windows-msvc -std=c11 -I native/zig/include -c native/zig/fixtures/abi_layout.c -o (Join-Path $env:RUNNER_TEMP "texflow-abi-layout.obj")
 
       - name: Run Debug and ReleaseSafe tests
         shell: pwsh
@@ -100,14 +100,12 @@ jobs:
           zig build -Dtarget=x86_64-windows-msvc --release=safe simd-corpus --summary all
           zig build -Dtarget=x86_64-windows-msvc --release=fast simd-corpus --summary all
 
-      - name: Build and run the Windows executable
+      - name: Run the portable Windows toolchain smoke gate
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build -Dtarget=x86_64-windows-msvc --release=safe --summary all
-          $output = (& .\zig-out\bin\texflow.exe 2>&1 | Out-String).Trim()
-          if ($output -ne "texflow toolchain ok") { throw "unexpected smoke output: $output" }
+          zig build -Dtarget=x86_64-windows-msvc --release=safe t0-1-smoke --summary all
 
       - name: Prove two clean ReleaseSafe hashes
         shell: pwsh
@@ -128,7 +126,7 @@ jobs:
           Write-Output "ReleaseSafe SHA-256: $hashA"
 
   zig-linux:
-    name: Zig T0.1 (Linux x64)
+    name: TExFlow native (Linux x64)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -169,11 +167,11 @@ jobs:
           set -euo pipefail
           zig build --fetch=all
           zig fmt --check build.zig build.zig.zon native/zig
-          translated="$RUNNER_TEMP/oleafly-abi-translated.zig"
-          zig translate-c -I native/zig/include native/zig/include/oleafly_abi.h > "$translated"
-          grep -q "oleafly_abi_get_version" "$translated"
-          grep -q "oleafly_abi_version_t" "$translated"
-          zig cc -target x86_64-linux-gnu -std=c11 -I native/zig/include -c native/zig/fixtures/abi_layout.c -o "$RUNNER_TEMP/oleafly-abi-layout.o"
+          translated="$RUNNER_TEMP/texflow-abi-translated.zig"
+          zig translate-c -I native/zig/include native/zig/include/texflow_abi.h > "$translated"
+          grep -q "texflow_abi_get_version" "$translated"
+          grep -q "texflow_abi_version_t" "$translated"
+          zig cc -target x86_64-linux-gnu -std=c11 -I native/zig/include -c native/zig/fixtures/abi_layout.c -o "$RUNNER_TEMP/texflow-abi-layout.o"
 
       - name: Run Debug and ReleaseSafe tests
         shell: bash
@@ -193,12 +191,11 @@ jobs:
           zig build -Dtarget=x86_64-linux-gnu --release=safe simd-corpus --summary all
           zig build -Dtarget=x86_64-linux-gnu --release=fast simd-corpus --summary all
 
-      - name: Build and run the Linux executable
+      - name: Run the portable Linux toolchain smoke gate
         shell: bash
         run: |
           set -euo pipefail
-          zig build -Dtarget=x86_64-linux-gnu --release=safe --summary all
-          test "$(./zig-out/bin/texflow 2>&1)" = "texflow toolchain ok"
+          zig build -Dtarget=x86_64-linux-gnu --release=safe t0-1-smoke --summary all
 
       - name: Prove two clean ReleaseSafe hashes
         shell: bash
