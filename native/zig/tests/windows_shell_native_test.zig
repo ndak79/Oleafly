@@ -77,6 +77,16 @@ test "native window state gates visibility and invalidates on DPI display and re
     try std.testing.expect(!state.apply(.deactivated));
     try std.testing.expect(!state.active);
 
+    try std.testing.expect(!state.apply(.hidden));
+    try std.testing.expect(state.hidden);
+    try std.testing.expectEqual(native.Visibility.occluded, state.visibility);
+    try std.testing.expect(!state.apply(.resumed));
+    try std.testing.expect(state.hidden);
+    try std.testing.expect(!state.canRender());
+    try std.testing.expect(state.apply(.shown));
+    try std.testing.expect(!state.hidden);
+    try std.testing.expectEqual(native.Visibility.visible, state.visibility);
+
     const previous_display_epoch = state.display_epoch;
     try std.testing.expect(state.apply(.display_changed));
     try std.testing.expectEqual(previous_display_epoch +% 1, state.display_epoch);

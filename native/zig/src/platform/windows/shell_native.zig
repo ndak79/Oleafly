@@ -181,13 +181,14 @@ pub const WindowStateEvent = union(enum) {
 /// admitted frame is a full redraw.
 pub const NativeWindowState = struct {
     visibility: Visibility = .visible,
+    hidden: bool = false,
     active: bool = true,
     dpi: DpiChange = .{ .x = 96, .y = 96 },
     display_epoch: u32 = 0,
     needs_full_redraw: bool = true,
 
     pub fn canRender(self: *const NativeWindowState) bool {
-        return self.visibility == .visible;
+        return !self.hidden and self.visibility == .visible;
     }
 
     pub fn apply(self: *NativeWindowState, event: WindowStateEvent) bool {
@@ -195,7 +196,7 @@ pub const NativeWindowState = struct {
         switch (event) {
             .paint => self.invalidate(),
             .resize => {
-                if (self.visibility == .minimized) self.visibility = .visible;
+                if (!self.hidden and self.visibility == .minimized) self.visibility = .visible;
                 self.invalidate();
             },
             .minimized => {
@@ -207,16 +208,18 @@ pub const NativeWindowState = struct {
                 self.invalidate();
             },
             .shown => {
+                self.hidden = false;
                 if (self.visibility != .minimized) self.visibility = .visible;
                 self.invalidate();
             },
             .hidden => {
+                self.hidden = true;
                 if (self.visibility != .minimized) self.visibility = .occluded;
                 self.invalidate();
             },
             .activated => {
                 self.active = true;
-                if (self.visibility == .occluded) self.visibility = .visible;
+                if (!self.hidden and self.visibility == .occluded) self.visibility = .visible;
                 self.invalidate();
             },
             .deactivated => {
@@ -228,11 +231,11 @@ pub const NativeWindowState = struct {
                 self.invalidate();
             },
             .resumed => {
-                if (self.visibility != .minimized) self.visibility = .visible;
+                if (!self.hidden and self.visibility != .minimized) self.visibility = .visible;
                 self.invalidate();
             },
             .occluded => {
-                if (self.visibility != .minimized) self.visibility = .occluded;
+                if (!self.hidden and self.visibility != .minimized) self.visibility = .occluded;
                 self.invalidate();
             },
         }
