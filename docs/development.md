@@ -184,6 +184,45 @@ claim Windows SDK runtime evidence. This closes only T0.2b Task 2; Lexilla,
 package/CI aggregation, PDFium reconstruction/equivalence, sealed-network
 proof, worker/runtime closure, and final T0.2b admission remain open.
 
+### T0.2b Lexilla comparator boundary
+
+`tools/zig/lexilla_probe.zig` materializes only the locked Lexilla 5.5.3
+archive (`4d9e64263c337034a06f9c67f330c605764cac02aee83c06f6c21f9527a71628`)
+and verifies the `LicenseRef-Lexilla` text hash before publishing an atomic
+generated snapshot plus a checked lock-identity receipt. The unshipped static
+comparator is named `lexilla-comparator-t0-2b-unshipped`; it compiles exactly
+the twelve `lexlib` objects plus `LexBibTeX.cxx`, `LexLaTeX.cxx`, and
+`LexTeX.cxx` as C++17. The catalogue/loader source is not compiled. The COFF
+archive audit enforces exact reviewed members, canonical Zig cache long names,
+special-member cardinality, and the absence of DLL/shared-library and
+loader/catalogue strings. A generated typed `u64` receipt records the measured
+archive size. A build-graph-derived shipping manifest is audited at runtime;
+the current manifest is empty and therefore has measured payload size zero.
+
+Run the Windows static comparator in all optimization modes:
+
+```
+zig build t0-2b-lexilla-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all -j1
+zig build t0-2b-lexilla-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all -j1
+zig build t0-2b-lexilla-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseFast --summary all -j1
+```
+
+The Linux lane is compile-only and does not materialize or compile the Win32
+C++ archive:
+
+```
+zig build t0-2b-lexilla-check -Dtarget=x86_64-linux-gnu -Doptimize=Debug --summary all -j1
+zig build t0-2b-lexilla-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all -j1
+zig build t0-2b-lexilla-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseFast --summary all -j1
+```
+
+The comparator is not installed, linked into `TExFlow.exe`, loaded at runtime,
+or reachable from the dependency worker; the contract also records positive
+library→snapshot/probe/source-root edges and negative product/install/worker/
+loader edges. Browser QA is not applicable to this native/CLI-only contract;
+Scintilla UI probing, recursive worker PE closure, and the remaining T0.2b
+package/admission gates are later work.
+
 ## Native dependency workflow (T0.2a)
 
 The T0.2a dependency lock is `tools/zig/native-deps.json`. These are the stable

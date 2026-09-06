@@ -1012,6 +1012,121 @@ pub fn build(b: *std.Build) void {
     scintilla_tests.root_module.addOptions("scintilla_contract", scintilla_contract);
     b.step("t0-2b-scintilla-test", "Run the unshipped Scintilla source and build contract tests").dependOn(&b.addRunArtifact(scintilla_tests).step);
     b.step("t0-2b-scintilla-check", "Compile Scintilla contract tests only; no Win32 C++ compilation on Linux").dependOn(&scintilla_tests.step);
+    const lexilla_probe_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/lexilla_probe.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    lexilla_probe_module.addImport("deps", deps_module);
+    const lexilla_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/lexilla_comparator_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    lexilla_tests.root_module.addImport("lexilla_probe", lexilla_probe_module);
+    lexilla_tests.root_module.addImport("deps", deps_module);
+    const lexilla_contract = b.addOptions();
+    const lexilla_archive = b.option([]const u8, "lexilla-archive", "Absolute path to the exact Lexilla 5.5.3 archive (offline only)") orelse
+        b.pathJoin(&.{ native_deps_root, ".v2", "lexilla", "generations", "g-9d49ea5b28ff9bb26d32ce64", "archive.bin" });
+    lexilla_contract.addOption([]const u8, "archive_path", lexilla_archive);
+    const lexilla_probe = b.addExecutable(.{
+        .name = "texflow-lexilla-source-probe",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/lexilla_probe.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    lexilla_probe.root_module.addImport("deps", deps_host_module);
+    const lexilla_snapshot = b.addRunArtifact(lexilla_probe);
+    lexilla_snapshot.addArgs(&.{ "snapshot", lexilla_archive });
+    lexilla_snapshot.has_side_effects = true;
+    const lexilla_snapshot_output = lexilla_snapshot.addOutputDirectoryArg("lexilla-5.5.3-verified");
+    const lexilla_root = lexilla_snapshot_output.path(b, "payload/lexilla");
+    if (target.result.os.tag == .windows) {
+        lexilla_contract.addOptionPath("source_root", lexilla_root);
+        lexilla_contract.addOptionPath("snapshot_receipt_path", lexilla_snapshot_output.path(b, "payload.lock.json"));
+    } else {
+        lexilla_contract.addOption([]const u8, "source_root", "not-in-scope-on-linux");
+        lexilla_contract.addOption([]const u8, "snapshot_receipt_path", "not-in-scope-on-linux");
+    }
+    const lexilla_inventory = @import("tools/zig/lexilla_probe.zig");
+    const lexilla_flags = switch (optimize) {
+        inline else => |mode| lexilla_inventory.cxxFlags(mode),
+    };
+    const lexilla_library: ?*std.Build.Step.Compile = if (target.result.os.tag == .windows) library: {
+        const library = b.addLibrary(.{
+            .name = lexilla_inventory.artifact_name,
+            .linkage = .static,
+            .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }),
+        });
+        library.step.dependOn(&lexilla_snapshot.step);
+        lexilla_root.addStepDependencies(&library.step);
+        library.root_module.addIncludePath(lexilla_root.path(b, "include"));
+        library.root_module.addIncludePath(lexilla_root.path(b, "lexlib"));
+        library.root_module.addIncludePath(scintilla_root.path(b, "include"));
+        library.root_module.addIncludePath(scintilla_root.path(b, "src"));
+        library.root_module.addCSourceFiles(.{ .root = lexilla_root, .files = &lexilla_inventory.sources, .flags = lexilla_flags });
+        _ = library.getEmittedBin();
+        break :library library;
+    } else null;
+    var lexilla_size_receipt: ?std.Build.LazyPath = null;
+    const lexilla_size_run: ?*std.Build.Step.Run = if (lexilla_library) |library| size_run: {
+        const lexilla_size_probe = b.addExecutable(.{
+            .name = "texflow-lexilla-size-probe",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("tools/zig/lexilla_size_probe.zig"),
+                .target = host_target,
+                .optimize = .ReleaseSafe,
+            }),
+        });
+        const lexilla_size_run = b.addRunArtifact(lexilla_size_probe);
+        lexilla_size_run.addFileArg(library.getEmittedBin());
+        const lexilla_size_source = lexilla_size_run.addOutputFileArg("lexilla-artifact-size.zig");
+        lexilla_size_receipt = lexilla_size_source;
+        lexilla_tests.root_module.addImport("lexilla_size", b.createModule(.{
+            .root_source_file = lexilla_size_source,
+            .target = target,
+            .optimize = optimize,
+        }));
+        lexilla_size_run.step.dependOn(&library.step);
+        break :size_run lexilla_size_run;
+    } else null;
+    if (lexilla_library) |library| {
+        const inputs = library.root_module.link_objects.items[0].c_source_files;
+        lexilla_contract.addOption([]const []const u8, "source_files", inputs.files);
+        lexilla_contract.addOption([]const []const u8, "cxx_flags", inputs.flags);
+        lexilla_contract.addOption([]const u8, "artifact_kind", @tagName(library.kind));
+        lexilla_contract.addOption([]const u8, "artifact_linkage", @tagName(library.linkage.?));
+        lexilla_contract.addOptionPath("artifact_path", library.getEmittedBin());
+    } else {
+        lexilla_contract.addOption([]const []const u8, "source_files", &lexilla_inventory.sources);
+        lexilla_contract.addOption([]const []const u8, "cxx_flags", lexilla_flags);
+        lexilla_contract.addOption([]const u8, "artifact_kind", "absent");
+        lexilla_contract.addOption([]const u8, "artifact_linkage", "absent");
+        lexilla_contract.addOption([]const u8, "artifact_path", "");
+    }
+    lexilla_contract.addOption(bool, "library_created", lexilla_library != null);
+    lexilla_contract.addOption([]const []const u8, "fixtures", &lexilla_inventory.reviewed_fixtures);
+    lexilla_contract.addOption([]const []const u8, "archive_member_names", &lexilla_inventory.archive_member_names);
+    lexilla_contract.addOption([]const u8, "artifact_name", lexilla_inventory.artifact_name);
+    lexilla_contract.addOption([]const u8, "archive_sha256", lexilla_inventory.archive_sha256);
+    lexilla_contract.addOption([]const u8, "license_spdx", lexilla_inventory.license_spdx);
+    lexilla_contract.addOption([]const u8, "license_sha256", lexilla_inventory.license_sha256);
+    if (lexilla_size_receipt) |receipt| {
+        lexilla_contract.addOptionPath("artifact_size_receipt", receipt);
+    } else {
+        lexilla_contract.addOption([]const u8, "artifact_size_receipt", "");
+    }
+    lexilla_tests.root_module.addOptions("lexilla_contract", lexilla_contract);
+    const lexilla_run = b.addRunArtifact(lexilla_tests);
+    lexilla_run.step.dependOn(&lexilla_snapshot.step);
+    if (lexilla_library) |library| lexilla_run.step.dependOn(&library.step);
+    if (lexilla_size_run) |size_run| lexilla_run.step.dependOn(&size_run.step);
+    b.step("t0-2b-lexilla-test", "Run the unshipped Lexilla comparator contract").dependOn(&lexilla_run.step);
+    b.step("t0-2b-lexilla-check", "Compile the Lexilla comparator contract only; no Win32 C++ compilation on Linux").dependOn(&lexilla_tests.step);
     const deps_tool = b.addExecutable(.{
         .name = "texflow-deps",
         .root_module = b.createModule(.{
@@ -1462,6 +1577,38 @@ pub fn build(b: *std.Build) void {
     deps_audit_step.dependOn(unicode_audit_step);
     scintilla_contract.addOption(bool, "install_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, b.getInstallStep(), library) else false);
     scintilla_contract.addOption(bool, "product_reaches_library", if (executable) |product| if (scintilla_library) |library| buildReachesLibrary(b, &product.step, library) else false else false);
+    const lexilla_install_reaches_library = if (lexilla_library) |library| buildReachesLibrary(b, b.getInstallStep(), library) else false;
+    const lexilla_product_reaches_library = if (executable) |product| if (lexilla_library) |library| buildReachesLibrary(b, &product.step, library) else false else false;
+    const lexilla_worker_reaches_library = if (lexilla_library) |library| buildReachesLibrary(b, &deps_fetch_fixture_worker.step, library) else false;
+    lexilla_contract.addOption(bool, "install_reaches_library", lexilla_install_reaches_library);
+    lexilla_contract.addOption(bool, "product_reaches_library", lexilla_product_reaches_library);
+    lexilla_contract.addOption(bool, "worker_reaches_library", lexilla_worker_reaches_library);
+    lexilla_contract.addOption(bool, "install_reaches_snapshot", buildReachesStep(b, b.getInstallStep(), &lexilla_snapshot.step));
+    lexilla_contract.addOption(bool, "product_reaches_snapshot", if (executable) |product| buildReachesStep(b, &product.step, &lexilla_snapshot.step) else false);
+    lexilla_contract.addOption(bool, "worker_reaches_snapshot", buildReachesStep(b, &deps_fetch_fixture_worker.step, &lexilla_snapshot.step));
+    lexilla_contract.addOption(bool, "library_reaches_snapshot", if (lexilla_library) |library| buildReachesStep(b, &library.step, &lexilla_snapshot.step) else false);
+    lexilla_contract.addOption(bool, "install_reaches_probe", buildReachesStep(b, b.getInstallStep(), &lexilla_probe.step));
+    lexilla_contract.addOption(bool, "product_reaches_probe", if (executable) |product| buildReachesStep(b, &product.step, &lexilla_probe.step) else false);
+    lexilla_contract.addOption(bool, "worker_reaches_probe", buildReachesStep(b, &deps_fetch_fixture_worker.step, &lexilla_probe.step));
+    lexilla_contract.addOption(bool, "install_reaches_source_root", buildReachesLazyPath(b, b.getInstallStep(), lexilla_root));
+    lexilla_contract.addOption(bool, "product_reaches_source_root", if (executable) |product| buildReachesLazyPath(b, &product.step, lexilla_root) else false);
+    lexilla_contract.addOption(bool, "worker_reaches_source_root", buildReachesLazyPath(b, &deps_fetch_fixture_worker.step, lexilla_root));
+    lexilla_contract.addOption(bool, "library_reaches_source_root", if (lexilla_library) |library| buildReachesLazyPath(b, &library.step, lexilla_root) else false);
+    lexilla_contract.addOption(bool, "library_reaches_probe", if (lexilla_library) |library| buildReachesStep(b, &library.step, &lexilla_probe.step) else false);
+    const lexilla_loader_step: ?*std.Build.Step = null;
+    lexilla_contract.addOption(bool, "install_reaches_loader", if (lexilla_loader_step) |loader| buildReachesStep(b, b.getInstallStep(), loader) else false);
+    lexilla_contract.addOption(bool, "product_reaches_loader", if (executable) |product| if (lexilla_loader_step) |loader| buildReachesStep(b, &product.step, loader) else false else false);
+    lexilla_contract.addOption(bool, "worker_reaches_loader", if (lexilla_loader_step) |loader| buildReachesStep(b, &deps_fetch_fixture_worker.step, loader) else false);
+    // Materialize an inspectable install-manifest oracle from the actual graph.
+    // It remains empty while the comparator is test-only; if an install edge is
+    // ever introduced, the runtime audit measures the emitted archive itself.
+    const lexilla_shipping_manifest = b.addNamedWriteFiles("texflow-lexilla-shipping-manifest");
+    const lexilla_shipping_manifest_contents = if (lexilla_install_reaches_library)
+        lexilla_inventory.artifact_name ++ ".lib\n"
+    else
+        "";
+    const lexilla_shipping_manifest_path = lexilla_shipping_manifest.add("members.txt", lexilla_shipping_manifest_contents);
+    lexilla_contract.addOptionPath("shipping_manifest_path", lexilla_shipping_manifest_path);
     abi_contract.addOption(bool, "install_reaches_library", buildReachesLibrary(b, b.getInstallStep(), abi_library));
     abi_contract.addOption(bool, "product_reaches_library", if (executable) |product| buildReachesLibrary(b, &product.step, abi_library) else false);
     smoke_contract.addOption(bool, "install_reaches_smoke", buildReachesLibrary(b, b.getInstallStep(), smoke_tests));
@@ -1477,6 +1624,17 @@ pub fn build(b: *std.Build) void {
 // direct Step.dependencies during build() misses linkLibrary dependencies that
 // Zig expands later. The visited sets also handle shared modules and cycles.
 fn buildReachesLibrary(b: *std.Build, root: *std.Build.Step, library: *std.Build.Step.Compile) bool {
+    return buildReachesStep(b, root, &library.step);
+}
+
+fn buildReachesLazyPath(b: *std.Build, root: *std.Build.Step, lazy_path: std.Build.LazyPath) bool {
+    return switch (lazy_path) {
+        .generated => |generated| buildReachesStep(b, root, generated.file.step),
+        else => false,
+    };
+}
+
+fn buildReachesStep(b: *std.Build, root: *std.Build.Step, target_step: *std.Build.Step) bool {
     var steps: std.AutoArrayHashMapUnmanaged(*std.Build.Step, void) = .empty;
     var modules: std.AutoArrayHashMapUnmanaged(*std.Build.Module, void) = .empty;
     steps.put(b.allocator, root, {}) catch @panic("OOM");
@@ -1485,7 +1643,7 @@ fn buildReachesLibrary(b: *std.Build, root: *std.Build.Step, library: *std.Build
     while (step_index < steps.count() or module_index < modules.count()) {
         while (step_index < steps.count()) : (step_index += 1) {
             const step = steps.keys()[step_index];
-            if (step == &library.step) return true;
+            if (step == target_step) return true;
             for (step.dependencies.items) |dependency| steps.put(b.allocator, dependency, {}) catch @panic("OOM");
             if (step.id == .compile) {
                 const compile: *std.Build.Step.Compile = @fieldParentPtr("step", step);

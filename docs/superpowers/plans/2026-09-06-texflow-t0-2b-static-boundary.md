@@ -93,24 +93,25 @@ The Linux commands are compile-only and must not claim Windows SDK runtime evide
 Files:
 
 - Create tools/zig/lexilla_probe.zig
+- Create tools/zig/lexilla_size_probe.zig
 - Create native/zig/tests/lexilla_comparator_test.zig
 - Modify build.zig near the existing Scintilla snapshot/build steps
-- Modify build.zig.zon to include both new files
+- Modify build.zig.zon to include all new files
 - Append direct evidence to docs/superpowers/evidence/2026-09-04-oleafly-t0-2-worklog.md
 
-- [ ] Step 1: Add a compilable RED comparator contract.
+- [x] Step 1: Add a compilable RED comparator contract.
 
 Add a test step that initially fails with error.MissingLexillaComparator. The contract names the target lexilla-comparator-t0-2b-unshipped, requires the locked Lexilla 5.5.3 archive digest and LicenseRef-Lexilla, and requires exactly the 12 lexlib .cxx files plus LexBibTeX.cxx, LexLaTeX.cxx, and LexTeX.cxx. It requires reviewed LaTeX and BibTeX fixture names and rejects any product/install/worker dependency on the comparator.
 
-- [ ] Step 2: Implement the isolated source snapshot and static build.
+- [x] Step 2: Implement the isolated source snapshot and static build.
 
-Use the existing deps lock to materialize Lexilla into a generated output directory. Compile the exact 15 sources as a C++17 static library with the existing Scintilla include tree. Do not add installFile, linkLibrary, runtime loading, or worker edges. Pass the actual source list, archive digest, license hash, archive member list, emitted size, and artifact name to the Zig test as typed options.
+Use the existing deps lock to materialize Lexilla into a generated output directory and emit a manifest-bound lock receipt. Compile the exact 15 sources as a C++17 static library with the existing Scintilla include tree. Do not add installFile, linkLibrary, runtime loading, or worker edges. Pass the actual source list, archive digest, license hash, archive member list, artifact name, and generated typed `u64` emitted-size receipt to the Zig test.
 
-- [ ] Step 3: Add static closure checks.
+- [x] Step 3: Add static closure checks.
 
-The test rejects DLL/shared linkage, Lexilla catalogue/loader sources, missing or duplicate source members, changed source/license digest, a size-less artifact, a product graph edge, and a shipping manifest member. Inspect the produced archive member list and binary strings/symbol names for catalogue/loader exports; record the measured size separately from shipping payload size. On Linux, compile the comparator contract only and emit not-in-scope for the Win32 C++ archive.
+The test rejects DLL/shared linkage, Lexilla catalogue/loader sources, missing or duplicate source members, changed source/license digest, a size-less artifact, a product graph edge, and a shipping manifest member. Parse the produced COFF archive exactly (including canonical long-name paths and special-member cardinality), inspect binary strings/symbol names for catalogue/loader exports, verify the manifest-bound lock receipt, and measure any listed shipping payload from the real artifact. On Linux, compile the comparator contract only and emit not-in-scope for the Win32 C++ archive.
 
-- [ ] Step 4: Run focused modes and append evidence.
+- [x] Step 4: Run focused modes and append evidence.
 
     & $zig build t0-2b-lexilla-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all -j1
     & $zig build t0-2b-lexilla-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all -j1
@@ -119,7 +120,7 @@ The test rejects DLL/shared linkage, Lexilla catalogue/loader sources, missing o
 
 Append exact outputs and state that worker recursive closure and runtime Scintilla/UI probing remain later gates.
 
-- [ ] Step 5: Commit.
+- [x] Step 5: Commit.
 
     git add tools/zig/lexilla_probe.zig native/zig/tests/lexilla_comparator_test.zig build.zig build.zig.zon docs/superpowers/evidence/2026-09-04-oleafly-t0-2-worklog.md
     git commit -m "test(zig): fence Lexilla comparator from product"

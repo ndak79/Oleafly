@@ -1654,3 +1654,42 @@ aliases and a Windows SDK ABI test; there is no HTML, browser, or native UI
 surface to exercise. This closes only T0.2b Task 2. Lexilla comparison,
 package/CI aggregate wiring, PDFium reconstruction/equivalence, sealed-network
 evidence, worker/runtime closure, and final T0.2b admission remain open.
+
+## T0.2b Lexilla comparator boundary (2026-09-06)
+
+This increment adds an offline, test-only Lexilla 5.5.3 comparator lane. The
+locked archive is rehashed before extraction, the complete generated source
+tree is published through the same staged/atomic snapshot protocol as the
+Scintilla lane, and the `License.txt` bytes are checked against the pinned
+license hash (`ac32743bd464c837e481beae20df65a9207f84d3ff1912f6003000343e9c753d`).
+The static artifact is named `lexilla-comparator-t0-2b-unshipped` and contains
+exactly the twelve reusable `lexlib` objects plus `LexBibTeX.obj`,
+`LexLaTeX.obj`, and `LexTeX.obj`. Catalogue/loader sources are not compiler
+inputs. The emitted COFF archive is parsed as an archive (not searched by
+substring): exact members, duplicate/missing/extra rejection, canonical
+`.zig-cache/o/<32-hex>/<object>.obj` long names, special-member cardinality,
+and loader/catalogue strings are checked. A generated typed `u64` receipt records
+the measured artifact size, while a build-graph-derived shipping manifest is
+audited independently and currently has zero payload bytes.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The first Windows Debug run compiled the contract but failed `1/2` with `error.MissingLexillaComparator`; the inventory/metadata test passed. | The named step detected the absent implementation before the source snapshot or C++ archive was admitted. |
+| Windows Debug | `t0-2b-lexilla-test`: `14/14` tests, `12/12` steps; measured archive `2,120,058` bytes. | Exact source snapshot, manifest-bound lock receipt, C++17 static build, COFF/member audit, shipping audit, and graph boundary are green. |
+| Windows ReleaseSafe | `t0-2b-lexilla-test`: `14/14` tests, `12/12` steps; measured archive `1,073,814` bytes. | Safe optimized static comparator remains green. |
+| Windows ReleaseFast | `t0-2b-lexilla-test`: `14/14` tests, `12/12` steps; measured archive `1,099,160` bytes. | Fast optimized static comparator remains green. |
+| Linux Debug | `t0-2b-lexilla-check`: `4/4` compile steps. | The contract is portable; no Win32 C++ archive is materialized or executed on Linux. |
+| Linux ReleaseSafe | `t0-2b-lexilla-check`: `4/4` compile steps. | Safe declaration/build wiring remains compile-clean. |
+| Linux ReleaseFast | `t0-2b-lexilla-check`: `4/4` compile steps. | Fast declaration/build wiring remains compile-clean. |
+| Static closure negatives | Duplicate/missing/forbidden source lists, changed archive/license bytes, DLL path, empty artifact, extra/missing/duplicate COFF members, nested/traversal long-name aliases, wrong special-member cardinality, catalogue/loader tokens, tampered lock receipt, positive library→snapshot/probe/source-root edges, negative product/install/worker/loader edges, and shipping-manifest mutations fail closed. | The comparator cannot silently widen into a loader, shared library, product edge, worker edge, or shipping payload. |
+| Scope | Generated shipping manifest is empty; its direct audit reports `member=false payload bytes=0`; no install or `linkLibrary` edge exists. | The artifact remains a measured QA comparator, not a TExFlow runtime dependency. |
+
+No browser QA applies: this is a native Zig/C++ archive and build-graph
+contract with no HTML or browser surface. Worker recursive PE closure, runtime
+Scintilla/UI probing, package/CI aggregate wiring, PDFium reconstruction and
+equivalence, sealed-network evidence, and final T0.2b admission remain open.
+
+Independent Task 3 repair review (Luna max, read-only) is CLEAN after the
+canonical long-name and special-member repairs. This is the first clean review
+pass for this Task 3 scope (`1/1` quality streak); the package/CI aggregate and
+the broader T0.2b admission gates remain intentionally open.
