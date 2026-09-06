@@ -313,9 +313,10 @@ Files:
   `6/8 + 2 skips` for the PE inventory and `7/8 + 1 skip` for the native
   Scintilla probe in each runtime optimization mode; Linux checks remained
   compile-only.
-- [ ] Step 5: Obtain one fresh independent read-only review after integration;
-  no Critical/High/Medium finding may remain. Commit/push this slice as its
-  own commit. Full T0.2b remains **NOT ADMITTED**: the authenticated
+- [x] Step 5: Obtain one fresh independent read-only review after integration;
+  no Critical/High/Medium finding remains. Commit/push this slice as its own
+  commit (`2dd0bdf9`, `test(zig): add shipped PE and native Scintilla gates`).
+  Full T0.2b remains **NOT ADMITTED**: the authenticated
   inventory is not yet connected to the product's emitted payload, UIA proof
   is absent, and the independent PDFium/sealed-runner/reproducibility,
   worker-runtime, and advisory gates remain open.

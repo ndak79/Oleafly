@@ -1833,7 +1833,7 @@ claim that the complete product payload or editor UI has been admitted.
 | Scintilla Linux portability | `t0-2b-scintilla-native-check` compiled `2/2` for `x86_64-linux-gnu` in ReleaseSafe; no native window/library runtime was attempted. | Linux remains compile-only and explicitly outside the native probe scope. |
 | Aggregate gates | Final Windows ReleaseSafe `t0-2b-static`: `56/56` build steps, `109/114` tests with only the documented symlink-permission skips. Final Linux ReleaseSafe `t0-2b-static`: `30/30` compile steps. | Both parallel tracks are target-aware in the aggregate; Windows runtime uses the selected MSVC target, while non-Windows uses compile-only checks. The native runtime gate requires both host and target to be x86_64 Windows-MSVC; other target architectures remain compile-only. |
 | Runtime/link hardening | The Scintilla C++ archive is built with MSVC static runtime flags and linked as a raw archive path; the probe executable uses SDK-discovered Windows libraries and the selected target's Zig-managed CRT. A GNU-host false-positive lane was removed after it skipped the real MSVC probe; the real target run then exposed and fixed a CRT startup crash. | The runtime evidence is now from the intended Windows ABI. No developer-machine library path is hardcoded. |
-| Static hygiene/review | `zig fmt --check` (including all changed native tools), PyYAML workflow parsing, and `git diff --check` passed after the final fixes. Fresh independent Luna max follow-up review is CLEAN with no Critical/High/Medium findings; Browser QA is N/A because these are native/CLI-only gates. | Quality streak for this new slice is `1/1`; the implementation commit is now ready to be created. |
+| Static hygiene/review | `zig fmt --check` (including all changed native tools), PyYAML workflow parsing, and `git diff --check` passed after the final fixes. Fresh independent Luna max follow-up review is CLEAN with no Critical/High/Medium findings; Browser QA is N/A because these are native/CLI-only gates. | Quality streak for this new slice is `1/1`; implementation commit `2dd0bdf9` is pushed to `origin/main`. |
 
 Scope boundary: UIA-visible behavior is not claimed; the PE inventory is not
 yet authenticated against the actual installed product/worker payload; and
@@ -1846,4 +1846,4 @@ The follow-up review repaired and rechecked every finding from the first review
 (canonical role paths, root dot-segment rejection, bounded recursive entries,
 intrinsic cross-role import deny-lists, parent-child HWND relation, x86_64
 runtime gating, explicit formatting coverage, and pending-plan status). The
-slice is CLEAN at `1/1`; commit/push closure is the remaining mechanical step.
+slice is CLEAN at `1/1`; commit `2dd0bdf9` is pushed to `origin/main`.
