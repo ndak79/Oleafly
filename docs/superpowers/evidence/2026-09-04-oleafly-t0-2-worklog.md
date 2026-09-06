@@ -1870,6 +1870,8 @@ Browser QA is not applicable: this is a native/CLI filesystem oracle with no
 HTML, browser, or UI surface. This slice still does not admit full T0.2b;
 independent PDFium reconstruction/equivalence, sealed-runner evidence,
 authenticated shipped payload closure, and final roadmap admission remain open.
+Implementation commit `86e48c92` (`fix(zig): harden reproducibility payload
+boundary`) is pushed to `origin/main`.
 
 ### T1.1c atomic save and external-change precondition (2026-09-06)
 
@@ -1898,3 +1900,5 @@ Browser QA is not applicable: this is a native filesystem boundary and does
 not expose a browser-visible surface. The caller remains responsible for
 selecting a target from its validated workspace model; this module does not
 infer authorization from an arbitrary path string.
+Implementation commit `6d3a59e3` (`feat(editor): add atomic save boundary`) is
+pushed to `origin/main`.
