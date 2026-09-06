@@ -352,6 +352,26 @@ pub fn build(b: *std.Build) void {
     editor_buffer_check_step.dependOn(&editor_buffer_tests.step);
     t0_2c_models_test.dependOn(&run_editor_buffer_tests.step);
     t0_2c_models_check.dependOn(&editor_buffer_tests.step);
+    const app_atomic_save_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/atomic_save.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const atomic_save_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/atomic_save_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    atomic_save_tests.root_module.addImport("atomic_save", app_atomic_save_module);
+    const run_atomic_save_tests = b.addRunArtifact(atomic_save_tests);
+    const atomic_save_test_step = b.step("t1-1c-atomic-save-test", "Run T1.1c atomic-save and external-change precondition tests");
+    atomic_save_test_step.dependOn(&run_atomic_save_tests.step);
+    const atomic_save_check_step = b.step("t1-1c-atomic-save-check", "Compile T1.1c atomic-save tests for the selected target");
+    atomic_save_check_step.dependOn(&atomic_save_tests.step);
+    t0_2c_models_test.dependOn(&run_atomic_save_tests.step);
+    t0_2c_models_check.dependOn(&atomic_save_tests.step);
     const uia_shell_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/uia_shell_test.zig"),
