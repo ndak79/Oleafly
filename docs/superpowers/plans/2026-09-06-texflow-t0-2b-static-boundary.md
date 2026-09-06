@@ -268,6 +268,8 @@ Files:
   scope. The first review found 3 High and 2 Medium findings; all were
   repaired, affected modes rerun, and the fresh independent review is CLEAN
   (`1/1`) with no Critical/High/Medium finding remaining.
-- [ ] Step 4: Commit/push this bounded slice separately. Full T0.2b remains
-  **NOT ADMITTED** until Tasks 6–9's deferred external evidence exists;
-  T0.2a stays paused and T0.2c stays unopened.
+- [x] Step 4: Commit/push this bounded slice separately as
+  `b78f5783` (`test(zig): parallelize T0.2b admission oracles`) to
+  `origin/main`. Full T0.2b remains **NOT ADMITTED** until Tasks 6–9's
+  deferred external evidence exists; T0.2a stays paused and T0.2c stays
+  unopened.

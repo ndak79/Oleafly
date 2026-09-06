@@ -1802,6 +1802,11 @@ runner, shipped-image inventory, or HWND probe already exists.
 | CI/package wiring | The Windows matrix runs the three runtime steps plus all three new target compile-checks (and the existing static checks) in Debug/ReleaseSafe/ReleaseFast; the Linux matrix runs the compile-only checks in all three modes. `build.zig.zon` includes every new source/test path. | The parallel work is reproducible in CI configuration, but hosted execution and deferred external evidence remain unverified locally. |
 | Static hygiene | `zig fmt --check`, PyYAML workflow parse, and `git diff --check` passed after the final contract hardening. | No formatting, YAML, or whitespace gap was introduced. |
 
+The bounded implementation was committed and pushed as `b78f5783`
+(`test(zig): parallelize T0.2b admission oracles`) on `origin/main`. The
+unrelated user-owned `docs/superpowers/plans/2026-09-05-texflow-t1-1c-atomic-save.md`
+remains untracked and was not included.
+
 The first review found three High and two Medium findings (GN/identity
 allowlists, host-vs-target aggregate selection, Windows target compile checks,
 and PE set equality). All were repaired, affected modes rerun, and the fresh
