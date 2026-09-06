@@ -81,10 +81,20 @@ pub fn configuredSwapEffect() graphics.SwapEffect {
 const wm_nccreate: u32 = 0x0081;
 const wm_ncdestroy: u32 = 0x0082;
 const wm_destroy: u32 = 0x0002;
-const wm_size: u32 = 0x0005;
-const wm_paint: u32 = 0x000f;
+pub const wm_activate: u32 = 0x0006;
+pub const wm_size: u32 = 0x0005;
+pub const wm_paint: u32 = 0x000f;
+pub const wm_showwindow: u32 = 0x0018;
+pub const wm_activateapp: u32 = 0x001c;
+pub const wm_ncaactivate: u32 = 0x0086;
+pub const wm_displaychange: u32 = 0x007e;
+pub const wm_powerbroadcast: u32 = 0x0218;
+pub const wm_dpi_changed: u32 = 0x02e0;
 const wm_command: u32 = 0x0111;
-const size_minimized: usize = 1;
+pub const size_minimized: usize = 1;
+pub const pbt_apmresumecritical: usize = 0x0006;
+pub const pbt_apmresumesuspend: usize = 0x0007;
+pub const pbt_apmresumeautomatic: usize = 0x0012;
 const gwlp_userdata: i32 = -21;
 const ws_child: u32 = 0x40000000;
 const ws_visible: u32 = 0x10000000;
@@ -122,6 +132,146 @@ const status_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.sta
 const ready_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.ready));
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.machine_class);
 const window_title = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.product_name);
+
+/// The message-level seam is intentionally smaller than the later native
+/// capture/UIA campaign.  It records only what the shell can learn from the
+/// Win32 queue and DXGI Present result; it never claims that a window is
+/// physically visible on a display or that a DPI change was externally
+/// captured.
+pub const WindowMessageKind = enum {
+    other,
+    paint,
+    resize,
+    minimized,
+    dpi_changed,
+    shown,
+    hidden,
+    activated,
+    deactivated,
+    display_changed,
+    resumed,
+};
+
+pub const DpiChange = struct {
+    x: u16,
+    y: u16,
+};
+
+pub const Visibility = enum { visible, occluded, minimized };
+
+pub const WindowStateEvent = union(enum) {
+    paint,
+    resize,
+    minimized,
+    dpi_changed: DpiChange,
+    shown,
+    hidden,
+    activated,
+    deactivated,
+    display_changed,
+    resumed,
+    occluded,
+};
+
+/// Logical shell state used to gate native Present calls.  It mirrors the
+/// presenter's visibility vocabulary while retaining activation separately:
+/// an inactive window is not automatically occluded, and an occluded window
+/// is not declared visible until an OS/DXGI event gives the shell a reason to
+/// retry.  Every transition invalidates the two-buffer history so the next
+/// admitted frame is a full redraw.
+pub const NativeWindowState = struct {
+    visibility: Visibility = .visible,
+    active: bool = true,
+    dpi: DpiChange = .{ .x = 96, .y = 96 },
+    display_epoch: u32 = 0,
+    needs_full_redraw: bool = true,
+
+    pub fn canRender(self: *const NativeWindowState) bool {
+        return self.visibility == .visible;
+    }
+
+    pub fn apply(self: *NativeWindowState, event: WindowStateEvent) bool {
+        var request_frame = true;
+        switch (event) {
+            .paint => self.invalidate(),
+            .resize => {
+                if (self.visibility == .minimized) self.visibility = .visible;
+                self.invalidate();
+            },
+            .minimized => {
+                self.visibility = .minimized;
+                self.invalidate();
+            },
+            .dpi_changed => |dpi| {
+                self.dpi = dpi;
+                self.invalidate();
+            },
+            .shown => {
+                if (self.visibility != .minimized) self.visibility = .visible;
+                self.invalidate();
+            },
+            .hidden => {
+                if (self.visibility != .minimized) self.visibility = .occluded;
+                self.invalidate();
+            },
+            .activated => {
+                self.active = true;
+                if (self.visibility == .occluded) self.visibility = .visible;
+                self.invalidate();
+            },
+            .deactivated => {
+                self.active = false;
+                request_frame = false;
+            },
+            .display_changed => {
+                self.display_epoch +%= 1;
+                self.invalidate();
+            },
+            .resumed => {
+                if (self.visibility != .minimized) self.visibility = .visible;
+                self.invalidate();
+            },
+            .occluded => {
+                if (self.visibility != .minimized) self.visibility = .occluded;
+                self.invalidate();
+            },
+        }
+        return self.canRender() and request_frame;
+    }
+
+    pub fn invalidate(self: *NativeWindowState) void {
+        self.needs_full_redraw = true;
+    }
+
+    pub fn framePresented(self: *NativeWindowState) void {
+        self.needs_full_redraw = false;
+    }
+};
+
+pub fn dpiFromWParam(wparam: usize) ?DpiChange {
+    const x: u16 = @intCast(wparam & 0xffff);
+    const y: u16 = @intCast((wparam >> 16) & 0xffff);
+    if (x == 0 or y == 0) return null;
+    return .{ .x = x, .y = y };
+}
+
+pub fn classifyWindowMessage(message: u32, wparam: usize) WindowMessageKind {
+    return switch (message) {
+        wm_paint => .paint,
+        wm_size => if (wparam == size_minimized) .minimized else .resize,
+        wm_dpi_changed => .dpi_changed,
+        wm_showwindow => if (wparam != 0) .shown else .hidden,
+        wm_activateapp => if (wparam != 0) .activated else .deactivated,
+        wm_activate => if ((wparam & 0xffff) != 0) .activated else .deactivated,
+        wm_ncaactivate => if (wparam != 0) .activated else .deactivated,
+        wm_displaychange => .display_changed,
+        wm_powerbroadcast => switch (wparam) {
+            pbt_apmresumecritical, pbt_apmresumesuspend, pbt_apmresumeautomatic => .resumed,
+            else => .other,
+        },
+        else => .other,
+    };
+}
 
 pub fn renderOutcomeUsable(outcome: presenter.PresentOutcome) bool {
     return outcome == .presented or outcome == .occluded;
@@ -278,6 +428,7 @@ pub const Backend = struct {
     back_buffer: ?presenter.BackBuffer = null,
     composition_renderer: ?composition.Renderer = null,
     frame_pending: bool = false,
+    window_state: NativeWindowState = .{},
     telemetry_state: TelemetryState = .disabled,
     telemetry_error: ?telemetry.ProviderError = null,
     telemetry_event_count: u32 = 0,
@@ -351,6 +502,47 @@ pub const Backend = struct {
     pub fn telemetryTrialId(self: *const Backend) [16]u8 {
         return self.trace_trial;
     }
+
+    pub fn windowState(self: *const Backend) NativeWindowState {
+        return self.window_state;
+    }
+
+    fn applyWindowStateEvent(self: *Backend, event: WindowStateEvent) void {
+        if (self.window_state.apply(event)) self.frame_pending = true;
+    }
+
+    fn refreshShellLayout(self: *Backend) void {
+        const window = self.window orelse return;
+        var client: RECT = undefined;
+        if (raw.GetClientRect(window, &client) == 0) return;
+        const width_i = client.right - client.left;
+        const height_i = client.bottom - client.top;
+        if (width_i <= 0 or height_i <= 0) return;
+        if (self.hasShellControls()) _ = self.relayoutControls(@intCast(width_i), @intCast(height_i));
+        self.requestFrame();
+    }
+
+    fn handleDpiChanged(self: *Backend, wparam: usize) void {
+        const dpi = dpiFromWParam(wparam) orelse return;
+        self.applyWindowStateEvent(.{ .dpi_changed = dpi });
+        const window = self.window orelse return;
+
+        // The suggested WM_DPICHANGED RECT is an OS-owned pointer whose
+        // lifetime ends with this callback.  This seam deliberately does not
+        // dereference that pointer; it records the packed DPI and rebuilds
+        // against the current client rect instead.  Applying the suggested
+        // physical bounds belongs to the later display/capture campaign.
+        self.refreshShellLayout();
+        if (self.window_state.canRender() and self.hasFrameResources()) {
+            var client: RECT = undefined;
+            if (raw.GetClientRect(window, &client) != 0) {
+                const width_i = client.right - client.left;
+                const height_i = client.bottom - client.top;
+                if (width_i > 0 and height_i > 0) _ = self.resizeFrame(@intCast(width_i), @intCast(height_i));
+            }
+        }
+    }
+
     pub fn registerClass(self: *Backend) bool {
         const cursor = raw.LoadCursorW(null, @ptrFromInt(32512)) orelse return false; // IDC_ARROW, shared
         const window_class: WNDCLASSEXW = .{
@@ -637,6 +829,7 @@ pub const Backend = struct {
     /// complete clear + Present before it becomes visible, so the shell never
     /// exposes an uninitialized back buffer.
     fn renderFrameOnce(self: *Backend) FrameAttempt {
+        if (!self.window_state.canRender()) return .occluded;
         const window = self.window orelse return .failed;
         var client: RECT = undefined;
         if (raw.GetClientRect(window, &client) == 0) return .failed;
@@ -669,6 +862,11 @@ pub const Backend = struct {
                         else => .failed,
                     };
                     if (outcome == .presented or outcome == .occluded) self.emitRenderTelemetry(width, height);
+                    switch (outcome) {
+                        .presented => self.window_state.framePresented(),
+                        .occluded => _ = self.window_state.apply(.occluded),
+                        .device_removed, .device_reset, .device_hung => self.window_state.invalidate(),
+                    }
                     return switch (outcome) {
                         .presented => .presented,
                         .occluded => .occluded,
@@ -731,6 +929,7 @@ pub const Backend = struct {
     }
 
     fn waitAndRender(self: *Backend, timeout_ms: u32, recover: bool) bool {
+        if (!self.window_state.canRender()) return false;
         if (self.swap_chain) |*swap_chain| {
             switch (swap_chain.waitForFrame(timeout_ms) catch return false) {
                 .signaled => {},
@@ -763,6 +962,7 @@ pub const Backend = struct {
     }
 
     pub fn tickFrame(self: *Backend) bool {
+        if (!self.window_state.canRender()) return false;
         if (self.swap_chain) |*swap_chain| {
             switch (swap_chain.waitForFrame(0) catch return false) {
                 .signaled => return self.renderFrameSignaled(),
@@ -779,6 +979,7 @@ pub const Backend = struct {
     }
 
     fn renderFrameSignaled(self: *Backend) bool {
+        if (!self.window_state.canRender()) return false;
         self.frame_pending = false;
         return switch (self.renderFrameOnce()) {
             .presented, .occluded => true,
@@ -922,7 +1123,7 @@ pub const Backend = struct {
         // When work is pending, wait atomically for either the DXGI grant or
         // input.  With no pending work we use the same blocking message path;
         // there is no polling/render timer.
-        if (self.frame_pending) {
+        if (self.frame_pending and self.window_state.canRender()) {
             if (self.swap_chain) |*swap_chain| {
                 if (swap_chain.waitableHandle()) |handle| {
                     var handles = [_]?*anyopaque{handle};
@@ -970,23 +1171,60 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
         _ = raw.SetWindowLongPtrW(window, gwlp_userdata, @as(isize, @bitCast(@intFromPtr(backend))));
         return 1;
     }
-    if (message == wm_paint) {
-        if (backendForWindow(window)) |backend| {
-            _ = raw.ValidateRect(window, null);
-            backend.requestFrame();
-            return 0;
-        }
-    }
-    if (message == wm_size) {
-        if (wparam != size_minimized) {
-            if (backendForWindow(window)) |backend| {
+    if (backendForWindow(window)) |backend| {
+        switch (classifyWindowMessage(message, wparam)) {
+            .paint => {
+                _ = raw.ValidateRect(window, null);
+                backend.applyWindowStateEvent(.paint);
+                return 0;
+            },
+            .minimized => {
+                backend.applyWindowStateEvent(.minimized);
+                return 0;
+            },
+            .resize => {
                 const size_bits: usize = @as(usize, @bitCast(lparam));
                 const width: u32 = @intCast(size_bits & 0xffff);
                 const height: u32 = @intCast((size_bits >> 16) & 0xffff);
-                if (backend.hasShellControls() and width != 0 and height != 0) _ = backend.relayoutControls(width, height);
-                if (backend.hasFrameResources() and width != 0 and height != 0) _ = backend.resizeFrame(width, height);
+                backend.applyWindowStateEvent(.resize);
+                if (width != 0 and height != 0) {
+                    if (backend.hasShellControls()) _ = backend.relayoutControls(width, height);
+                    if (backend.window_state.canRender() and backend.hasFrameResources()) _ = backend.resizeFrame(width, height);
+                }
                 return 0;
-            }
+            },
+            .dpi_changed => {
+                backend.handleDpiChanged(wparam);
+                return raw.DefWindowProcW(window, message, wparam, lparam);
+            },
+            .shown => {
+                backend.applyWindowStateEvent(.shown);
+                backend.refreshShellLayout();
+                return raw.DefWindowProcW(window, message, wparam, lparam);
+            },
+            .hidden => {
+                backend.applyWindowStateEvent(.hidden);
+                return raw.DefWindowProcW(window, message, wparam, lparam);
+            },
+            .activated => {
+                backend.applyWindowStateEvent(.activated);
+                return raw.DefWindowProcW(window, message, wparam, lparam);
+            },
+            .deactivated => {
+                backend.applyWindowStateEvent(.deactivated);
+                return raw.DefWindowProcW(window, message, wparam, lparam);
+            },
+            .display_changed => {
+                backend.applyWindowStateEvent(.display_changed);
+                backend.refreshShellLayout();
+                return raw.DefWindowProcW(window, message, wparam, lparam);
+            },
+            .resumed => {
+                backend.applyWindowStateEvent(.resumed);
+                backend.refreshShellLayout();
+                return 1;
+            },
+            .other => {},
         }
     }
     if (message == wm_command) {

@@ -28,6 +28,68 @@ test "DPI admission accepts only a non-null context proven equal to PMv2" {
     try std.testing.expect(!native.acceptPmv2Context(null, false));
 }
 
+test "native window message classifier covers DPI visibility activation display and resume" {
+    try std.testing.expectEqual(native.WindowMessageKind.dpi_changed, native.classifyWindowMessage(native.wm_dpi_changed, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.minimized, native.classifyWindowMessage(native.wm_size, native.size_minimized));
+    try std.testing.expectEqual(native.WindowMessageKind.resize, native.classifyWindowMessage(native.wm_size, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.shown, native.classifyWindowMessage(native.wm_showwindow, 1));
+    try std.testing.expectEqual(native.WindowMessageKind.hidden, native.classifyWindowMessage(native.wm_showwindow, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.activated, native.classifyWindowMessage(native.wm_activateapp, 1));
+    try std.testing.expectEqual(native.WindowMessageKind.deactivated, native.classifyWindowMessage(native.wm_activateapp, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.activated, native.classifyWindowMessage(native.wm_activate, 1));
+    try std.testing.expectEqual(native.WindowMessageKind.deactivated, native.classifyWindowMessage(native.wm_activate, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.activated, native.classifyWindowMessage(native.wm_ncaactivate, 1));
+    try std.testing.expectEqual(native.WindowMessageKind.deactivated, native.classifyWindowMessage(native.wm_ncaactivate, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.display_changed, native.classifyWindowMessage(native.wm_displaychange, 0));
+    try std.testing.expectEqual(native.WindowMessageKind.resumed, native.classifyWindowMessage(native.wm_powerbroadcast, native.pbt_apmresumeautomatic));
+    try std.testing.expectEqual(native.WindowMessageKind.resumed, native.classifyWindowMessage(native.wm_powerbroadcast, native.pbt_apmresumesuspend));
+    try std.testing.expectEqual(native.WindowMessageKind.resumed, native.classifyWindowMessage(native.wm_powerbroadcast, native.pbt_apmresumecritical));
+    try std.testing.expectEqual(native.WindowMessageKind.other, native.classifyWindowMessage(native.wm_powerbroadcast, 0));
+}
+
+test "native window state gates visibility and invalidates on DPI display and resume" {
+    var state: native.NativeWindowState = .{};
+    try std.testing.expect(state.canRender());
+    try std.testing.expect(state.needs_full_redraw);
+    state.framePresented();
+    try std.testing.expect(!state.needs_full_redraw);
+
+    const dpi = native.DpiChange{ .x = 144, .y = 144 };
+    try std.testing.expect(state.apply(.{ .dpi_changed = dpi }));
+    try std.testing.expectEqual(dpi, state.dpi);
+    try std.testing.expect(state.needs_full_redraw);
+    state.framePresented();
+
+    try std.testing.expect(!state.apply(.minimized));
+    try std.testing.expectEqual(native.Visibility.minimized, state.visibility);
+    try std.testing.expect(!state.canRender());
+    try std.testing.expect(!state.apply(.resumed));
+    try std.testing.expectEqual(native.Visibility.minimized, state.visibility);
+
+    try std.testing.expect(state.apply(.resize));
+    try std.testing.expectEqual(native.Visibility.visible, state.visibility);
+    state.framePresented();
+    try std.testing.expect(!state.apply(.occluded));
+    try std.testing.expectEqual(native.Visibility.occluded, state.visibility);
+    try std.testing.expect(state.apply(.activated));
+    try std.testing.expectEqual(native.Visibility.visible, state.visibility);
+    try std.testing.expect(state.active);
+    try std.testing.expect(!state.apply(.deactivated));
+    try std.testing.expect(!state.active);
+
+    const previous_display_epoch = state.display_epoch;
+    try std.testing.expect(state.apply(.display_changed));
+    try std.testing.expectEqual(previous_display_epoch +% 1, state.display_epoch);
+    try std.testing.expect(state.needs_full_redraw);
+}
+
+test "WM_DPICHANGED packs independent horizontal and vertical DPI values" {
+    const packed_dpi = @as(usize, 125) | (@as(usize, 150) << 16);
+    try std.testing.expectEqual(native.DpiChange{ .x = 125, .y = 150 }, native.dpiFromWParam(packed_dpi).?);
+    try std.testing.expect(native.dpiFromWParam(0) == null);
+    try std.testing.expect(native.dpiFromWParam(@as(usize, 144)) == null);
+}
+
 const Forbidden = struct {
     calls: usize = 0,
     pub fn restrictDllSearch(self: *@This()) bool {
