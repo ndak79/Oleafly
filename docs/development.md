@@ -109,6 +109,43 @@ ledger, publishing, authoritative capture, and full physical QA remain later
 slices. This is not full application completion. The Zig-owned t0-2-repro
 cutover is not implemented yet.
 
+### T0.2b static source boundary
+
+`tools/zig/source_boundary.zig` is the fail-closed, pure-Zig import-boundary
+scanner used before native dependency/API work is admitted. It scans filesystem
+files with a `.zig` suffix (case-insensitive to prevent a Windows `.ZIG`
+bypass) in deterministic byte order, keeps the two named cache/facade
+exceptions explicit, ignores only generated/metadata trees (`.git`,
+`.zig-cache`, `zig-cache`, `zig-out`, `tools/zig/.cache`, and repository
+metadata directories), and rejects direct `zigwin32` and `everything.zig`
+imports elsewhere. Ordinary drive/UNC roots are walked component-by-component
+without following reparse points; unsupported local-device/rooted namespaces
+fail closed. Directory and file handles are opened without following
+symlinks; reparse/unknown entries, ancestor reparse points, malformed UTF-8 or
+source, and per-file/aggregate/depth limits fail closed. On Zig 0.16 Windows,
+the scanner compensates for the standard-library nofollow handle metadata bug
+before using its bounded positional reader. Generated import names are matched
+with Windows filesystem case-folding while the facade exception remains an
+exact, intentionally narrow path.
+
+Focused evidence commands are:
+
+```
+zig build t0-2b-source-boundary-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all -j1
+zig build t0-2b-source-boundary-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all -j1
+zig build t0-2b-source-boundary-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseFast --summary all -j1
+zig build t0-2b-source-boundary-check -Dtarget=x86_64-linux-gnu -Doptimize=Debug --summary all -j1
+zig build t0-2b-source-boundary-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all -j1
+zig build t0-2b-source-boundary-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseFast --summary all -j1
+zig build t0-2b-source-boundary -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe -Dsource-boundary-root=<absolute-repo-root> --summary all -j1
+```
+
+The symlink fixture reports `SymlinkEvidenceUnavailable` and is explicitly
+skipped when the host denies symlink creation; this is not evidence of a clean
+symlink runtime check. This scanner closes only the static source-boundary
+slice. PDFium reconstruction/equivalence, sealed-network proof, worker/runtime
+closure, and the remaining T0.2b admission gates remain open.
+
 ## Native dependency workflow (T0.2a)
 
 The T0.2a dependency lock is `tools/zig/native-deps.json`. These are the stable

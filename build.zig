@@ -15,6 +15,14 @@ pub fn build(b: *std.Build) void {
         if (!std.fs.path.isAbsolute(path)) @panic("native-deps-root must be absolute");
         break :blk path;
     } else b.pathFromRoot("tools/zig/.cache/native-deps");
+    const source_boundary_root = if (b.option(
+        []const u8,
+        "source-boundary-root",
+        "Absolute repository root for the T0.2b source import boundary scan",
+    )) |path| blk: {
+        if (!std.fs.path.isAbsolute(path)) @panic("source-boundary-root must be absolute");
+        break :blk path;
+    } else b.pathFromRoot(".");
     // Zig 0.16's preferred_optimize_mode intentionally maps every release
     // request to the preferred mode, so it cannot expose a real ReleaseFast
     // comparison lane. Resolve the explicit enum option first, then map the
@@ -172,6 +180,38 @@ pub fn build(b: *std.Build) void {
     windows_argv_step.dependOn(&run_windows_argv_tests.step);
     const windows_argv_check = b.step("t0-2b-argv-check", "Compile Windows argv contracts for the selected target");
     windows_argv_check.dependOn(&windows_argv_tests.step);
+
+    const source_boundary_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/source_boundary.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const source_boundary_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/source_boundary_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    source_boundary_tests.root_module.addImport("source_boundary", source_boundary_module);
+    const run_source_boundary_tests = b.addRunArtifact(source_boundary_tests);
+    const source_boundary_step = b.step("t0-2b-source-boundary-test", "Run the Zig source import boundary contract");
+    source_boundary_step.dependOn(&run_source_boundary_tests.step);
+    const source_boundary_check = b.step("t0-2b-source-boundary-check", "Compile the source import boundary contract");
+    source_boundary_check.dependOn(&source_boundary_tests.step);
+    const source_boundary_tool = b.addExecutable(.{
+        .name = "texflow-source-boundary",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/source_boundary.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    const run_source_boundary_tool = b.addRunArtifact(source_boundary_tool);
+    run_source_boundary_tool.addArgs(&.{ "tree", source_boundary_root });
+    const source_boundary_tree = b.step("t0-2b-source-boundary", "Scan the repository Zig import boundary");
+    source_boundary_tree.dependOn(&run_source_boundary_tool.step);
+    windows_argv_step.dependOn(&run_source_boundary_tests.step);
 
     // T0.2c pure app-model contracts. These modules are deliberately kept
     // separate from the product/UI graph so Linux can compile and exercise

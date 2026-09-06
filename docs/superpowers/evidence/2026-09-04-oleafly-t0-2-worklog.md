@@ -1597,3 +1597,37 @@ physical DPI/occlusion/device-loss, loss-free WPR/WPA/PresentMon, energy data,
 and final T0.2c admission remain explicit follow-up gates. The post-repair
 quality streak is `1/1`: two independent Luna reviews completed `CLEAN` after
 the focus/resize repairs, with no Critical/Important/Medium+ finding.
+
+## T0.2b static source-boundary scanner (2026-09-06)
+
+This increment adds a pure-Zig, fail-closed scanner for the non-generated
+repository source tree. It recognizes Zig comments, quoted/escaped strings,
+character literals, multiline-string lines, and a closed literal `@import`
+grammar; it rejects direct `zigwin32`/`everything.zig` imports outside the
+explicit facade and cache-contract test. Invalid escapes and control bytes in
+skipped lexical regions are rejected rather than treated as opaque text. The
+tree lane sorts paths by byte order, accepts case variants of the `.zig`
+suffix, opens directories/files without following symlinks, checks every
+absolute-root ancestor for reparse/unknown entries, re-checks ancestors after
+root acquisition, opens ordinary absolute roots component-by-component without
+following symlinks, retains no-follow source handles through the sorted scan,
+enforces depth/file/aggregate limits, and exposes a host diagnostic with the
+first violating path.
+The Windows reader includes a pinned Zig 0.16 workaround for the standard
+library's nofollow-handle metadata mismatch; it is guarded from POSIX builds.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | The initial stub ran the named Windows test step and failed exactly 2/2 import assertions with `error.NotImplemented`; follow-up adversarial tests caught character literals, Unicode escapes, multiline-string false positives, invalid escapes, control bytes in skipped regions, and case-variant `.ZIG` files before repair. | The boundary contract was exercised before each lexer repair. |
+| Windows test matrix | `t0-2b-source-boundary-test` passed `20/22` with two explicit `SymlinkEvidenceUnavailable` skips in Debug, ReleaseSafe, and ReleaseFast. | Import grammar (including non-call `@import` rejection and Windows case-folded generated names), exceptions, malformed/UTF-8 input, tree limits, deterministic order, diagnostics, and file/directory symlink fallback are green on Windows; symlink creation itself is unavailable under the current host policy. |
+| Windows host scan | `t0-2b-source-boundary -Dsource-boundary-root=D:\\Projs\\TExFLow -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all -j1`: `3/3` steps succeeded; `files=90 bytes=1,599,582`. | The actual repository tree is clean under the scanner, with no direct generated-package boundary violation. |
+| Linux portability | `t0-2b-source-boundary-check` compiled Debug, ReleaseSafe, and ReleaseFast for `x86_64-linux-gnu`. | Linux is compile-only; no Linux runtime claim is made. |
+| Regression/wiring | `t0-2b-argv-test` passed `16/16` argv tests plus the scanner's `20/22` (two documented skips); baseline `test` passed `10/10`. | The scanner dependency is wired to the argv contract without changing the default baseline graph. |
+| Hygiene | Zig format check and `git diff --check` passed (only the existing CRLF normalization warning for `docs/development.md`). | No formatting or whitespace issue remains. |
+
+Browser QA is not applicable: this increment changes only Zig source scanning
+and build/test wiring, with no HTML, browser, or native UI surface. This closes
+only Task 1 of the bounded T0.2b static plan; SDK ABI probing, Lexilla
+comparison, CI/package aggregate wiring, PDFium reconstruction/equivalence,
+sealed-network evidence, worker/runtime closure, and final T0.2b admission
+remain open.
