@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const repro = @import("repro_check");
 
 test "repro preflight rejects incomplete or unsafe admission" {
@@ -115,4 +116,108 @@ test "two payload roots compare by complete canonical directory digest" {
     try std.testing.expectEqual(equal.left.digest, equal.right.digest);
     try right_tmp.dir.writeFile(std.testing.io, .{ .sub_path = "changed.txt", .data = "changed" });
     try std.testing.expectError(error.PayloadManifestMismatch, repro.comparePayloadRoots(allocator, std.testing.io, left_path, right_path));
+}
+
+test "payload root comparison rejects absolute roots with dot segments" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var temporary = std.testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer temporary.cleanup();
+    try temporary.dir.createDirPath(io, "payload");
+
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    var dotted_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const dotted = try std.fmt.bufPrint(
+        &dotted_buffer,
+        "{s}{c}.{c}payload",
+        .{ root, std.fs.path.sep, std.fs.path.sep },
+    );
+    try std.testing.expectError(
+        error.ReproRootUnsafe,
+        repro.comparePayloadRoots(allocator, io, dotted, root),
+    );
+
+    var parented_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const parented = try std.fmt.bufPrint(
+        &parented_buffer,
+        "{s}{c}..{c}{s}{c}payload",
+        .{ root, std.fs.path.sep, std.fs.path.sep, std.fs.path.basename(root), std.fs.path.sep },
+    );
+    try std.testing.expectError(
+        error.ReproRootUnsafe,
+        repro.comparePayloadRoots(allocator, io, parented, root),
+    );
+}
+
+test "payload root comparison rejects Windows rooted namespaces" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var temporary = std.testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer temporary.cleanup();
+    try temporary.dir.createDirPath(io, "payload");
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    const parsed = std.fs.path.parsePathWindows(u8, root);
+    if (parsed.kind != .drive_absolute) return error.SkipZigTest;
+
+    // A rooted path has no explicit drive. It may resolve against ambient
+    // drive state, so the payload boundary must refuse it before opening.
+    var rooted_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const rooted = try std.fmt.bufPrint(&rooted_buffer, "{s}", .{root[2..]});
+    try std.testing.expectError(
+        error.ReproRootUnsafe,
+        repro.comparePayloadRoots(allocator, io, rooted, root),
+    );
+}
+
+test "payload root comparison rejects an intermediate symlink" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+    var left_tmp = std.testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer left_tmp.cleanup();
+    var right_tmp = std.testing.tmpDir(.{ .iterate = true, .follow_symlinks = false });
+    defer right_tmp.cleanup();
+    try left_tmp.dir.createDirPath(io, "target/child");
+    try left_tmp.dir.writeFile(io, .{ .sub_path = "target/child/file.txt", .data = "same" });
+    try right_tmp.dir.writeFile(io, .{ .sub_path = "file.txt", .data = "same" });
+    left_tmp.dir.symLink(io, "target", "redirect", .{ .is_directory = true }) catch |err| {
+        if (isSymlinkEvidenceUnavailable(err)) {
+            std.debug.print("SymlinkEvidenceUnavailable: {s}\n", .{@errorName(err)});
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+
+    var left_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var right_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const left_path = left_path_buffer[0..try left_tmp.dir.realPath(io, &left_path_buffer)];
+    const right_path = right_path_buffer[0..try right_tmp.dir.realPath(io, &right_path_buffer)];
+    var redirected_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const redirected = try std.fmt.bufPrint(
+        &redirected_buffer,
+        "{s}{c}redirect{c}child",
+        .{ left_path, std.fs.path.sep, std.fs.path.sep },
+    );
+    try std.testing.expectError(
+        error.ReparsePoint,
+        repro.comparePayloadRoots(allocator, io, redirected, right_path),
+    );
+}
+
+fn isSymlinkEvidenceUnavailable(err: anyerror) bool {
+    return switch (err) {
+        error.AccessDenied,
+        error.PermissionDenied,
+        error.ReadOnlyFileSystem,
+        error.FileSystem,
+        error.SystemResources,
+        error.DiskQuota,
+        error.NoSpaceLeft,
+        error.Unexpected,
+        => true,
+        else => false,
+    };
 }

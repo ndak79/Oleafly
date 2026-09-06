@@ -6,6 +6,7 @@
 //! those boundaries explicit makes this tool safe to use as a prerequisite for
 //! the later PDFium/reconstruction work.
 const std = @import("std");
+const builtin = @import("builtin");
 const deps = @import("deps");
 
 pub const Target = enum {
@@ -231,16 +232,106 @@ pub fn comparePayloadRoots(
 
 fn openPayloadRoot(io: std.Io, path: []const u8) !std.Io.Dir {
     try validatePayloadRootPath(path);
-    var root = std.Io.Dir.openDirAbsolute(io, path, .{
-        .iterate = true,
-        .follow_symlinks = false,
-    }) catch |err| switch (err) {
+    var root = openPayloadRootNoFollow(io, path) catch |err| switch (err) {
         error.NotDir, error.FileNotFound => return error.RootNotDirectory,
         else => |e| return e,
     };
     errdefer root.close(io);
     if ((try root.stat(io)).kind != .directory) return error.RootNotDirectory;
     return root;
+}
+
+/// Open every root component with no-follow semantics. A single absolute
+/// open can still follow an intermediate junction/reparse point on Windows;
+/// walking from the drive/share or POSIX root makes the payload boundary
+/// explicit before recursive hashing starts.
+fn openPayloadRootNoFollow(io: std.Io, absolute_root: []const u8) !std.Io.Dir {
+    if (comptime builtin.os.tag == .windows) {
+        const parsed = std.fs.path.parsePathWindows(u8, absolute_root);
+        switch (parsed.kind) {
+            .drive_absolute, .unc_absolute => {
+                var current = std.Io.Dir.openDirAbsolute(io, parsed.root, .{
+                    .iterate = true,
+                    .follow_symlinks = false,
+                }) catch |err| switch (err) {
+                    error.NotDir, error.FileNotFound => return err,
+                    else => return error.ReparsePoint,
+                };
+                errdefer current.close(io);
+                try validatePayloadDirectory(current, io);
+                var index = parsed.root.len;
+                while (index < absolute_root.len) {
+                    while (index < absolute_root.len and std.fs.path.isSep(absolute_root[index])) index += 1;
+                    if (index == absolute_root.len) break;
+                    const start = index;
+                    while (index < absolute_root.len and !std.fs.path.isSep(absolute_root[index])) index += 1;
+                    const component = absolute_root[start..index];
+                    if (std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..")) {
+                        return error.ReproRootUnsafe;
+                    }
+                    var next = current.openDir(io, component, .{
+                        .iterate = true,
+                        .follow_symlinks = false,
+                    }) catch |err| switch (err) {
+                        error.NotDir, error.FileNotFound => return err,
+                        else => return error.ReparsePoint,
+                    };
+                    validatePayloadDirectory(next, io) catch |err| {
+                        next.close(io);
+                        return err;
+                    };
+                    current.close(io);
+                    current = next;
+                }
+                return current;
+            },
+            else => return error.ReproRootUnsafe,
+        }
+    } else {
+        const parsed = std.fs.path.parsePathPosix(absolute_root);
+        var current = std.Io.Dir.openDirAbsolute(io, parsed.root, .{
+            .iterate = true,
+            .follow_symlinks = false,
+        }) catch |err| switch (err) {
+            error.NotDir, error.FileNotFound => return err,
+            else => return error.ReparsePoint,
+        };
+        errdefer current.close(io);
+        try validatePayloadDirectory(current, io);
+        var index = parsed.root.len;
+        while (index < absolute_root.len) {
+            while (index < absolute_root.len and std.fs.path.isSep(absolute_root[index])) index += 1;
+            if (index == absolute_root.len) break;
+            const start = index;
+            while (index < absolute_root.len and !std.fs.path.isSep(absolute_root[index])) index += 1;
+            const component = absolute_root[start..index];
+            if (std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..")) {
+                return error.ReproRootUnsafe;
+            }
+            var next = current.openDir(io, component, .{
+                .iterate = true,
+                .follow_symlinks = false,
+            }) catch |err| switch (err) {
+                error.NotDir, error.FileNotFound => return err,
+                else => return error.ReparsePoint,
+            };
+            validatePayloadDirectory(next, io) catch |err| {
+                next.close(io);
+                return err;
+            };
+            current.close(io);
+            current = next;
+        }
+        return current;
+    }
+}
+
+fn validatePayloadDirectory(directory: std.Io.Dir, io: std.Io) !void {
+    return switch ((try directory.stat(io)).kind) {
+        .directory => {},
+        .sym_link, .unknown => error.ReparsePoint,
+        else => error.RootNotDirectory,
+    };
 }
 
 pub fn main(init: std.process.Init) !void {

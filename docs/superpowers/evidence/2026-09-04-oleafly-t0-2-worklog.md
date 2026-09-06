@@ -1847,3 +1847,54 @@ The follow-up review repaired and rechecked every finding from the first review
 intrinsic cross-role import deny-lists, parent-child HWND relation, x86_64
 runtime gating, explicit formatting coverage, and pending-plan status). The
 slice is CLEAN at `1/1`; commit `2dd0bdf9` is pushed to `origin/main`.
+
+### T0.2b reproducibility root boundary hardening (2026-09-06)
+
+This follow-up hardens the previously bounded reproducibility oracle at the
+filesystem boundary. `comparePayloadRoots` now walks every drive/share or POSIX
+root component with `follow_symlinks=false`, validates each opened directory,
+rejects dot-segment roots and unsupported Windows rooted namespaces, and maps
+intermediate junction/reparse failures to `ReparsePoint`. The added adversarial
+tests cover `.`/`..`, rooted namespace input, and an intermediate symlink. The
+symlink test is capability-gated and reports an explicit skip when this Windows
+host denies symlink creation.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows runtime matrix | `t0-2b-repro-test`: `6/7` passed with one explicit `SymlinkEvidenceUnavailable` skip in Debug, ReleaseSafe, and ReleaseFast. | Root traversal and hostile-path cases execute on the intended Windows target; the only skip is an OS permission limitation, not a passing fallback. |
+| Linux compile matrix | `t0-2b-repro-check`: `2/2` compile steps passed in Debug, ReleaseSafe, and ReleaseFast for `x86_64-linux-gnu`. | Linux remains compile-only; no Linux runtime claim is made. |
+| Impact matrix | Windows ReleaseSafe `t0-2c-models-test`: `56/56` build steps, `182` pass and `6` documented skips; Linux ReleaseSafe `t0-2c-models-check`: `31/31` compile steps. | Existing aggregate wiring remains green after the hardening. |
+| Static hygiene/review | `zig fmt --check` and `git diff --check` passed. A fresh read-only Luna max re-review found no Critical/High/Medium issue (`1/1`). | The correction streak is clean for this bounded slice. |
+
+Browser QA is not applicable: this is a native/CLI filesystem oracle with no
+HTML, browser, or UI surface. This slice still does not admit full T0.2b;
+independent PDFium reconstruction/equivalence, sealed-runner evidence,
+authenticated shipped payload closure, and final roadmap admission remain open.
+
+### T1.1c atomic save and external-change precondition (2026-09-06)
+
+The editor save boundary now validates an absolute, component-safe target and
+opens every parent component without following reparse points. It acquires a
+nonblocking exclusive lock on the existing target before hashing, reads through
+that locked no-follow handle, keeps the guard through staging and replacement,
+and rechecks target identity immediately before rename. Same-directory
+exclusive staging, `File.sync`, verified post-replacement hashing, and an
+independently synced recovery copy make uncertainty recoverable. Windows path
+validation rejects ADS/device syntax, invalid namespace characters, and
+reserved/trailing-dot-space names. Tests cover stale bases, dot segments,
+intermediate symlinks, ADS/device paths, lock contention, rename failure before
+and after consuming the staged name, and post-replacement tamper.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows runtime | `t1-1c-atomic-save-test`: `8/10` passed with two explicit symlink-permission skips in Debug and ReleaseSafe. | Save success, external-change refusal, lock guard, recovery ownership, path boundary, and post-write verification execute on Windows. |
+| Windows target compile | `t1-1c-atomic-save-check`: ReleaseFast compile passed. | Fast Windows target remains portable. |
+| Linux target compile | `t1-1c-atomic-save-check`: Debug and ReleaseSafe compile passed; ReleaseFast compile-only was also green in the pre-lock matrix. | Linux is compile-only on this Windows host; no runtime claim is made. |
+| Product/aggregate impact | Windows ReleaseSafe `t0-2c-product-build`: `11/11` steps; the current `t0-2c-models-test` aggregate is `56/56` steps with `182` pass and `6` documented skips; Linux ReleaseSafe aggregate is `31/31` compile steps. | T1.1c wiring does not regress the existing product build or model aggregate. |
+| Review repair and final gate | The first independent review identified a High TOCTOU gap and a Medium ADS/device-name gap. The implementation added the exclusive guard/locked-handle hash and Windows path validator plus tests. A fresh Luna max re-review is CLEAN (`1/1`) with no remaining Critical/High/Medium issue. | The initial finding reset the streak to `0/1`; the repaired slice now has one clean final pass. |
+| Static hygiene | `zig fmt --check` and `git diff --check` passed. | No formatting or whitespace regression. |
+
+Browser QA is not applicable: this is a native filesystem boundary and does
+not expose a browser-visible surface. The caller remains responsible for
+selecting a target from its validated workspace model; this module does not
+infer authorization from an arbitrary path string.
