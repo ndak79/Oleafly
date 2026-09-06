@@ -1902,3 +1902,35 @@ selecting a target from its validated workspace model; this module does not
 infer authorization from an arbitrary path string.
 Implementation commit `6d3a59e3` (`feat(editor): add atomic save boundary`) is
 pushed to `origin/main`.
+
+### T1.1b editor-buffer closure verification (2026-09-06)
+
+The T1.1b implementation from `c2bbf9bb` was rechecked as a bounded closure
+lane. No source defect was found, so this closure changes only the plan status
+and evidence record. The unrelated user-owned
+`docs/superpowers/plans/2026-09-05-texflow-t1-1c-atomic-save.md` remains
+untracked and untouched.
+
+| Exact command | Observed result | Interpretation |
+| --- | --- | --- |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t1-1b-editor-buffer-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all` | Exit 0; `3/3` steps; `6/6` tests passed. | Windows Debug covers BOM/CRLF identity, piece-table edits, contiguous/stale/skipped sequences, invalid UTF-8/ranges, lazy hash refresh, save-hash gating, sticky states, and reference-model boundaries. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t1-1b-editor-buffer-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all` | Exit 0; `3/3` steps; `6/6` tests passed. | Safe optimization preserves the same editor-buffer behavior. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t1-1b-editor-buffer-check -Dtarget=x86_64-linux -Doptimize=Debug --summary all` | Exit 0; `2/2` compile steps succeeded (cached). | Linux Debug portability is green; the binary was not executed on this Windows host. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t1-1b-editor-buffer-check -Dtarget=x86_64-linux -Doptimize=ReleaseSafe --summary all` | Exit 0; `2/2` compile steps succeeded. | Linux ReleaseSafe portability is green; runtime remains unclaimed. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t1-1b-editor-buffer-check -Dtarget=x86_64-linux -Doptimize=ReleaseFast --summary all` | Exit 0; `2/2` compile steps succeeded. | Linux ReleaseFast portability is green; runtime remains unclaimed. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t0-2c-models-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all` | Exit 0; `56/56` build steps; `182/188` tests passed with `6` documented skips. | The T1.1b edge remains green in the Windows model aggregate. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t0-2c-models-check -Dtarget=x86_64-linux -Doptimize=Debug --summary all` | Exit 0; `31/31` compile steps succeeded. | The Linux model aggregate remains portable; no Linux runtime claim is made. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe build t0-2c-product-build -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all` | Exit 0; `11/11` build steps succeeded. | The Windows product build remains green at the admitted safe optimization level. |
+| `tools/zig/.cache/toolchain-0.16.0/zig.exe fmt --check build.zig build.zig.zon native/zig tools/zig`; `git diff --check` | Both exit 0; no formatter or whitespace diagnostics. | Static hygiene is clean. |
+
+The source review rechecked range arithmetic and descriptor merging, exact
+sequence rejection before mutation, BOM/newline round-trip, lazy current-hash
+invalidation, sticky conflicted/missing states, and allocator cleanup. Failed
+edits build replacement descriptors before swapping, restore the append-only
+added-byte length through `errdefer`, and append journal metadata before the
+swap; `deinit` releases journal, descriptor, inserted-byte, original, and path
+storage. No Medium+ finding remains. GitNexus was refreshed to commit
+`f69755b`; its Zig symbol index does not resolve `Buffer`, so direct build-graph
+and `rg` inspection remain the impact evidence for this Zig-only module. Browser
+QA is not applicable to this portable native value. The T1.1b closure is clean
+at `1/1`; this evidence is recorded in the closure commit.

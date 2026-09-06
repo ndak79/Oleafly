@@ -128,7 +128,7 @@ Run Windows `t0-2c-models-test`, Linux `t0-2c-models-check`, and Windows
 sequence atomicity, BOM/newline round-trip, hash invalidation, and all error
 cleanup. Browser QA is not applicable because this is a portable native model.
 
-### [ ] Step 6 — Commit and push
+### [x] Step 6 — Commit and push
 
 Append evidence, commit as `feat(editor): add revisioned piece-table buffer`,
 and push `origin/main` only after the review finds no Medium+ issue. Quality
