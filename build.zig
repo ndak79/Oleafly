@@ -213,6 +213,31 @@ pub fn build(b: *std.Build) void {
     source_boundary_tree.dependOn(&run_source_boundary_tool.step);
     windows_argv_step.dependOn(&run_source_boundary_tests.step);
 
+    const windows_api_contract_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/windows_api_contract_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = target.result.os.tag == .windows,
+        }),
+    });
+    windows_api_contract_tests.root_module.addImport("windows_api", windows_api_module);
+    if (target.result.os.tag == .windows) {
+        windows_api_contract_tests.root_module.addCSourceFile(.{
+            .file = b.path("native/zig/tests/windows_sdk_abi_probe.c"),
+            .flags = &.{"-std=c11"},
+        });
+    }
+    const run_windows_api_contract_tests = b.addRunArtifact(windows_api_contract_tests);
+    const windows_api_contract_test = b.step("t0-2b-api-contract-test", "Run the Windows SDK DXGI/DWM/WIC facade contract");
+    if (target.result.os.tag == .windows) {
+        windows_api_contract_test.dependOn(&run_windows_api_contract_tests.step);
+    } else {
+        windows_api_contract_test.dependOn(&windows_api_contract_tests.step);
+    }
+    const windows_api_contract_check = b.step("t0-2b-api-contract-check", "Compile the Windows SDK facade contract for the selected target");
+    windows_api_contract_check.dependOn(&windows_api_contract_tests.step);
+
     // T0.2c pure app-model contracts. These modules are deliberately kept
     // separate from the product/UI graph so Linux can compile and exercise
     // the deterministic state machines without any Windows dependencies.

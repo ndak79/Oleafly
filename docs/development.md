@@ -146,6 +146,44 @@ symlink runtime check. This scanner closes only the static source-boundary
 slice. PDFium reconstruction/equivalence, sealed-network proof, worker/runtime
 closure, and the remaining T0.2b admission gates remain open.
 
+### T0.2b Windows SDK ABI contract
+
+`native/zig/src/platform/windows/api.zig` is the only product-facing boundary
+for the generated Windows declarations. The ABI contract exposes only the
+DXGI common enums/interfaces, DWM attribute types, the single
+`DwmGetWindowAttribute` entry point, and the WIC imaging declarations needed by
+the later capture/publishing adapters. WIC activation remains through the
+existing `ole32.CoCreateInstance` facade; no imaging DLL export is added.
+
+`native/zig/tests/windows_sdk_abi_probe.c` is a test-only cross-language probe
+compiled on Windows. It uses the installed SDK headers to assert the x64
+pointer-sized COM layouts, vtable offsets, enum values, and GUID fields, then
+the Zig test compares those values with the generated declarations and checks
+the exact Windows calling-convention function types, including every parameter
+and return type. It also anchors `D3D11_SDK_VERSION`, the BGRA creation flag,
+the `ID3D11Device` layout/`CreateBuffer` slot, and the complete
+`IID_ID3D11Device`. Every probed GUID compares all 16 bytes. The probe provides the
+SDK-declared `IID_IWICImagingFactory` value locally because the C header keeps
+that interface IID as an external declaration; this does not change the
+shipping API or link graph.
+
+Focused evidence commands are:
+
+```
+zig build t0-2b-api-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all -j1
+zig build t0-2b-api-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all -j1
+zig build t0-2b-api-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseFast --summary all -j1
+zig build t0-2b-api-contract-check -Dtarget=x86_64-linux-gnu -Doptimize=Debug --summary all -j1
+zig build t0-2b-api-contract-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all -j1
+zig build t0-2b-api-contract-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseFast --summary all -j1
+```
+
+Windows runs execute the C probe and the Zig assertions (`2/2` tests in each
+mode). Linux lanes compile the declaration-only test and intentionally do not
+claim Windows SDK runtime evidence. This closes only T0.2b Task 2; Lexilla,
+package/CI aggregation, PDFium reconstruction/equivalence, sealed-network
+proof, worker/runtime closure, and final T0.2b admission remain open.
+
 ## Native dependency workflow (T0.2a)
 
 The T0.2a dependency lock is `tools/zig/native-deps.json`. These are the stable

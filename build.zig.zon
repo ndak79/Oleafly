@@ -21,6 +21,8 @@
         "native/zig/tests/theme_layout_test.zig",
         "native/zig/tests/strings_test.zig",
         "native/zig/tests/source_boundary_test.zig",
+        "native/zig/tests/windows_api_contract_test.zig",
+        "native/zig/tests/windows_sdk_abi_probe.c",
         "native/zig/tests/presenter_state_test.zig",
         "native/zig/tests/graphics_device_test.zig",
         "native/zig/tests/presenter_native_test.zig",

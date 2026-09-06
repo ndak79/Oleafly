@@ -11,9 +11,12 @@ const zigwin32 = if (bound) @import("zigwin32") else struct {};
 pub const d3d11 = if (bound) zigwin32.graphics.direct3d11 else struct {};
 pub const direct3d = if (bound) zigwin32.graphics.direct3d else struct {};
 pub const dxgi = if (bound) zigwin32.graphics.dxgi else struct {};
+pub const dxgi_common = if (bound) zigwin32.graphics.dxgi.common else struct {};
 pub const direct2d = if (bound) zigwin32.graphics.direct2d else struct {};
 pub const direct2d_common = if (bound) zigwin32.graphics.direct2d.common else struct {};
 pub const direct_write = if (bound) zigwin32.graphics.direct_write else struct {};
+pub const dwm = if (bound) zigwin32.graphics.dwm else struct {};
+pub const imaging = if (bound) zigwin32.graphics.imaging else struct {};
 pub const accessibility = if (bound) zigwin32.ui.accessibility else struct {};
 pub const foundation = if (bound) zigwin32.foundation else struct {};
 pub const com = if (bound) zigwin32.system.com else struct {};
@@ -30,6 +33,9 @@ pub const ole32_dll = if (bound) struct {
 } else struct {};
 pub const oleaut32_dll = if (bound) struct {
     pub const SysFreeString = zigwin32.oleaut32.SysFreeString;
+} else struct {};
+pub const dwmapi = if (bound) struct {
+    pub const DwmGetWindowAttribute = zigwin32.dwmapi.DwmGetWindowAttribute;
 } else struct {};
 // Keep the composition thread-affinity probe separate from the presenter
 // wait facade. Each native adapter gets only the one kernel32 symbol it

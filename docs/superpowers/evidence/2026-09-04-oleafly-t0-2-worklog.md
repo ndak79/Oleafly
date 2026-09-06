@@ -1631,3 +1631,26 @@ only Task 1 of the bounded T0.2b static plan; SDK ABI probing, Lexilla
 comparison, CI/package aggregate wiring, PDFium reconstruction/equivalence,
 sealed-network evidence, worker/runtime closure, and final T0.2b admission
 remain open.
+
+## T0.2b Windows SDK ABI contract (2026-09-06)
+
+This increment locks the narrow generated-declaration boundary needed by the
+future capture and publishing adapters. The facade adds `dxgi_common`,
+`imaging`, `dwm`, and a one-function `dwmapi` struct while retaining WIC
+activation through the existing `ole32.CoCreateInstance` alias. No imaging DLL
+entry point is exposed and the SDK probe is test-only.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED sequence | The first C probe failed because the Windows headers were not linked into the test target; enabling `link_libc` on Windows exposed the real SDK. The next probe caught the incorrect `IDXGIOutput5.DuplicateOutput1` slot (`27` vs SDK `26`). A link run then caught the header's external-only `IID_IWICImagingFactory`; the probe now defines the SDK-declared value locally. The initial Zig assertion run failed `2/2` with missing aliases before the facade was implemented. After review found missing GUID tail/D3D11/type oracles, the strengthened test failed at link with 13 intentionally absent probe symbols before those exports were added. | Each boundary defect was observed before the corresponding implementation repair; no assertion was weakened to hide a mismatch. |
+| Windows ABI matrix | `t0-2b-api-contract-test` passed `2/2` in Debug, ReleaseSafe, and ReleaseFast for `x86_64-windows-msvc`. | The C SDK probe and Zig declarations agree on x64 COM pointer layouts, vtable slots, complete GUIDs, enum values, Windows calling conventions, and exact function signatures. |
+| Linux portability | `t0-2b-api-contract-check` compiled successfully in Debug, ReleaseSafe, and ReleaseFast for `x86_64-linux-gnu`. | Linux is compile-only; no Windows SDK runtime claim is made. |
+| Probe scope | The C probe includes `d3d11.h`, `dxgi1_5.h`, `dwmapi.h`, and `wincodec.h`; it asserts `D3D11_SDK_VERSION == 7`, the BGRA creation flag, `ID3D11Device` size/`CreateBuffer` slot, `IDXGIOutput5` slot 26, `IWICImagingFactory.CreateEncoder` slot 8, `IWICBitmapEncoder.Initialize` slot 3, x64 pointer-sized interfaces, `DXGI_FORMAT_B8G8R8A8_UNORM`, `DWMWA_EXTENDED_FRAME_BOUNDS`, and every byte of the DXGI/WIC/D3D11 GUIDs. The Zig side additionally compares exact function signatures and requires the `api.d3d11` alias. | The contract is cross-language and SDK-anchored instead of self-referential against generated Zig declarations alone. |
+| Regression/hygiene | `zig fmt` and `git diff --check` passed after the final repair. | No formatting or whitespace regression was introduced. |
+| Review repair | The independent Luna review found three Important gaps: only half of each GUID tail was compared, the function checks did not constrain parameter/return types, and `d3d11.h` was included without a D3D11 SDK oracle. The repair exports/compares both `Data4` words for every GUID, exact function pointer types, D3D11 SDK/flag/device slot/device IID facts, and the `api.d3d11` alias. The strengthened Windows Debug rerun passed `2/2`; the full Windows/Linux matrix below was then rerun. | The review findings reset the correction streak to `0/1`; the fresh independent final review is now `CLEAN`, with no Important/Medium+ issue remaining. The primary matrix is the execution evidence; the reviewer’s own local Zig execution was unavailable in its environment. |
+
+Browser QA is not applicable: this increment changes only native Zig facade
+aliases and a Windows SDK ABI test; there is no HTML, browser, or native UI
+surface to exercise. This closes only T0.2b Task 2. Lexilla comparison,
+package/CI aggregate wiring, PDFium reconstruction/equivalence, sealed-network
+evidence, worker/runtime closure, and final T0.2b admission remain open.

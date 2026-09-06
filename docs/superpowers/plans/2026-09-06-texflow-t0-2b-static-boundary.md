@@ -64,15 +64,15 @@ Files:
 - Modify build.zig near the windows_api module
 - Modify build.zig.zon to include both new test files and the C probe
 
-- [ ] Step 1: Add assertion-level RED tests and the cross-language probe.
+- [x] Step 1: Add assertion-level RED tests and the cross-language probe.
 
-The Zig test requires IDXGIOutput5, IID_IDXGIOutput5, IDXGIOutputDuplication, DXGI_FORMAT_B8G8R8A8_UNORM from api.dxgi_common, DWMWA_EXTENDED_FRAME_BOUNDS from api.dwm, DwmGetWindowAttribute from api.dwmapi, IWICImagingFactory, IID_IWICImagingFactory, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA, and the WIC encoder interface/methods from api.imaging. It asserts exact pointer-sized extern-union layouts and callconv(.winapi) function types. The C probe includes d3d11.h, dxgi1_5.h, dwmapi.h, and wincodec.h; it uses _Static_assert for x64 sizeof/offsetof values and exports C functions returning the SDK's GUID fields and vtable offsets. The Zig test compares those returned values with the generated declarations. Add the test/build step before aliases so the first run fails an assertion, not step discovery.
+The Zig test requires IDXGIOutput5, IID_IDXGIOutput5, IDXGIOutputDuplication, DXGI_FORMAT_B8G8R8A8_UNORM from api.dxgi_common, DWMWA_EXTENDED_FRAME_BOUNDS from api.dwm, DwmGetWindowAttribute from api.dwmapi, IWICImagingFactory, IID_IWICImagingFactory, GUID_ContainerFormatPng, GUID_WICPixelFormat32bppBGRA, and the WIC encoder interface/methods from api.imaging. It also asserts the api.d3d11 facade, D3D11_SDK_VERSION, D3D11_CREATE_DEVICE_BGRA_SUPPORT, ID3D11Device layout/CreateBuffer slot, and IID_ID3D11Device. It asserts exact pointer-sized extern-union layouts, complete 16-byte GUIDs, and exact callconv(.winapi) function types including every parameter and return type. The C probe includes d3d11.h, dxgi1_5.h, dwmapi.h, and wincodec.h; it uses _Static_assert for x64 sizeof/offsetof/constants and exports C functions returning the SDK's GUID fields and vtable offsets. The Zig test compares those returned values with the generated declarations. Add the test/build step before aliases so the first run fails an assertion, not step discovery.
 
-- [ ] Step 2: Implement the narrow aliases.
+- [x] Step 2: Implement the narrow aliases.
 
 Expose dxgi_common as zigwin32.graphics.dxgi.common, imaging as zigwin32.graphics.imaging, dwm as zigwin32.graphics.dwm, and dwmapi as a one-function struct containing zigwin32.dwmapi.DwmGetWindowAttribute. Keep existing ole32.CoCreateInstance for the WIC factory; do not invent an imaging DLL export. Keep the C probe conditional on target.result.os.tag == .windows; Linux compiles only the Zig declaration-only test.
 
-- [ ] Step 3: Run Windows and Linux evidence.
+- [x] Step 3: Run Windows and Linux evidence.
 
     & $zig build t0-2b-api-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug
     & $zig build t0-2b-api-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe
@@ -83,9 +83,9 @@ Expose dxgi_common as zigwin32.graphics.dxgi.common, imaging as zigwin32.graphic
 
 The Linux commands are compile-only and must not claim Windows SDK runtime evidence.
 
-- [ ] Step 4: Commit.
+- [x] Step 4: Commit.
 
-    git add native/zig/src/platform/windows/api.zig native/zig/tests/windows_sdk_abi_probe.c native/zig/tests/windows_api_contract_test.zig build.zig build.zig.zon
+    git add native/zig/src/platform/windows/api.zig native/zig/tests/windows_sdk_abi_probe.c native/zig/tests/windows_api_contract_test.zig build.zig build.zig.zon docs/development.md docs/superpowers/evidence/2026-09-04-oleafly-t0-2-worklog.md docs/superpowers/plans/2026-09-06-texflow-t0-2b-static-boundary.md
     git commit -m "test(native): lock DXGI DWM WIC facade ABI"
 
 ### Task 3: Build and fence the Lexilla comparator
