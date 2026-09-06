@@ -194,7 +194,14 @@ pub const NativeWindowState = struct {
     pub fn apply(self: *NativeWindowState, event: WindowStateEvent) bool {
         var request_frame = true;
         switch (event) {
-            .paint => self.invalidate(),
+            .paint => {
+                // WM_PAINT is an OS visibility hint after DXGI reported
+                // occlusion.  It may retry a covered window once it becomes
+                // invalidated, but never overrides an explicit hidden or
+                // minimized state and never creates a timer-driven wake.
+                if (!self.hidden and self.visibility == .occluded) self.visibility = .visible;
+                self.invalidate();
+            },
             .resize => {
                 if (!self.hidden and self.visibility == .minimized) self.visibility = .visible;
                 self.invalidate();
