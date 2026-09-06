@@ -1966,3 +1966,58 @@ seam`), `c5e7df27` (`fix(native): preserve hidden state across resume`), and
 no HTML surface. This slice does not admit full T0.2c; authoritative DWM-visible
 capture, WIC round-trip, WPR/WPA/PresentMon evidence, physical DPI/occlusion/
 device-loss campaigns, and final T0.2c admission remain open.
+
+### T0.2a residual gate closure audit (2026-09-06)
+
+This bounded follow-up closes the locally observable source-delivery,
+standalone Unicode, cache-boundary, and evidence-copy contracts. It does not
+turn local evidence into remote CI, detached-NIC/network-none, durable-media,
+or independent PDFium reconstruction evidence.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Source-package contract | `native/zig/tests/deps_manifest_test.zig` now asserts that every T0.2a fetch/audit input is present in `build.zig.zon` and that cache, raw/generated evidence, archive, and UCD archive roots are absent. Debug and ReleaseSafe `deps-manifest-test` both passed `18/18`. | The package allowlist has a direct positive/negative oracle for source delivery. |
+| Fresh-clone delivery | A no-network local clone at `C:\Users\Ba Gau\AppData\Local\Temp\TExFlow-fresh-clone-t02a-20260906-221248` was clean on `main`, commit `4114db4d99c647e73f160aab9076791a95506592`, tree `0523008feef25a0cad17ff796eb8e0710e067fb2`. Its help exposed all four T0.2a steps; `--fetch=all` completed; ReleaseSafe manifest/dependency runs passed `17/17` and `152/152`. | This proves the committed source tree is self-delivering locally. It is not a remote checkout or hosted CI receipt, and it predates the new uncommitted assertion. |
+| Dependency suite | Debug `deps-test` passed `18/18` steps and `153/153` tests. ReleaseSafe first had one transient fixture `AccessDenied` at `old=true, fail-index=134` (`152/153`), then an immediate rerun passed `18/18` and `153/153`; no source change was made for the anomaly. | The final rerun is green, but the one-off Windows allocation-campaign flake remains recorded rather than hidden. |
+| Standalone Unicode | Debug and ReleaseSafe `unicode-audit` each passed `12/12` steps and `44/44` tests. The isolated fresh-cache receipt was Unicode `17.0.0`, source bytes `569788`, SHA-256 `f343f9e87a0c575b06eb11515bdb5576b6549a5b2b694896d8e78a72976a035d`; receipt-file SHA-256 was `CE01A42EBD45D8D033EEB7FA9D4CC4FE604C300625337C1A1A1E67023486E87C`. | Standalone Unicode evidence is repeatable locally and cache-only. |
+| Offline dependency audit | Debug and ReleaseSafe `deps-audit` each passed `25/25` steps and `45/45` tests. | Locked cache, Unicode, and committed attestation inputs are locally revalidated; network isolation is not claimed. |
+| Cache/ACL inspection | `tools/zig/.cache/native-deps` and `.v2` retain protected current-owner full-control ACLs. All ten active generation roots reported the expected current-owner `OWNER RIGHTS` read/execute grant. | This is direct local Windows ACL evidence for the sampled active roots; the contract tests remain the authoritative recursive/transition oracle. |
+| Durable-copy contract | Host-native Windows `t0-2g-bench-test` passed `14/16` tests with explicit symlink and hard-link capability skips in Debug and ReleaseSafe. Windows-MSVC ReleaseSafe `t0-2g-bench-test` executed the same fixture lane; Linux ReleaseSafe `t0-2g-bench-check` compiled successfully. | Content-addressed manifests, immutable/no-overwrite copies, no-follow parents, tamper detection, same-handle mutation checks, and distinct file-identity checks are covered. Independent physical media and retention receipts remain unverified. |
+| Remote/CI inventory | `.github/workflows/zig.yml` (SHA-256 `4651138f2c6b29f0fd1e8757dcba39bae7c05c99`) has Windows and Linux jobs with verified Zig bootstrap, networked `deps-fetch`, cache-only `deps-test`, and later target gates. Neither job currently invokes standalone `unicode-audit` or `deps-audit`. | No hosted run/job identifiers are present in this checkout; static workflow inspection is not remote execution evidence. |
+
+No Medium-or-higher source finding was introduced by this bounded change. The
+one transient ReleaseSafe `AccessDenied` allocation-campaign result is an
+environmental flake observed once and cleared on the immediate rerun; it is
+kept visible for follow-up. At the time of this residual audit no commit or
+push had been made; the later bounded-closure commit records the implementation
+and final aggregate. The exact unresolved statuses remain
+`UNVERIFIED-REMOTE-CI-RUN-IDS`, `UNVERIFIED-NETWORK-ISOLATION`,
+`UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`.
+
+### T0.2a/T0.2b bounded closure — benchmark, capture, and identity repair (2026-09-06)
+
+This closure records the local implementation boundary only. It does not claim
+that local fixtures are physical WPR/WPA/PresentMon measurements, that a
+detached-NIC runner was used, or that PDFium was independently reconstructed
+and equivalence-tested.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Benchmark fixture runtime | `t0-2g-bench-test -Dtarget=x86_64-windows-msvc` passed `14/16` tests in Debug, ReleaseSafe, and ReleaseFast. The two skips are explicit symlink/reparse and hard-link capability skips from this host. | Strict payload parsing, CSV schemas, cross-source trial/PID/adapter/QPC correlation, canonical 54-row matrix, evidence manifest, no-overwrite commit, and identity checks execute on the native x86_64 Windows host. The two adversarial runtime checks remain unverified because the host denies the required filesystem capabilities. |
+| Capture fixture runtime | `t0-2c-capture-contract-test -Dtarget=x86_64-windows-msvc` passed `8/8` in Debug, ReleaseSafe, and ReleaseFast. | Frame layout, crop/DPI, nonzero QPC/deadline, stale marker, generation, protected-content, bounded wait, fixture digest, and metadata validation are covered; no DXGI/WIC/DWM physical capture claim is made. |
+| Cross-target compile gates | Linux `t0-2g-bench-check` and `t0-2c-capture-contract-check` passed; `aarch64-windows-msvc` benchmark/capture invocations passed compile-only gates. | Runtime execution is limited to an x86_64 Windows host/target pair; ABI equality is not falsely required for the Windows PE fixture lane. |
+| T0.2b static aggregate | `t0-2b-static -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe`: `56/56` steps succeeded, `111/117` tests passed, six documented capability skips. | Static source boundary, package, argv, SDK facade, Lexilla, reproducibility, PE, PDFium receipt schema, Scintilla lifecycle/native-probe contracts remain green. This is still bounded static/contract evidence, not full worker/PDFium shipping admission. |
+| Aggregate/product portability | Windows ReleaseSafe model aggregate: `64/64` steps, `207/215` tests passed, eight documented capability skips; product build `11/11`; Linux ReleaseSafe model compile graph `35/35`. | No cross-module regression was introduced by the T0.2a/b closure slice; the added filesystem identity adversary is explicitly skipped when this host denies the required capability. |
+| Dependency/Unicode gates | ReleaseSafe `deps-manifest-test` `18/18`, `deps-test` `153/153`, `unicode-audit` `44/44`, and `deps-audit` `45/45`. | Local source-delivery, locked-cache, Unicode, attestation, and audit contracts are green. The adversarial transport logs remain visible; network isolation is explicitly not claimed. |
+| Review streak | First review of this slice found nine Medium+ issues; repairs added architecture-aware runtime gates, corrected matrix cell semantics, marker-QPC rejection, no-replace rename, path/device validation, and same-handle hard-link/mutation identity checks. A fresh Luna max review then returned CLEAN with no Medium+ issue. | Quality streak was reset to `0/1` by the findings and is now `1/1`. |
+| Static hygiene | `zig fmt --check` and `git diff --check` passed. | No formatting or whitespace regression. |
+
+Browser QA is not applicable: these are native Zig/CLI contracts with no
+browser-visible surface. The remaining admission statuses are
+`UNVERIFIED-REMOTE-CI-RUN-IDS`, `UNVERIFIED-NETWORK-ISOLATION`,
+`UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`. T0.2a and T0.2b therefore
+have a clean bounded local implementation, but full external admission remains
+open until the qualified runner, receipts, SDK/toolchain, and independent
+PDFium reconstruction evidence exist.

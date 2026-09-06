@@ -220,14 +220,49 @@ The comparator is not installed, linked into `TExFlow.exe`, loaded at runtime,
 or reachable from the dependency worker; the contract also records positive
 library→snapshot/probe/source-root edges and negative product/install/worker/
 loader edges. `t0-2b-static` is the target-aware aggregate: it always runs
-the host tree scan, runs Windows contracts when targeting Windows, and uses
-compile-only checks (including `t0-2b-package-check`) for Linux targets. The
+the host tree scan, executes Windows runtime contracts only for an x86_64
+Windows target on an x86_64 Windows host, and uses compile-only checks
+(including `t0-2b-package-check`) for other targets. The
 workflow runs the source-boundary, argv, SDK, and Lexilla steps in
 Debug/ReleaseSafe/ReleaseFast, then runs the package oracle and aggregate in
 ReleaseSafe with `--summary all -j1` and a 45-minute job timeout. Browser QA is
 not applicable to this native/CLI-only contract;
 Scintilla UI probing, recursive worker PE closure, PDFium reconstruction,
 sealed-network evidence, and final T0.2b admission remain later work.
+
+### T0.2g fixture benchmark and capture contracts
+
+The fixture-only benchmark lane is deliberately separate from physical
+measurement. `native/zig/src/bench/` freezes the telemetry payload, strict
+PresentMon/WPA-like CSV schemas, cross-source trial/PID/adapter/QPC
+correlation, a deterministic 54-row campaign matrix, and content-addressed
+evidence-copy checks. The capture module under
+`native/zig/src/platform/windows/capture_contract.zig` freezes frame-layout,
+crop/DPI, bounded-wait, stale-QPC, protected-content, and duplication-generation
+admission rules. Neither module starts WPR/WPA/PresentMon, opens DXGI Desktop
+Duplication, decodes WIC, or claims a physical display/energy result.
+
+On this native x86_64 Windows host, the fixture runtime gate follows the
+Scintilla host-run rule: host and selected target must both be Windows x86_64,
+but their Zig ABIs may differ. Thus an `x86_64-windows-msvc` test binary runs
+as a native Windows process on this host's GNU ABI. This is runtime evidence
+for the selected target binary, not a claim that the host uses the MSVC CRT or
+that MSVC-host ABI equivalence was tested. Cross-target, non-Windows, and
+non-x86_64 targets compile the same contracts only:
+
+```
+zig build t0-2g-bench-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all
+zig build t0-2g-bench-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all
+zig build t0-2g-bench-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all
+zig build t0-2c-capture-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all
+zig build t0-2c-capture-contract-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all
+zig build t0-2c-capture-contract-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe --summary all
+```
+
+The symlink/reparse adversary is skipped only when the host denies symlink
+creation; that skip is not evidence of a clean reparse runtime check. Browser
+QA is not applicable to these native/CLI contracts, and this lane does not
+close T0.2c capture or T0.2g physical-matrix admission.
 
 ## Native dependency workflow (T0.2a)
 
@@ -360,6 +395,51 @@ disable a developer workstation's adapter or firewall to manufacture this
 evidence. When no qualifying runner and receipt are available, record the exact
 status `UNVERIFIED-NETWORK-ISOLATION`; a successful local audit must not be
 reported as an offline pass.
+
+### T0.2a local delivery and remote-evidence inventory (2026-09-06)
+
+The local source-delivery proof was repeated from a no-network clone at
+`C:\Users\Ba Gau\AppData\Local\Temp\TExFlow-fresh-clone-t02a-20260906-221248`.
+The clone was clean on `main` at commit
+`4114db4d99c647e73f160aab9076791a95506592` (tree
+`0523008feef25a0cad17ff796eb8e0710e067fb2`). Its build help exposed
+`deps-manifest-test`, `deps-test`, `unicode-audit`, and `deps-audit`; `--fetch=all`
+completed, and ReleaseSafe `deps-manifest-test` and `deps-test` passed `17/17`
+and `152/152` tests respectively. This is local source-delivery evidence, not
+remote CI evidence.
+
+The standalone Unicode lane was rerun with fresh isolated Zig cache and global
+cache roots. Debug and ReleaseSafe both passed `12/12` steps and `44/44`
+tests. The generated receipt remained `unicode-version=17.0.0`,
+`source-bytes=569788`, SHA-256
+`f343f9e87a0c575b06eb11515bdb5576b6549a5b2b694896d8e78a72976a035d`.
+
+The active native-dependency cache was inspected without mutation. The root
+and `.v2` directory carry the protected current-owner full-control grant; all
+ten active generation roots reported the expected current-owner
+`OWNER RIGHTS` read/execute grant. The cache is still treated as an opaque
+root and the source package test asserts that every T0.2a fetch/audit input is
+listed while cache, raw-evidence, generated-evidence, and archive roots are
+absent. The bounded evidence-copy contract also passed its Windows Debug and
+ReleaseSafe fixture tests and its Linux ReleaseSafe compile check; this proves
+hashing, immutable copies, no-follow parents, and distinct-file-identity
+checks (including no-overwrite and hard-link rejection) only, not independent
+physical retention.
+
+The committed workflow inventory (`.github/workflows/zig.yml`, SHA-256
+`4651138f2c6b29f0fd1e8757dcba39bae7c05c99`) is:
+
+- `zig-windows`: verified Zig bootstrap, networked `deps-fetch`, cache-only
+  `deps-test`, then Debug/ReleaseSafe native tests and later T0.2b/T0.2c gates.
+- `zig-linux`: verified Zig bootstrap, networked `deps-fetch`, cache-only
+  `deps-test`, then Linux compile/runtime-appropriate checks.
+
+Neither workflow currently records standalone `unicode-audit` or `deps-audit`
+steps, and no hosted run/job identifiers are available in this local checkout.
+Therefore the following remain explicit statuses: `UNVERIFIED-REMOTE-CI-RUN-IDS`,
+`UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`. Do not promote these statuses
+from a local passing audit or a static workflow inventory.
 
 ## First run
 
