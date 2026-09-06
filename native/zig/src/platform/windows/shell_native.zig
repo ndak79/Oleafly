@@ -2,8 +2,8 @@
 //! DWORD/BOOL/HRESULT and callback ABI; no generated "everything" binding.
 //! Entry-time DLL policy governs subsequent loads, not the OS's pre-entry image
 //! loader. Resource and manifest identity are supplied by the product build;
-//! this adapter owns only the first native render bridge, not worker, database
-//! or network seams.
+//! this adapter owns the first native render bridge and shell chrome, not
+//! worker, database, or network seams.
 const std = @import("std");
 const shell = @import("windows_shell");
 const com = @import("windows_com");
@@ -13,6 +13,7 @@ const layout = @import("app_layout");
 const strings = @import("app_strings");
 const telemetry = @import("windows_telemetry");
 const graphics = @import("graphics");
+const composition = @import("composition_native");
 const presenter = @import("presenter_native");
 const presenter_config = @import("presenter_config");
 
@@ -133,6 +134,34 @@ const FrameAttempt = enum {
     failed,
 };
 
+/// A complete device-dependent frame graph. The candidate is only moved into
+/// Backend after every D3D11, DXGI, back-buffer, and D2D/DWrite step succeeds;
+/// this makes hardware-to-WARP fallback cover composition initialization too.
+const FrameResources = struct {
+    device: graphics.Device,
+    swap_chain: presenter.SwapChain,
+    back_buffer: presenter.BackBuffer,
+    composition_renderer: composition.Renderer,
+};
+
+fn createFrameResources(window: HWND, path: graphics.DevicePath) !FrameResources {
+    var device = try graphics.Device.createWithPath(path);
+    errdefer device.deinit();
+    var swap_chain = try presenter.create(&device, @ptrCast(window), configuredSwapEffect());
+    errdefer swap_chain.deinit();
+    var back_buffer = try swap_chain.acquireBackBuffer(&device, 0);
+    errdefer {
+        _ = swap_chain.retireBackBuffer(&device, &back_buffer) catch back_buffer.deinit();
+    }
+    const composition_renderer = try composition.Renderer.init(&device);
+    return .{
+        .device = device,
+        .swap_chain = swap_chain,
+        .back_buffer = back_buffer,
+        .composition_renderer = composition_renderer,
+    };
+}
+
 pub const TelemetryState = enum {
     disabled,
     registered,
@@ -247,6 +276,7 @@ pub const Backend = struct {
     graphics_device: ?graphics.Device = null,
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
+    composition_renderer: ?composition.Renderer = null,
     frame_pending: bool = false,
     telemetry_state: TelemetryState = .disabled,
     telemetry_error: ?telemetry.ProviderError = null,
@@ -411,39 +441,39 @@ pub const Backend = struct {
 
         self.open_folder_control = self.createChild(button_class, open_folder_title, 0, first_button_style, control_id_open_folder) orelse return false;
         self.mode_control = self.createChild(button_class, mode_title, 0, button_style, control_id_mode) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.compile_control = self.createChild(button_class, compile_title, 0, button_style, control_id_compile) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.save_control = self.createChild(button_class, save_title, 0, button_style, control_id_save) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.recovery_control = self.createChild(button_class, recovery_title, 0, hidden_button_style, control_id_recovery) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.project_label = self.createChild(static_class, project_title, ws_ex_transparent, label_style, 105) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.source_label = self.createChild(static_class, source_title, ws_ex_transparent, label_style, 106) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.pdf_label = self.createChild(static_class, pdf_title, ws_ex_transparent, label_style, 107) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.status_label = self.createChild(static_class, status_title, ws_ex_transparent, label_style, 108) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.status_value = self.createChild(static_class, ready_title, ws_ex_transparent, label_style, 109) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
 
@@ -456,22 +486,24 @@ pub const Backend = struct {
             .{ .fVirt = fvirt_key | fvirt_control, .key = vk_s, .cmd = control_id_save },
         };
         self.accelerators = raw.CreateAcceleratorTableW(&accelerators, @intCast(accelerators.len)) orelse {
-            self.forgetShellControls();
+            self.destroyShellControls();
             return false;
         };
         self.recovery_visible = false;
-        if (!self.relayoutControls(960, 640)) {
-            self.forgetShellControls();
+        var client: RECT = undefined;
+        if (raw.GetClientRect(self.window.?, &client) == 0 or client.right <= client.left or client.bottom <= client.top) {
+            self.destroyShellControls();
+            return false;
+        }
+        if (!self.relayoutControls(@intCast(client.right - client.left), @intCast(client.bottom - client.top))) {
+            self.destroyShellControls();
             return false;
         }
         return true;
     }
 
     fn pixelsToDip(pixels: u32, dpi: u32) u32 {
-        const effective_dpi = if (dpi == 0) 96 else dpi;
-        const value = (@as(u64, pixels) * 96 + effective_dpi / 2) / effective_dpi;
-        if (value > std.math.maxInt(u32)) return std.math.maxInt(u32);
-        return @intCast(value);
+        return composition.pixelsToDip(pixels, dpi);
     }
 
     fn dipToPixels(dip: u32, dpi: u32) ?i32 {
@@ -498,13 +530,13 @@ pub const Backend = struct {
     pub fn relayoutControls(self: *Backend, width_px: u32, height_px: u32) bool {
         const window = self.window orelse return false;
         const dpi = raw.GetDpiForWindow(window);
-        const width = pixelsToDip(width_px, dpi);
-        const height = pixelsToDip(height_px, dpi);
-        const view = layout.for_window(width, height, false);
+        const geometry = composition.frameGeometry(width_px, height_px, dpi) catch return false;
+        const width = geometry.width_dip;
+        const height = geometry.height_dip;
         const gap = layout.spacing_rhythm_dip;
         const toolbar_y = gap;
         const toolbar_height = layout.compact_control_max_dip;
-        const content_top = toolbar_y + toolbar_height + gap;
+        const content_top = geometry.toolbar_bottom_dip;
         const label_height = layout.minimum_target_dip;
         const status_height = layout.status_rail_dip;
         const label_y = if (height > status_height + gap + label_height)
@@ -518,34 +550,20 @@ pub const Backend = struct {
         if (!self.moveChild(self.mode_control, gap + 120 + gap, toolbar_y, 116, toolbar_height, true, dpi)) return false;
         if (!self.moveChild(self.compile_control, gap + 120 + gap + 116 + gap, toolbar_y, 84, toolbar_height, true, dpi)) return false;
         if (!self.moveChild(self.save_control, gap + 120 + gap + 116 + gap + 84 + gap, toolbar_y, 72, toolbar_height, true, dpi)) return false;
-        var source_x = gap;
-        const divider = layout.visible_divider_dip;
-        var source_width = if (width > gap * 2 + divider) width - gap * 2 - divider else 1;
-        var pdf_x: u32 = 0;
-        var pdf_width: u32 = 1;
-        if (view.mode == .tri_canvas) {
-            const fixed_chrome = gap * 2 + divider * 2;
-            if (layout.allocate_tri_canvas(width, fixed_chrome)) |tri| {
-                source_x = std.math.add(u32, gap + tri.project_dip, divider) catch return false;
-                source_width = tri.source_dip;
-                const source_end = std.math.add(u32, source_x, source_width) catch return false;
-                pdf_x = std.math.add(u32, source_end, divider) catch return false;
-                pdf_width = tri.pdf_dip;
-            }
-        } else if (layout.allocate_source_pdf(source_width)) |panes| {
-            source_width = panes.source_dip;
-            const source_end = std.math.add(u32, source_x, source_width) catch return false;
-            pdf_x = std.math.add(u32, source_end, divider) catch return false;
-            pdf_width = panes.pdf_dip;
-        }
-
+        const source_x = geometry.source_left_dip;
+        const source_width = geometry.source_right_dip -| geometry.source_left_dip;
+        const pdf_x = geometry.pdf_left_dip;
+        const pdf_width = geometry.pdf_right_dip -| geometry.pdf_left_dip;
         const label_width = @min(@as(u32, 104), @max(source_width, 1));
-        const project_width = if (view.mode == .tri_canvas) @min(@as(u32, 104), layout.project_min_dip) else 1;
-        if (!self.moveChild(self.project_label, gap, label_y, project_width, label_height, view.project_visible, dpi)) return false;
-        if (!self.moveChild(self.source_label, source_x, label_y, label_width, label_height, view.source_visible, dpi)) return false;
-        if (!self.moveChild(self.pdf_label, pdf_x, label_y, @min(@as(u32, 104), @max(pdf_width, 1)), label_height, view.pdf_visible, dpi)) return false;
+        const project_width = if (geometry.project_visible)
+            @min(@as(u32, 104), @max(geometry.project_right_dip -| gap, 1))
+        else
+            1;
+        if (!self.moveChild(self.project_label, gap, label_y, project_width, label_height, geometry.project_visible, dpi)) return false;
+        if (!self.moveChild(self.source_label, source_x, label_y, label_width, label_height, geometry.source_visible, dpi)) return false;
+        if (!self.moveChild(self.pdf_label, pdf_x, label_y, @min(@as(u32, 104), @max(pdf_width, 1)), label_height, geometry.pdf_visible, dpi)) return false;
 
-        const status_y = if (height > status_height) height - status_height else 0;
+        const status_y = geometry.status_top_dip;
         const recovery_width: u32 = 92;
         const recovery_x = if (width > recovery_width + gap) width - recovery_width - gap else gap;
         const status_value_x = gap + 56;
@@ -597,41 +615,22 @@ pub const Backend = struct {
             self.window = null;
             return false;
         }
-        var device = graphics.Device.create() catch {
-            // A visible window without a render device is not an admitted UI
-            // state.  Tear it down immediately so callers cannot observe a
-            // half-initialized shell or accidentally fall back to GDI.
-            _ = raw.DestroyWindow(self.window.?);
-            self.forgetShellControls();
-            self.window = null;
-            return false;
-        };
-        var swap_chain = presenter.create(&device, @ptrCast(self.window.?), configuredSwapEffect()) catch {
-            device.deinit();
-            _ = raw.DestroyWindow(self.window.?);
-            self.forgetShellControls();
-            self.window = null;
-            return false;
-        };
-        const back_buffer = swap_chain.acquireBackBuffer(&device, 0) catch {
-            swap_chain.deinit();
-            device.deinit();
-            _ = raw.DestroyWindow(self.window.?);
-            self.forgetShellControls();
-            self.window = null;
-            return false;
-        };
-        self.graphics_device = device;
-        self.swap_chain = swap_chain;
-        self.back_buffer = back_buffer;
-        if (!self.renderInitialFrame()) {
+        const paths = [_]graphics.DevicePath{ .hardware, .warp };
+        for (paths) |path| {
+            const candidate = createFrameResources(self.window.?, path) catch continue;
+            self.graphics_device = candidate.device;
+            self.swap_chain = candidate.swap_chain;
+            self.back_buffer = candidate.back_buffer;
+            self.composition_renderer = candidate.composition_renderer;
+            if (self.renderInitialFrame()) return true;
             self.releaseFrameResources();
-            _ = raw.DestroyWindow(self.window.?);
-            self.forgetShellControls();
-            self.window = null;
-            return false;
         }
-        return true;
+        // A visible window without a complete render graph is not an admitted
+        // UI state. Tear it down immediately rather than falling back to GDI.
+        _ = raw.DestroyWindow(self.window.?);
+        self.forgetShellControls();
+        self.window = null;
+        return false;
     }
 
     /// The first-frame bridge is synchronous: a hidden window receives a
@@ -654,7 +653,21 @@ pub const Backend = struct {
                         .height = height,
                         .clear_color = Backend.initial_clear_color,
                     }) catch return .failed;
-                    const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch return .failed;
+                    const renderer = if (self.composition_renderer) |*value| value else return .failed;
+                    const resource = buffer.resource orelse return .failed;
+                    renderer.draw(@ptrCast(resource), width, height, raw.GetDpiForWindow(window)) catch |err| return switch (err) {
+                        error.DeviceLost => .device_lost,
+                        else => .failed,
+                    };
+                    const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch |err| return switch (err) {
+                        // A successful Present1 followed by a failed buffer
+                        // reacquisition leaves the owner empty.  Treat that
+                        // same as device loss so the caller rebuilds the
+                        // complete device-dependent graph instead of
+                        // repeatedly attempting to render without a target.
+                        error.RebindFailed => .device_lost,
+                        else => .failed,
+                    };
                     if (outcome == .presented or outcome == .occluded) self.emitRenderTelemetry(width, height);
                     return switch (outcome) {
                         .presented => .presented,
@@ -741,6 +754,14 @@ pub const Backend = struct {
         return self.graphics_device != null and self.swap_chain != null and self.back_buffer != null;
     }
 
+    pub fn compositionReady(self: *const Backend) bool {
+        return if (self.composition_renderer) |renderer| renderer.ready() else false;
+    }
+
+    pub fn compositionFrameCount(self: *const Backend) u64 {
+        return if (self.composition_renderer) |renderer| renderer.frameCount() else 0;
+    }
+
     pub fn tickFrame(self: *Backend) bool {
         if (self.swap_chain) |*swap_chain| {
             switch (swap_chain.waitForFrame(0) catch return false) {
@@ -771,12 +792,32 @@ pub const Backend = struct {
         if (self.graphics_device) |*device| {
             if (self.swap_chain) |*swap_chain| {
                 if (self.back_buffer) |*buffer| {
+                    // ResizeBuffers invalidates every reference to the old
+                    // swap-chain surface. Retire the D2D/DWrite graph first,
+                    // then recreate it against the same admitted device only
+                    // after the new canonical back buffer has been acquired.
+                    if (self.composition_renderer) |*renderer| {
+                        renderer.deinit();
+                        self.composition_renderer = null;
+                    }
                     const outcome = swap_chain.resizeAndRebind(device, buffer, .{
                         .width = width,
                         .height = height,
-                    }) catch return false;
+                    }) catch {
+                        // resizeAndRebind releases the old owner before
+                        // calling ResizeBuffers. Any failure leaves the
+                        // composition graph retired and may leave the slot
+                        // empty, so recover the complete device-dependent
+                        // graph instead of leaving a visible shell that can
+                        // never render again.
+                        return self.rebuildFrameResources();
+                    };
                     return switch (outcome) {
-                        .resized => self.renderFrame(),
+                        .resized => blk: {
+                            const renderer = composition.Renderer.init(device) catch break :blk self.rebuildFrameResources();
+                            self.composition_renderer = renderer;
+                            break :blk self.renderFrame();
+                        },
                         .device_removed, .device_reset, .device_hung => self.rebuildFrameResources(),
                     };
                 }
@@ -809,19 +850,11 @@ pub const Backend = struct {
         }
 
         for (paths[0..path_count]) |path| {
-            var device = graphics.Device.createWithPath(path) catch continue;
-            var swap_chain = presenter.create(&device, @ptrCast(window), configuredSwapEffect()) catch {
-                device.deinit();
-                continue;
-            };
-            const back_buffer = swap_chain.acquireBackBuffer(&device, 0) catch {
-                swap_chain.deinit();
-                device.deinit();
-                continue;
-            };
-            self.graphics_device = device;
-            self.swap_chain = swap_chain;
-            self.back_buffer = back_buffer;
+            const candidate = createFrameResources(window, path) catch continue;
+            self.graphics_device = candidate.device;
+            self.swap_chain = candidate.swap_chain;
+            self.back_buffer = candidate.back_buffer;
+            self.composition_renderer = candidate.composition_renderer;
             if (self.renderInitialFrame()) return true;
             self.releaseFrameResources();
         }
@@ -829,6 +862,12 @@ pub const Backend = struct {
     }
 
     fn releaseFrameResources(self: *Backend) void {
+        // D2D/DWrite resources reference the current DXGI device/surface and
+        // must be retired before the back buffer or D3D11 device is released.
+        if (self.composition_renderer) |*renderer| {
+            renderer.deinit();
+            self.composition_renderer = null;
+        }
         if (self.back_buffer) |*buffer| {
             if (self.swap_chain) |*swap_chain| {
                 if (self.graphics_device) |*device| {

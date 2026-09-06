@@ -4,6 +4,9 @@ const std = @import("std");
 const builtin = @import("builtin");
 const contract = @import("product_contract");
 const argv = @import("windows_argv");
+const api = @import("windows_api");
+const com = @import("windows_com");
+const layout = @import("app_layout");
 const resources = @import("resource_assets");
 const version_resource = @import("app_version_resource");
 const icon = @import("texflow_icon");
@@ -546,9 +549,10 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         "GetCommandLineW",         "CommandLineToArgvW",    "SetDefaultDllDirectories", "GetCurrentProcessId", "GetCurrentThreadId", "QueryPerformanceCounter", "SetProcessDpiAwarenessContext", "GetThreadDpiAwarenessContext", "AreDpiAwarenessContextsEqual",
         "CoInitializeEx",          "CoUninitialize",        "RegisterClassExW",         "CreateWindowExW",     "SetWindowTextW",     "ShowWindow",              "MoveWindow",                    "GetDpiForWindow",              "CreateAcceleratorTableW",
         "DestroyAcceleratorTable", "TranslateAcceleratorW", "GetMessageW",              "TranslateMessage",    "DispatchMessageW",   "DestroyWindow",           "UnregisterClassW",              "BCryptGenRandom",              "EventRegister",
-        "EventWrite",              "EventUnregister",       "D3D11CreateDevice",
+        "EventWrite",              "EventUnregister",       "D3D11CreateDevice",        "DWriteCreateFactory",
     };
     var found = [_]bool{false} ** required.len;
+    var found_d2d1_device = false;
     var descriptor = try rvaOffset(bytes, pe, try read(u32, bytes, pe + 24 + 120));
     var imported_dlls: usize = 0;
     while (try read(u32, bytes, descriptor + 12) != 0) : (descriptor += 20) {
@@ -556,7 +560,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         if (imported_dlls > 16) return error.ExcessiveImports;
         const dll = try peString(bytes, try rvaOffset(bytes, pe, try read(u32, bytes, descriptor + 12)));
         var allowed = false;
-        for ([_][]const u8{ "kernel32.dll", "ntdll.dll", "user32.dll", "shell32.dll", "ole32.dll", "bcrypt.dll", "advapi32.dll", "d3d11.dll", "dxgi.dll" }) |name| {
+        for ([_][]const u8{ "kernel32.dll", "ntdll.dll", "user32.dll", "shell32.dll", "ole32.dll", "bcrypt.dll", "advapi32.dll", "d3d11.dll", "dxgi.dll", "d2d1.dll", "dwrite.dll" }) |name| {
             allowed = allowed or std.ascii.eqlIgnoreCase(dll, name);
         }
         try std.testing.expect(allowed);
@@ -564,8 +568,19 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         var thunk = try rvaOffset(bytes, pe, if (original != 0) original else try read(u32, bytes, descriptor + 16));
         while (try read(u64, bytes, thunk) != 0) : (thunk += 8) {
             const name_rva = try read(u64, bytes, thunk);
+            // The Windows import library for D2D1 has emitted both a named
+            // D2D1CreateDevice thunk and a stable ordinal-7 thunk across
+            // toolchain/linker versions. Treat either exact representation
+            // as the same required API, but reject every other ordinal.
+            if ((name_rva & (@as(u64, 1) << 63)) != 0) {
+                try std.testing.expect(std.ascii.eqlIgnoreCase(dll, "d2d1.dll"));
+                try std.testing.expectEqual(@as(u16, 7), @as(u16, @intCast(name_rva & 0xffff)));
+                found_d2d1_device = true;
+                continue;
+            }
             try std.testing.expect(name_rva <= std.math.maxInt(u32));
             const name = try peString(bytes, (try rvaOffset(bytes, pe, @intCast(name_rva))) + 2);
+            if (std.ascii.eqlIgnoreCase(dll, "d2d1.dll") and std.mem.eql(u8, name, "D2D1CreateDevice")) found_d2d1_device = true;
             for (required, 0..) |expected, index| found[index] = found[index] or std.mem.eql(u8, name, expected);
             for ([_][]const u8{ "PeekMessageW", "PeekMessageA", "GetMessageA", "CreateWindowExA", "SetTimer", "KillTimer", "Sleep" }) |forbidden| {
                 try std.testing.expect(!std.mem.eql(u8, name, forbidden));
@@ -573,6 +588,7 @@ test "actual product PE is AMD64 GUI with narrow Unicode shell imports" {
         }
     }
     for (found) |present| try std.testing.expect(present);
+    try std.testing.expect(found_d2d1_device);
 }
 
 test "actual product PE round-trips the manifest and exact VERSIONINFO contract" {
@@ -786,8 +802,23 @@ const raw = struct {
     extern "user32" fn GetWindowDpiAwarenessContext(*anyopaque) callconv(.winapi) ?*anyopaque;
     extern "user32" fn AreDpiAwarenessContextsEqual(?*anyopaque, ?*anyopaque) callconv(.winapi) i32;
     extern "user32" fn IsWindowVisible(*anyopaque) callconv(.winapi) i32;
+    extern "user32" fn MoveWindow(*anyopaque, i32, i32, i32, i32, i32) callconv(.winapi) i32;
+    extern "user32" fn GetClientRect(*anyopaque, *api.foundation.RECT) callconv(.winapi) i32;
+    extern "user32" fn GetSystemMetrics(i32) callconv(.winapi) i32;
+    extern "user32" fn GetDpiForWindow(*anyopaque) callconv(.winapi) u32;
     extern "user32" fn PostMessageW(*anyopaque, u32, usize, isize) callconv(.winapi) i32;
 };
+
+// Keep the product probe's client-size conversion identical to the native
+// composition bridge without linking the renderer into this PE contract test.
+fn pixelsToDip(pixels: u32, dpi: u32) u32 {
+    if (pixels == 0) return 0;
+    const effective_dpi = if (dpi == 0) 96 else dpi;
+    const value = (@as(u64, pixels) * 96 + effective_dpi / 2) / effective_dpi;
+    if (value == 0) return 1;
+    const max_extent: u64 = std.math.maxInt(i32);
+    return @intCast(@min(value, max_extent));
+}
 
 const Child = struct {
     process: windows.PROCESS.INFORMATION,
@@ -952,6 +983,165 @@ test "real GUI process exposes named native shell controls" {
     try std.testing.expectEqual(@as(u8, 5), controls.button_count);
     try std.testing.expectEqual(@as(u8, 5), controls.static_count);
     try std.testing.expect(controls.buttons_tabstop);
+    try std.testing.expect(raw.PostMessageW(hwnd, 0x10, 0, 0) != 0); // WM_CLOSE
+    try std.testing.expectEqual(@as(u32, 0), try child.exitCode());
+}
+
+const UiaControlSearch = struct {
+    pid: u32,
+    open_folder: bool = false,
+    mode: bool = false,
+    compile: bool = false,
+    save: bool = false,
+    project: bool = false,
+    source: bool = false,
+    pdf: bool = false,
+    status: bool = false,
+    ready: bool = false,
+    button_count: u16 = 0,
+    static_count: u16 = 0,
+};
+
+fn freeUiaString(value: ?*u16) void {
+    if (value) |string| api.oleaut32_dll.SysFreeString(string);
+}
+
+fn uiaStringEquals(value: ?*u16, expected: []const u8) bool {
+    const string = value orelse return false;
+    const units = std.mem.span(@as([*:0]const u16, @ptrCast(string)));
+    return utf16EqualsAscii(units, expected);
+}
+
+fn inspectUiaElement(element: *api.accessibility.IUIAutomationElement, search: *UiaControlSearch) !void {
+    var process_id: i32 = 0;
+    if (element.get_CurrentProcessId(&process_id).failed) return error.UiaPropertyUnavailable;
+    if (process_id != @as(i32, @intCast(search.pid))) return error.UiaForeignElement;
+
+    var control_type: api.accessibility.UIA_CONTROLTYPE_ID = undefined;
+    if (element.get_CurrentControlType(&control_type).failed) return error.UiaPropertyUnavailable;
+    var enabled: i32 = 0;
+    if (element.get_CurrentIsEnabled(&enabled).failed) return error.UiaPropertyUnavailable;
+    var offscreen: i32 = 0;
+    // The property must be queryable, but its value is intentionally not
+    // forced to false: a valid HWND can be occluded or minimized on a shared
+    // desktop while retaining correct automation semantics and bounds.
+    if (element.get_CurrentIsOffscreen(&offscreen).failed) return error.UiaPropertyUnavailable;
+    var bounds: api.foundation.RECT = undefined;
+    if (element.get_CurrentBoundingRectangle(&bounds).failed) return error.UiaPropertyUnavailable;
+    if (bounds.right <= bounds.left or bounds.bottom <= bounds.top) return error.UiaInvalidBounds;
+
+    var class_name: ?*u16 = null;
+    defer freeUiaString(class_name);
+    if (element.get_CurrentClassName(&class_name).failed) return error.UiaPropertyUnavailable;
+    var name: ?*u16 = null;
+    defer freeUiaString(name);
+    if (element.get_CurrentName(&name).failed) return error.UiaPropertyUnavailable;
+
+    if (control_type == api.accessibility.UIA_ButtonControlTypeId) search.button_count += 1;
+    if (control_type == api.accessibility.UIA_TextControlTypeId) search.static_count += 1;
+    const is_button = uiaStringEquals(class_name, "Button") and control_type == api.accessibility.UIA_ButtonControlTypeId;
+    const is_static = uiaStringEquals(class_name, "Static") and control_type == api.accessibility.UIA_TextControlTypeId;
+    if (is_button and enabled == 0) return error.UiaDisabledControl;
+    if (uiaStringEquals(name, "Open Folder")) search.open_folder = search.open_folder or is_button;
+    if (uiaStringEquals(name, "Render mode")) search.mode = search.mode or is_button;
+    if (uiaStringEquals(name, "Compile")) search.compile = search.compile or is_button;
+    if (uiaStringEquals(name, "Save")) search.save = search.save or is_button;
+    if (uiaStringEquals(name, "Project")) search.project = search.project or is_static;
+    if (uiaStringEquals(name, "Source")) search.source = search.source or is_static;
+    if (uiaStringEquals(name, "PDF")) search.pdf = search.pdf or is_static;
+    if (uiaStringEquals(name, "Status")) search.status = search.status or is_static;
+    if (uiaStringEquals(name, "Ready")) search.ready = search.ready or is_static;
+}
+
+test "separate UI Automation client sees the owned shell controls" {
+    if (!supported) return error.SkipZigTest;
+    var child = try launch(&.{"--trace-trial=00112233445566778899aabbccddeeff"});
+    defer child.deinit();
+    var search: Search = .{ .pid = child.process.dwProcessId };
+    for (0..250) |_| {
+        _ = raw.EnumWindows(Search.callback, @bitCast(@intFromPtr(&search)));
+        if (search.window != null) break;
+        if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
+    }
+    const hwnd = search.window orelse return error.NoProductWindow;
+    // The product starts at the dual-pane breakpoint, where Project is
+    // intentionally hidden. Resize the owned test window into tri-canvas so
+    // the UIA walk covers every responsive pane label as well, while staying
+    // inside the current desktop bounds on small/remote CI sessions.
+    const screen_width = @max(raw.GetSystemMetrics(0), @as(i32, 1));
+    const screen_height = @max(raw.GetSystemMetrics(1), @as(i32, 1));
+    const window_dpi = @max(raw.GetDpiForWindow(hwnd), @as(u32, 96));
+    const margin_x_scaled = @max((@as(u64, 32) * window_dpi + 95) / 96, @as(u64, 32));
+    const margin_y_scaled = @max((@as(u64, 96) * window_dpi + 95) / 96, @as(u64, 96));
+    const margin_x: i32 = @intCast(@min(margin_x_scaled, @as(u64, std.math.maxInt(i32))));
+    const margin_y: i32 = @intCast(@min(margin_y_scaled, @as(u64, std.math.maxInt(i32))));
+    const target_width = @min(@as(i32, 2400), @max(screen_width - margin_x, @as(i32, 1)));
+    const target_height = @min(@as(i32, 1400), @max(screen_height - margin_y, @as(i32, 1)));
+    try std.testing.expect(raw.MoveWindow(hwnd, 0, 0, target_width, target_height, 1) != 0);
+    var client: api.foundation.RECT = undefined;
+    try std.testing.expect(raw.GetClientRect(hwnd, &client) != 0);
+    const client_width_px: u32 = @intCast(@max(@as(i64, client.right) - @as(i64, client.left), @as(i64, 0)));
+    const client_height_px: u32 = @intCast(@max(@as(i64, client.bottom) - @as(i64, client.top), @as(i64, 0)));
+    const client_dpi = @max(raw.GetDpiForWindow(hwnd), @as(u32, 96));
+    const responsive_view = layout.for_window(
+        pixelsToDip(client_width_px, client_dpi),
+        pixelsToDip(client_height_px, client_dpi),
+        false,
+    );
+
+    try std.testing.expect(com.initializeSta());
+    defer com.uninitialize();
+    var automation_raw: ?*anyopaque = null;
+    const automation_result = api.ole32_dll.CoCreateInstance(
+        api.accessibility.CLSID_CUIAutomation,
+        null,
+        api.com.CLSCTX_INPROC_SERVER,
+        api.accessibility.IID_IUIAutomation,
+        @ptrCast(&automation_raw),
+    );
+    if (automation_result.failed or automation_raw == null) return error.UiaUnavailable;
+    const automation: *api.accessibility.IUIAutomation = @ptrCast(@alignCast(automation_raw.?));
+    defer _ = automation.IUnknown.Release();
+
+    var root: ?*api.accessibility.IUIAutomationElement = null;
+    if (automation.ElementFromHandle(@ptrCast(hwnd), @ptrCast(&root)).failed or root == null) return error.UiaRootUnavailable;
+    defer _ = root.?.IUnknown.Release();
+    var root_pid: i32 = 0;
+    if (root.?.get_CurrentProcessId(&root_pid).failed) return error.UiaPropertyUnavailable;
+    try std.testing.expectEqual(@as(i32, @intCast(child.process.dwProcessId)), root_pid);
+
+    var condition: ?*api.accessibility.IUIAutomationCondition = null;
+    if (automation.CreateTrueCondition(@ptrCast(&condition)).failed or condition == null) return error.UiaConditionUnavailable;
+    defer _ = condition.?.IUnknown.Release();
+    var elements: ?*api.accessibility.IUIAutomationElementArray = null;
+    if (root.?.FindAll(api.accessibility.TreeScope_Descendants, condition, @ptrCast(&elements)).failed or elements == null) return error.UiaEnumerationUnavailable;
+    defer _ = elements.?.IUnknown.Release();
+    var length: i32 = 0;
+    if (elements.?.get_Length(&length).failed or length <= 0) return error.UiaEnumerationUnavailable;
+    var controls: UiaControlSearch = .{ .pid = child.process.dwProcessId };
+    for (0..@intCast(length)) |index| {
+        var element: ?*api.accessibility.IUIAutomationElement = null;
+        if (elements.?.GetElement(@intCast(index), @ptrCast(&element)).failed or element == null) return error.UiaElementUnavailable;
+        defer _ = element.?.IUnknown.Release();
+        try inspectUiaElement(element.?, &controls);
+    }
+    try std.testing.expect(controls.open_folder);
+    try std.testing.expect(controls.mode);
+    try std.testing.expect(controls.compile);
+    try std.testing.expect(controls.save);
+    // UIA may omit hidden HWNDs from the descendant tree.  Assert only the
+    // labels that the live responsive layout makes visible; the native child
+    // enumeration test separately proves that every control is created.
+    if (responsive_view.project_visible) try std.testing.expect(controls.project);
+    try std.testing.expect(controls.source);
+    if (responsive_view.pdf_visible) try std.testing.expect(controls.pdf);
+    try std.testing.expect(controls.status);
+    try std.testing.expect(controls.ready);
+    try std.testing.expect(controls.button_count >= 4);
+    const visible_static_count: u16 = 3 +
+        @as(u16, if (responsive_view.project_visible) 1 else 0) +
+        @as(u16, if (responsive_view.pdf_visible) 1 else 0);
+    try std.testing.expect(controls.static_count >= visible_static_count);
     try std.testing.expect(raw.PostMessageW(hwnd, 0x10, 0, 0) != 0); // WM_CLOSE
     try std.testing.expectEqual(@as(u32, 0), try child.exitCode());
 }

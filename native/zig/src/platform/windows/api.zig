@@ -11,10 +11,32 @@ const zigwin32 = if (bound) @import("zigwin32") else struct {};
 pub const d3d11 = if (bound) zigwin32.graphics.direct3d11 else struct {};
 pub const direct3d = if (bound) zigwin32.graphics.direct3d else struct {};
 pub const dxgi = if (bound) zigwin32.graphics.dxgi else struct {};
+pub const direct2d = if (bound) zigwin32.graphics.direct2d else struct {};
+pub const direct2d_common = if (bound) zigwin32.graphics.direct2d.common else struct {};
+pub const direct_write = if (bound) zigwin32.graphics.direct_write else struct {};
+pub const accessibility = if (bound) zigwin32.ui.accessibility else struct {};
 pub const foundation = if (bound) zigwin32.foundation else struct {};
 pub const com = if (bound) zigwin32.system.com else struct {};
 pub const d3d11_dll = if (bound) zigwin32.d3d11 else struct {};
 pub const dxgi_dll = if (bound) zigwin32.dxgi else struct {};
+pub const d2d1_dll = if (bound) struct {
+    pub const D2D1CreateDevice = zigwin32.d2d1.D2D1CreateDevice;
+} else struct {};
+pub const dwrite_dll = if (bound) struct {
+    pub const DWriteCreateFactory = zigwin32.dwrite.DWriteCreateFactory;
+} else struct {};
+pub const ole32_dll = if (bound) struct {
+    pub const CoCreateInstance = zigwin32.ole32.CoCreateInstance;
+} else struct {};
+pub const oleaut32_dll = if (bound) struct {
+    pub const SysFreeString = zigwin32.oleaut32.SysFreeString;
+} else struct {};
+// Keep the composition thread-affinity probe separate from the presenter
+// wait facade. Each native adapter gets only the one kernel32 symbol it
+// needs, so adding Direct2D ownership checks does not widen presenter ABI.
+pub const composition_kernel32 = if (bound) struct {
+    pub const GetCurrentThreadId = zigwin32.kernel32.GetCurrentThreadId;
+} else struct {};
 // Keep the kernel32 surface declaration-level narrow: presenter_native only
 // needs this one wait primitive, not the generated DLL namespace.
 pub const kernel32 = if (bound) struct {
@@ -30,6 +52,9 @@ pub const Namespace = enum {
     direct3d11,
     dxgi,
     dxgi_common,
+    direct2d,
+    direct2d_common,
+    direct_write,
     dwm,
     imaging,
     security,
@@ -49,6 +74,9 @@ pub const namespace_allowlist: []const Namespace = &.{
     .direct3d11,
     .dxgi,
     .dxgi_common,
+    .direct2d,
+    .direct2d_common,
+    .direct_write,
     .dwm,
     .imaging,
     .security,
@@ -69,6 +97,9 @@ pub fn sourcePath(namespace: Namespace) []const u8 {
         .direct3d11 => "win32/graphics/direct3d11.zig",
         .dxgi => "win32/graphics/dxgi.zig",
         .dxgi_common => "win32/graphics/dxgi/common.zig",
+        .direct2d => "win32/graphics/direct2d.zig",
+        .direct2d_common => "win32/graphics/direct2d/common.zig",
+        .direct_write => "win32/graphics/direct_write.zig",
         .dwm => "win32/graphics/dwm.zig",
         .imaging => "win32/graphics/imaging.zig",
         .security => "win32/security.zig",

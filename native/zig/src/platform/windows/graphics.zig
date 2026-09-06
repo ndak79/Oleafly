@@ -4,8 +4,8 @@
 //! (hardware first, WARP fallback) and its COM releases.  The separate
 //! `presenter_native.zig` adapter binds the admitted HWND swap-chain
 //! descriptor, waitable frame handle, back-buffer/RTV owner, and minimal clear
-//! path; D2D/DWrite composition remains a later slice while shell-level
-//! device-loss retirement and rebuild orchestration is now explicit.
+//! path; the composition adapter consumes this same device for Direct2D and
+//! DirectWrite without introducing a second renderer or a worker thread.
 const builtin = @import("builtin");
 const api = @import("windows_api");
 
@@ -243,12 +243,22 @@ fn queryAdapterLuid(device: *api.d3d11.ID3D11Device) !u64 {
         api.dxgi.IID_IDXGIDevice,
         @ptrCast(&dxgi_device_raw),
     );
-    if (query_result.failed or dxgi_device_raw == null) return error.QueryInterfaceFailed;
+    if (query_result.failed or dxgi_device_raw == null) {
+        if (dxgi_device_raw) |partial_dxgi_raw| {
+            const partial_dxgi: *api.dxgi.IDXGIDevice = @ptrCast(@alignCast(partial_dxgi_raw));
+            _ = partial_dxgi.IUnknown.Release();
+        }
+        return error.QueryInterfaceFailed;
+    }
     const dxgi_device: *api.dxgi.IDXGIDevice = @ptrCast(@alignCast(dxgi_device_raw.?));
     defer _ = dxgi_device.IUnknown.Release();
 
     var adapter: ?*api.dxgi.IDXGIAdapter = null;
-    if (dxgi_device.GetAdapter(@ptrCast(&adapter)).failed or adapter == null) return error.AdapterUnavailable;
+    const adapter_result = dxgi_device.GetAdapter(@ptrCast(&adapter));
+    if (adapter_result.failed or adapter == null) {
+        if (adapter) |partial_adapter| _ = partial_adapter.IUnknown.Release();
+        return error.AdapterUnavailable;
+    }
     defer _ = adapter.?.IUnknown.Release();
 
     var description: api.dxgi.DXGI_ADAPTER_DESC = undefined;

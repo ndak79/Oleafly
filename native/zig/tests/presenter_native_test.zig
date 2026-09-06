@@ -433,6 +433,7 @@ test "present mapping preserves success, occlusion, and device-loss classes" {
     try std.testing.expectEqual(native.PresentOutcome.device_removed, try native.mapPresentResult(native.dxgi_error_device_removed));
     try std.testing.expectEqual(native.PresentOutcome.device_reset, try native.mapPresentResult(native.dxgi_error_device_reset));
     try std.testing.expectEqual(native.PresentOutcome.device_hung, try native.mapPresentResult(native.dxgi_error_device_hung));
+    try std.testing.expectEqual(native.PresentOutcome.device_removed, try native.mapPresentResult(native.dxgi_error_driver_internal_error));
     try std.testing.expectError(error.PresentFailed, native.mapPresentResult(0x887A0001));
 }
 
@@ -441,6 +442,7 @@ test "resize mapping preserves success and device-loss classes" {
     try std.testing.expectEqual(native.ResizeOutcome.device_removed, try native.mapResizeResult(native.dxgi_error_device_removed));
     try std.testing.expectEqual(native.ResizeOutcome.device_reset, try native.mapResizeResult(native.dxgi_error_device_reset));
     try std.testing.expectEqual(native.ResizeOutcome.device_hung, try native.mapResizeResult(native.dxgi_error_device_hung));
+    try std.testing.expectEqual(native.ResizeOutcome.device_removed, try native.mapResizeResult(native.dxgi_error_driver_internal_error));
     try std.testing.expectError(error.ResizeFailed, native.mapResizeResult(0x887A0001));
 }
 

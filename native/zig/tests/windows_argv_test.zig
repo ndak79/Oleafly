@@ -202,7 +202,7 @@ test "allocation failures release every partially prepared launch buffer" {
 }
 
 test "typed platform allowlist declares required narrow namespaces only" {
-    try std.testing.expectEqual(@as(usize, 16), api.namespace_allowlist.len);
+    try std.testing.expectEqual(@as(usize, 19), api.namespace_allowlist.len);
     for (api.namespace_allowlist, 0..) |namespace, index| {
         const path = api.sourcePath(namespace);
         try std.testing.expect(std.mem.startsWith(u8, path, "win32/"));
@@ -212,6 +212,9 @@ test "typed platform allowlist declares required narrow namespaces only" {
     }
     try std.testing.expectEqualStrings("win32/graphics/direct3d11.zig", api.sourcePath(.direct3d11));
     try std.testing.expectEqualStrings("win32/graphics/dxgi.zig", api.sourcePath(.dxgi));
+    try std.testing.expectEqualStrings("win32/graphics/direct2d.zig", api.sourcePath(.direct2d));
+    try std.testing.expectEqualStrings("win32/graphics/direct2d/common.zig", api.sourcePath(.direct2d_common));
+    try std.testing.expectEqualStrings("win32/graphics/direct_write.zig", api.sourcePath(.direct_write));
     try std.testing.expectEqualStrings("win32/graphics/imaging.zig", api.sourcePath(.imaging));
     try std.testing.expectEqualStrings("win32/ui/accessibility.zig", api.sourcePath(.accessibility));
 }

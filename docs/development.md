@@ -94,6 +94,7 @@ The corresponding deterministic checks are:
 zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-icon-test --summary all
 zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-product-test --summary all
 zig build -Dtarget=x86_64-linux-gnu --release=safe t0-2c-icon-check --summary all
+zig build -Dtarget=x86_64-windows-msvc --release=safe t0-2c-composition-test --summary all
 zig build deps-manifest-test -Doptimize=Debug --summary all
 ```
 
@@ -101,10 +102,12 @@ Non-Windows targets compile the portable contracts but install no lookalike
 product. The native HWND/PMv2 shell now creates a real D3D11 device (hardware
 first, WARP fallback, D3D10+ admission floor) and validates the two-buffer
 flip-model descriptor; both flip challengers retain the frame-latency waitable
-flag, while `FLIP_DISCARD` requires full redraw. The waitable swap-chain,
-Direct2D/DirectWrite presenter, editor, compiler workers, research ledger, and
-publishing pipeline remain later slices. This is not full application
-completion. The Zig-owned `t0-2-repro` cutover is not implemented yet.
+flag, while FLIP_DISCARD requires full redraw. The waitable swap-chain,
+Direct2D/DirectWrite bridge now reuses that same device and shared DWrite
+format, with per-frame DXGI-surface targets. Editor, compiler workers, research
+ledger, publishing, authoritative capture, and full physical QA remain later
+slices. This is not full application completion. The Zig-owned t0-2-repro
+cutover is not implemented yet.
 
 ## Native dependency workflow (T0.2a)
 

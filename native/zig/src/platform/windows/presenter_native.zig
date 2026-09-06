@@ -3,9 +3,10 @@
 //! The policy/state machine lives in `presenter.zig`; this adapter owns only
 //! the COM interfaces, DXGI frame-latency handle, and acquired back-buffer
 //! resource/render-target-view pair, the bounded Present1/ResizeBuffers
-//! ownership barriers, and a minimal full-frame D3D11 clear path. D2D/DirectWrite
-//! composition remains deferred; frame retirement and shell-level device-loss
-//! recovery are explicit seams in this layer.
+//! ownership barriers, and a minimal full-frame D3D11 clear path.
+//! Direct2D/DirectWrite composition is attached by the shell after the clear;
+//! frame retirement and shell-level device-loss recovery remain explicit seams
+//! in this layer.
 //! Every Windows call is behind the curated `windows_api` facade, while
 //! non-Windows builds retain a compile-only surface for the portable model
 //! lane.
@@ -153,6 +154,7 @@ pub const dxgi_status_occluded: u32 = 0x087A0001;
 pub const dxgi_error_device_hung: u32 = 0x887A0006;
 pub const dxgi_error_device_removed: u32 = 0x887A0005;
 pub const dxgi_error_device_reset: u32 = 0x887A0007;
+pub const dxgi_error_driver_internal_error: u32 = 0x887A0020;
 pub const max_present_sync_interval: u32 = 4;
 pub const present_flags_none: u32 = 0;
 const admitted_buffer_count: u32 = 2;
@@ -177,6 +179,7 @@ pub fn mapPresentResult(result: u32) PresentError!PresentOutcome {
         dxgi_error_device_removed => .device_removed,
         dxgi_error_device_reset => .device_reset,
         dxgi_error_device_hung => .device_hung,
+        dxgi_error_driver_internal_error => .device_removed,
         else => error.PresentFailed,
     };
 }
@@ -187,6 +190,7 @@ pub fn mapResizeResult(result: u32) ResizeError!ResizeOutcome {
         dxgi_error_device_removed => .device_removed,
         dxgi_error_device_reset => .device_reset,
         dxgi_error_device_hung => .device_hung,
+        dxgi_error_driver_internal_error => .device_removed,
         else => error.ResizeFailed,
     };
 }
@@ -798,6 +802,10 @@ fn renderClearWindows(
     };
     immediate_context.RSSetViewports(1, @ptrCast(&viewport));
     immediate_context.ClearRenderTargetView(target_view, &request.clear_color[0]);
+    // Direct2D wraps the same DXGI surface immediately after this clear.  Do
+    // not leave the D3D11 RTV bound while the composition context writes the
+    // resource; Present1 does not require an RTV to remain bound.
+    immediate_context.OMSetRenderTargets(0, null, null);
     return true;
 }
 

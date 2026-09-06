@@ -1512,3 +1512,88 @@ runtime and has no HTML/browser surface. It does not claim loss-free WPR/WPA/
 PresentMon collection, long-run event-rate/energy evidence, full
 DPI/occlusion/device-loss campaigns, DWM-visible capture, separate-process UIA
 journey, or Task 7's physical matrix; those remain open T0.2c obligations.
+
+## T0.2c Direct2D/DirectWrite composition and native UIA black-box closure (2026-09-06)
+
+This increment attaches a single-threaded Direct2D device/context and one
+shared DirectWrite factory/text format to the admitted D3D11/DXGI device. Each
+frame wraps only the acquired swap-chain resource as an `IDXGISurface`, creates
+a BGRA8/premultiplied target bitmap with the current PMv2 DPI, paints the
+chrome/product mark in DIPs, ends the draw, detaches the target, and releases
+the temporary surface/bitmap. Native Win32 child controls remain authoritative
+for toolbar captions and Project/Source/PDF/Status/Ready labels, preventing
+duplicate visual/accessibility sources. Shell candidates now include the full
+D2D/DWrite graph, so hardware-to-WARP fallback also covers composition
+initialization; resize/rebuild/destroy retire composition before D3D resources.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD/adversarial repair | The first post-edit Windows composition compile caught an invalid `self.deviceLost()` call for a file-scope helper; it was corrected to `deviceLost(self)`. The same review also closed partial child-control cleanup and hard-coded client-size layout seams, then all focused reruns passed. | A real compile failure reset the correction streak; no Medium+ issue remains after the fresh rerun. |
+| Windows composition matrix | `t0-2c-composition-test` passed `6/7` with one documented platform/runtime skip in Debug, ReleaseSafe, and ReleaseFast. | DIP geometry (96/120/144/192 DPI), BGRA8/premultiplied target properties, extent/error mapping, cached graph initialization/teardown, and wrong-thread rejection are green. The focused suite intentionally does not duplicate the surface draw. |
+| Windows shell matrix | `t0-2c-shell-native-test` passed `13/13` in Debug, ReleaseSafe, ReleaseFast, plus explicit ReleaseSafe `flip_discard`. | Real HWND creation, hidden bootstrap draw, D3D clear → D2D draw → Present1/rebind, resize/rebuild, WARP fallback graph, controls, ETW lifecycle, and cleanup remain green. |
+| Windows product matrix | `t0-2c-product-test` passed `13/13` in Debug, ReleaseSafe, ReleaseFast, plus explicit ReleaseSafe `flip_discard`. | The actual AMD64 GUI PE contains the allowlisted D2D/DWrite imports (named or exact ordinal-7 D2D entry), and its runtime/UIA checks pass. |
+| Native UIA black-box | The separate test process creates a COM STA client, resolves the product root by HWND/PID, walks all descendants, validates same-process control type/class/name/enabled/bounds, reads `IsOffscreen` without assuming desktop visibility, and finds Open Folder/Render mode/Compile/Save plus Project/Source/PDF/Status/Ready. | The standard child-control surface is observable without a custom provider; the test resizes within live desktop/DPI bounds before enumeration so the responsive Project path is covered where the desktop permits it. |
+| Aggregate Windows regression | `t0-2c-models-test` passed `174/178` with four documented skips in Debug, ReleaseSafe, and ReleaseFast. | Composition, shell, UIA/product, graphics, presenter, ETW, resource, and prior T0.1/T0.2 model gates are included and green. |
+| Linux portability | `t0-2c-composition-check`, `t0-2c-shell-native-check`, and `t0-2c-product-check` passed in Debug, ReleaseSafe, and ReleaseFast; aggregate `t0-2c-models-check` passed `30/30` steps in each mode. | Non-Windows remains compile-only and introduces no lookalike product/runtime claim. |
+| Dependency/baseline hygiene | `deps-manifest-test` passed `17/17`; baseline `test` passed `10/10`; `zig fmt --check` and `git diff --check` passed (only the documented CRLF normalization warning). | Package source-path closure and existing baseline contracts remain clean. |
+| Verification anomaly | One intentionally parallel batch hit a Zig compiler `OutOfMemory` while compiling the ReleaseFast product; the serialized rerun passed `13/13`, and a serialized ReleaseFast aggregate rerun passed `174/178` with four skips. | The compiler-resource flake is captured rather than hidden; final evidence is based on deterministic single-process reruns, not the failed batch. |
+| Review/repair state | The first Luna API-contract review found one Critical leak seam (`FrameResources` returned `null` and bypassed `errdefer`) plus Important gaps for `DXGI_ERROR_DRIVER_INTERNAL_ERROR`, desktop-size/`IsOffscreen` UIA assumptions, and partial COM out-pointers. The implementation now propagates `!FrameResources`, maps the driver-internal code through composition/presenter recovery, bounds UIA resize from live desktop/DPI values without forcing screen-visible state, and releases every partial COM result before returning. Fresh Windows/Linux reruns after those repairs are green. | The Critical/Important findings reset the correction streak; the post-repair pass is the current `1/1` clean streak. |
+
+Browser QA is not applicable: this slice changes only the native Win32/D3D11/
+D2D/DWrite surface. The separate native UIA client is the relevant black-box
+evidence. Full DWM-visible capture, physical DPI/occlusion/device-loss matrix,
+loss-free WPR/WPA/PresentMon and energy measurements, and final T0.2c admission
+remain explicit follow-up gates; this increment does not claim full app
+completion.
+
+## T0.2c geometry/UIA review repair (2026-09-06)
+
+The independent API-contract review found two responsive-layout gaps in the
+composition increment: the D2D dual/focus allocation subtracted the left gap a
+second time, and the UIA probe could require Project on a desktop too small to
+enter tri-canvas mode. The repair makes `composition.frameGeometry` the single
+geometry source consumed by both the painter and `shell_native.relayoutControls`
+and adds explicit pane-right invariants. The UIA client now reads the live
+client rect after its bounded resize, converts it with the current window DPI,
+and asserts only controls visible in `app_layout.for_window`; the native child
+enumeration still proves that all ten HWNDs are created.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Review repair | Luna API-contract review reported two Medium findings (dual/focus gap mismatch and fixed Project UIA assertion); both were corrected before the final rerun. | The earlier post-composition streak was reset; this repair requires a fresh clean pass. |
+| Windows focused matrix | Composition `6/7` (one platform skip) in Debug/ReleaseSafe/ReleaseFast; shell `13/13` in all three; product `13/13` in all three. | Shared geometry, real D2D draw path, responsive native controls, and mode-aware UIA remain green across optimization modes. |
+| Flip challenger | ReleaseSafe `-Dswap-effect=flip_discard`: shell `13/13`, product `13/13`. | The geometry/UIA repair does not depend on the default swap effect. |
+| Aggregate regression | `t0-2c-models-test` passed `174/178` with four documented skips in Windows Debug/ReleaseSafe/ReleaseFast. | The aggregate gate includes the repaired composition, shell, UIA/product, graphics, presenter, ETW, and prior model suites. |
+| Linux portability | `t0-2c-models-check -Dtarget=x86_64-linux-gnu` passed `30/30` in Debug, ReleaseSafe, and ReleaseFast. | The shared helper and product probe remain compile-clean without a Linux runtime claim. |
+| Hygiene | `zig fmt` and `git diff --check` passed after the repair. | No formatting or whitespace gap was introduced. |
+
+Browser QA remains not applicable: this is a native Win32/D3D11/D2D/DWrite
+change. The browser cannot substitute for UIA, DWM capture, ETW/WPR, physical
+DPI/occlusion/device-loss, or energy evidence. The repaired slice is a clean
+`1/1` quality pass; final T0.2c admission still requires those explicit gates.
+
+## T0.2c responsive focus and resize lifetime repair (2026-09-06)
+
+The follow-up review found two further lifecycle/layout gaps. Focus-switcher
+widths (760–879 DIP) were still entering the Source/PDF allocator even though
+PDF is hidden, and resize called `ResizeBuffers` while the D2D graph was alive.
+The geometry now gives Source the complete content width whenever PDF is hidden,
+with boundary assertions at 760/879 DIP under 96/144 DPI. `resizeFrame` retires
+the composition graph before `ResizeBuffers`, then recreates it against the
+admitted device after the new back buffer is rebound; any resize/init error
+falls back to a complete frame-graph rebuild.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Adversarial review repair | Luna reported one Medium focus-switcher geometry issue and one Important D2D-before-resize lifetime issue; both were fixed before rerun. | The streak reset on the findings; this slice needs a fresh clean review pass. |
+| Focused Windows matrix | Composition `6/7` (one platform skip), shell `13/13`, product `13/13` in Debug/ReleaseSafe/ReleaseFast. | Focus boundaries, D2D draw, resize/rebind/reinit, and UIA remain green. |
+| Flip challenger | ReleaseSafe `-Dswap-effect=flip_discard`: shell `13/13`, product `13/13`. | Resize lifetime ordering remains valid for the explicit alternate swap effect. |
+| Aggregate regression | `t0-2c-models-test` passed `174/178` with four documented skips in all three Windows optimization modes. | All T0.2c model suites, including ETW/graphics/presenter/shell/product, remain green. |
+| Linux portability | `t0-2c-models-check -Dtarget=x86_64-linux-gnu` passed `30/30` in Debug/ReleaseSafe/ReleaseFast. | Portable declaration lanes remain compile-clean. |
+| Hygiene | `zig fmt` and `git diff --check` passed after the repair. | No formatting or whitespace regression. |
+
+Browser QA remains not applicable for this native-only slice. DWM capture,
+physical DPI/occlusion/device-loss, loss-free WPR/WPA/PresentMon, energy data,
+and final T0.2c admission remain explicit follow-up gates. The post-repair
+quality streak is `1/1`: two independent Luna reviews completed `CLEAN` after
+the focus/resize repairs, with no Critical/Important/Medium+ finding.

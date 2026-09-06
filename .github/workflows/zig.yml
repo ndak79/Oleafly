@@ -147,6 +147,9 @@ jobs:
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-graphics-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-graphics-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-graphics-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-composition-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-composition-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-composition-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc -Doptimize=Debug t0-2c-presenter-native-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2c-presenter-native-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=fast t0-2c-presenter-native-test --summary all
@@ -277,6 +280,9 @@ jobs:
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-graphics-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-graphics-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-graphics-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-composition-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-composition-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-composition-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug t0-2c-presenter-native-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2c-presenter-native-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=fast t0-2c-presenter-native-check --summary all

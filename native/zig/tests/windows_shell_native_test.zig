@@ -181,6 +181,8 @@ test "real native backend creates and presents its first frame before showing" {
     defer _ = backend.destroyWindow();
     try std.testing.expect(backend.hasShellControls());
     try std.testing.expect(backend.hasFrameResources());
+    try std.testing.expect(backend.compositionReady());
+    try std.testing.expect(backend.compositionFrameCount() >= 1); // hidden bootstrap draw
     const trial = [_]u8{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10 };
     backend.setTraceTrial(trial);
     backend.startTelemetry();
@@ -190,19 +192,26 @@ test "real native backend creates and presents its first frame before showing" {
     try std.testing.expect(backend.telemetryEventCount() >= 1); // bootstrap snapshot
     try std.testing.expect(backend.renderFrame());
     try std.testing.expect(backend.telemetryEventCount() >= 2);
+    try std.testing.expect(backend.compositionFrameCount() >= 2);
     backend.showWindow();
     try std.testing.expect(!backend.frameTimerActive());
     try std.testing.expect(backend.tickFrame());
     try std.testing.expect(backend.setRecoveryVisible(true));
     try std.testing.expect(backend.setRecoveryVisible(false));
     try std.testing.expect(backend.resizeFrame(640, 480));
+    try std.testing.expect(backend.compositionReady());
+    try std.testing.expect(backend.compositionFrameCount() >= 1);
     try std.testing.expect(backend.rebuildFrameResources());
+    try std.testing.expect(backend.compositionReady());
+    try std.testing.expect(backend.compositionFrameCount() >= 1);
     try std.testing.expect(backend.destroyWindow());
     try std.testing.expect(!backend.telemetryRegistered());
     try std.testing.expectEqual(native.TelemetryState.disabled, backend.telemetryState());
     try std.testing.expect(backend.telemetryError() == null);
     try std.testing.expect(!backend.hasShellControls());
     try std.testing.expect(!backend.hasFrameResources());
+    try std.testing.expect(!backend.compositionReady());
+    try std.testing.expectEqual(@as(u64, 0), backend.compositionFrameCount());
 }
 
 test "native shell surfaces telemetry registration failure without blocking startup" {

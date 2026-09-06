@@ -390,6 +390,33 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     graphics_module.addImport("windows_api", windows_api_module);
+    const composition_native_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/composition_native.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    composition_native_module.addImport("windows_api", windows_api_module);
+    composition_native_module.addImport("graphics", graphics_module);
+    composition_native_module.addImport("app_role", app_role_module);
+    composition_native_module.addImport("app_layout", app_layout_module);
+    composition_native_module.addImport("app_strings", app_strings_module);
+    const composition_native_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/composition_native_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    composition_native_tests.root_module.addImport("composition_native", composition_native_module);
+    composition_native_tests.root_module.addImport("graphics", graphics_module);
+    composition_native_tests.root_module.addImport("app_layout", app_layout_module);
+    const run_composition_native_tests = b.addRunArtifact(composition_native_tests);
+    const composition_native_test_step = b.step("t0-2c-composition-test", "Run the native Direct2D/DirectWrite composition contracts");
+    composition_native_test_step.dependOn(&run_composition_native_tests.step);
+    const composition_native_check_step = b.step("t0-2c-composition-check", "Compile the native Direct2D/DirectWrite composition contracts");
+    composition_native_check_step.dependOn(&composition_native_tests.step);
+    t0_2c_models_test.dependOn(&run_composition_native_tests.step);
+    t0_2c_models_check.dependOn(&composition_native_tests.step);
     const graphics_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/graphics_device_test.zig"),
@@ -493,9 +520,10 @@ pub fn build(b: *std.Build) void {
     shell_native_module.addImport("app_strings", app_strings_module);
     shell_native_module.addImport("windows_telemetry", windows_telemetry_module);
     shell_native_module.addImport("graphics", graphics_module);
+    shell_native_module.addImport("composition_native", composition_native_module);
     shell_native_module.addImport("presenter_native", presenter_native_module);
     if (target.result.os.tag == .windows) {
-        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "advapi32", "d3d11", "dxgi" }) |library| shell_native_module.linkSystemLibrary(library, .{});
+        inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "advapi32", "d3d11", "dxgi", "d2d1", "dwrite" }) |library| shell_native_module.linkSystemLibrary(library, .{});
     }
     const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
     if (product_target) {
@@ -549,6 +577,7 @@ pub fn build(b: *std.Build) void {
     shell_native_tests.root_module.addImport("windows_shell", windows_shell_module);
     shell_native_tests.root_module.addImport("windows_com", windows_com_module);
     shell_native_tests.root_module.addImport("graphics", graphics_module);
+    shell_native_tests.root_module.addImport("composition_native", composition_native_module);
     const run_shell_native_tests = b.addRunArtifact(shell_native_tests);
     const shell_native_test_step = b.step("t0-2c-shell-native-test", "Test narrow Win32 ABI command line and COM contracts");
     shell_native_test_step.dependOn(&run_shell_native_tests.step);
@@ -567,9 +596,14 @@ pub fn build(b: *std.Build) void {
     product_tests.root_module.addOptions("product_contract", product_contract);
     product_tests.root_module.addOptions("resource_assets", resource_assets);
     product_tests.root_module.addImport("windows_argv", windows_argv_module);
+    product_tests.root_module.addImport("windows_api", windows_api_module);
+    product_tests.root_module.addImport("windows_com", windows_com_module);
+    product_tests.root_module.addImport("app_layout", app_layout_module);
     product_tests.root_module.addImport("app_version_resource", app_version_resource_module);
     product_tests.root_module.addImport("texflow_icon", texflow_icon_module);
-    if (target.result.os.tag == .windows) product_tests.root_module.linkSystemLibrary("user32", .{});
+    if (target.result.os.tag == .windows) {
+        inline for (.{ "user32", "ole32", "oleaut32" }) |library| product_tests.root_module.linkSystemLibrary(library, .{});
+    }
     b.step("t0-2c-product-test", "Test native product PE and owned Windows shell runtime").dependOn(&b.addRunArtifact(product_tests).step);
     b.step("t0-2c-product-check", "Compile product contract tests without execution").dependOn(&product_tests.step);
     const version_resource_tests = b.addTest(.{
