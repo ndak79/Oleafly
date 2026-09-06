@@ -6,6 +6,13 @@ const allocator = testing.allocator;
 
 test "source package includes the offline package oracle" {
     try testing.expect(std.mem.indexOf(u8, contract.zon, "\"tools/zig/package_probe.zig\"") != null);
+    for ([_][]const u8{
+        "native/zig/tests/lexilla_comparator_test.zig",
+        "tools/zig/lexilla_probe.zig",
+        "tools/zig/lexilla_size_probe.zig",
+    }) |path| {
+        try testing.expect(std.mem.indexOf(u8, contract.zon, path) != null);
+    }
 }
 
 test "empty fixture has exactly two end blocks and a valid gzip roundtrip" {

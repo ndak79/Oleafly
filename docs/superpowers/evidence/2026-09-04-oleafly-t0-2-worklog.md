@@ -1691,5 +1691,31 @@ equivalence, sealed-network evidence, and final T0.2b admission remain open.
 
 Independent Task 3 repair review (Luna max, read-only) is CLEAN after the
 canonical long-name and special-member repairs. This is the first clean review
-pass for this Task 3 scope (`1/1` quality streak); the package/CI aggregate and
-the broader T0.2b admission gates remain intentionally open.
+pass for this Task 3 scope (`1/1` quality streak); the broader T0.2b admission
+gates remain intentionally open.
+
+### T0.2b package and CI wiring (2026-09-06)
+
+The package oracle now checks that the three Lexilla comparator sources/probes
+are present in `build.zig.zon`. The new `t0-2b-static` aggregate always depends
+on the host `t0-2b-source-boundary` tree scan; it selects runtime tests for a
+Windows target and compile-only checks for a Linux target, including the
+package oracle. Generated `.zig-cache/`, `zig-out/`, and `tools/zig/.cache/`
+trees remain ignored.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows aggregate Debug | `t0-2b-static`: `37/37` steps, `72/74` tests passed with 2 explicit symlink-permission skips; package `20/20`, API `2/2`, argv `16/16`, Lexilla `14/14`. | Host scan and every Windows static contract run in the aggregate. |
+| Windows aggregate ReleaseSafe | `t0-2b-static`: `37/37` steps, `72/74` tests passed with the same 2 explicit symlink-permission skips; package `20/20`, API `2/2`, argv `16/16`, Lexilla `14/14`. | Safe optimized aggregate is green. |
+| Windows aggregate ReleaseFast | `t0-2b-static`: `37/37` steps, `72/74` tests passed with the same 2 explicit symlink-permission skips; package `20/20`, API `2/2`, argv `16/16`, Lexilla `14/14`. | Fast optimized aggregate is green. |
+| Linux aggregate Debug | `t0-2b-static`: `18/18` compile steps; package/source-boundary/argv/API/Lexilla are compile-only, while the host scan runs. | No Linux target binary was executed. |
+| Linux aggregate ReleaseSafe | `t0-2b-static`: `18/18` compile steps. | Safe portable wiring remains compile-clean. |
+| Linux aggregate ReleaseFast | `t0-2b-static`: `18/18` compile steps. | Fast portable wiring remains compile-clean. |
+| Workflow static check | PyYAML parse passed; `zig fmt --check` and `git diff --check` passed. | The CI YAML and Zig sources are structurally clean; hosted CI execution remains unverified here. |
+
+One adversarial aggregate run initially attempted to execute the Linux package
+test from a Windows host; this was fixed by making the aggregate depend on
+`t0-2b-package-check` for non-Windows targets, then all three Linux aggregates
+passed. This closes the Task 4 implementation scope, but not PDFium
+reconstruction/equivalence, sealed-network, worker/runtime PE, or final
+T0.2b admission evidence.

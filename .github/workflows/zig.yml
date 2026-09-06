@@ -34,7 +34,7 @@ jobs:
   zig-windows:
     name: TExFlow native (Windows x64)
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -99,7 +99,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
-          zig fmt --check build.zig build.zig.zon native/zig
+          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig
           $translated = Join-Path $env:RUNNER_TEMP "texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h | Out-File -FilePath $translated -Encoding utf8
           if (-not (Select-String -LiteralPath $translated -Pattern "texflow_abi_get_version" -Quiet)) { throw "translated header omitted texflow_abi_get_version" }
@@ -113,6 +113,35 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Doptimize=Debug test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --release=safe test --summary all
+
+      - name: Run T0.2b static boundary matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          function Invoke-ZigBuild([string[]] $BuildArgs) {
+            & zig build @BuildArgs
+            if ($LASTEXITCODE -ne 0) { throw "zig build failed ($LASTEXITCODE): $($BuildArgs -join ' ')" }
+          }
+          $repo = (Get-Location).Path
+          $common = @(
+            "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT",
+            "-Dtarget=x86_64-windows-msvc",
+            "-Dsource-boundary-root=$repo"
+          )
+          foreach ($mode in @("Debug", "ReleaseSafe", "ReleaseFast")) {
+            foreach ($step in @(
+              "t0-2b-source-boundary-test",
+              "t0-2b-argv-test",
+              "t0-2b-api-contract-test",
+              "t0-2b-lexilla-test"
+            )) {
+              Invoke-ZigBuild ($common + "-Doptimize=$mode" + $step + "--summary" + "all" + "-j1")
+            }
+          }
+          Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-source-boundary" + "--summary" + "all" + "-j1")
+          Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-package-test" + "--summary" + "all" + "-j1")
+          Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-static" + "--summary" + "all" + "-j1")
 
       - name: Build ABI, miscompile, and SIMD comparison modes
         shell: pwsh
@@ -181,7 +210,7 @@ jobs:
   zig-linux:
     name: TExFlow native (Linux x64)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -236,7 +265,7 @@ jobs:
           set -euo pipefail
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
-          zig fmt --check build.zig build.zig.zon native/zig
+          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig
           translated="$RUNNER_TEMP/texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h > "$translated"
           grep -q "texflow_abi_get_version" "$translated"
@@ -249,6 +278,30 @@ jobs:
           set -euo pipefail
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu -Doptimize=Debug test --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe test --summary all
+
+      - name: Run T0.2b static boundary compile matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig_build() { zig build "$@"; }
+          repo="$PWD"
+          common=(
+            "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT"
+            "-Dtarget=x86_64-linux-gnu"
+            "-Dsource-boundary-root=$repo"
+          )
+          for mode in Debug ReleaseSafe ReleaseFast; do
+            for step in \
+              t0-2b-source-boundary-check \
+              t0-2b-argv-check \
+              t0-2b-api-contract-check \
+              t0-2b-lexilla-check; do
+              zig_build "${common[@]}" "-Doptimize=$mode" "$step" --summary all -j1
+            done
+          done
+          zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-source-boundary --summary all -j1
+          zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-package-check --summary all -j1
+          zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-static --summary all -j1
 
       - name: Build ABI, miscompile, and SIMD comparison modes
         shell: bash

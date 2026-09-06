@@ -1125,8 +1125,10 @@ pub fn build(b: *std.Build) void {
     lexilla_run.step.dependOn(&lexilla_snapshot.step);
     if (lexilla_library) |library| lexilla_run.step.dependOn(&library.step);
     if (lexilla_size_run) |size_run| lexilla_run.step.dependOn(&size_run.step);
-    b.step("t0-2b-lexilla-test", "Run the unshipped Lexilla comparator contract").dependOn(&lexilla_run.step);
-    b.step("t0-2b-lexilla-check", "Compile the Lexilla comparator contract only; no Win32 C++ compilation on Linux").dependOn(&lexilla_tests.step);
+    const lexilla_test_step = b.step("t0-2b-lexilla-test", "Run the unshipped Lexilla comparator contract");
+    lexilla_test_step.dependOn(&lexilla_run.step);
+    const lexilla_check_step = b.step("t0-2b-lexilla-check", "Compile the Lexilla comparator contract only; no Win32 C++ compilation on Linux");
+    lexilla_check_step.dependOn(&lexilla_tests.step);
     const deps_tool = b.addExecutable(.{
         .name = "texflow-deps",
         .root_module = b.createModule(.{
@@ -1618,6 +1620,26 @@ pub fn build(b: *std.Build) void {
     if (executable) |product| product_contract.addOptionPath("path", product.getEmittedBin()) else product_contract.addOption([]const u8, "path", "");
     product_contract.addOption(bool, "install_empty", b.getInstallStep().dependencies.items.len == 0);
     product_contract.addOption(bool, "install_reaches_product", if (executable) |product| buildReachesLibrary(b, b.getInstallStep(), product) else false);
+
+    // One named, target-aware static boundary gate keeps the host source scan
+    // mandatory even when a platform-specific contract is compile-only. The
+    // aggregate intentionally excludes product/UI/runtime and PDFium-worker
+    // admission; those remain owned by their later T0.2 phases.
+    const t0_2b_static = b.step("t0-2b-static", "Run the T0.2b static boundary contracts and mandatory host tree scan");
+    t0_2b_static.dependOn(source_boundary_tree);
+    if (target.result.os.tag == .windows) {
+        t0_2b_static.dependOn(package_probe_test);
+        t0_2b_static.dependOn(source_boundary_step);
+        t0_2b_static.dependOn(windows_argv_step);
+        t0_2b_static.dependOn(windows_api_contract_test);
+        t0_2b_static.dependOn(lexilla_test_step);
+    } else {
+        t0_2b_static.dependOn(package_probe_check);
+        t0_2b_static.dependOn(source_boundary_check);
+        t0_2b_static.dependOn(windows_argv_check);
+        t0_2b_static.dependOn(windows_api_contract_check);
+        t0_2b_static.dependOn(lexilla_check_step);
+    }
 }
 
 // Inspect actual build steps and transitive module/library edges. Checking only

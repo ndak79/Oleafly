@@ -134,11 +134,11 @@ Files:
 - Modify docs/development.md
 - Append evidence to docs/superpowers/evidence/2026-09-04-oleafly-t0-2-worklog.md
 
-- [ ] Step 1: Include every new source/probe in the source package and keep generated outputs ignored.
-- [ ] Step 2: After deps-fetch succeeds, invoke the named Windows steps with TEXFLOW_NATIVE_DEPS_ROOT, --summary all, and -j1; invoke Linux compile-only checks with the same explicit target. Add an aggregate t0-2b-static step that always includes the host tree scan.
-- [ ] Step 3: Set standard job timeout to 45 minutes; keep qualified PDFium reconstruction separate and emit not-in-scope on hosted runners with only 14 GiB storage.
-- [ ] Step 4: Keep workflow shell logic to bootstrap, dependency ordering, and exit status. Zig owns source, ABI, comparator, and verdict calculations.
-- [ ] Step 5: Run YAML/static workflow checks and record that CI still cannot prove detached-NIC, independent PDFium reconstruction, worker runtime, or recursive product PE closure.
+- [x] Step 1: Include every new source/probe in the source package and keep generated outputs ignored.
+- [x] Step 2: After deps-fetch succeeds, invoke the named Windows steps with TEXFLOW_NATIVE_DEPS_ROOT, --summary all, and -j1; invoke Linux compile-only checks with the same explicit target. Add an aggregate t0-2b-static step that always includes the host tree scan.
+- [x] Step 3: Set standard job timeout to 45 minutes; keep qualified PDFium reconstruction separate and emit not-in-scope on hosted runners with only 14 GiB storage.
+- [x] Step 4: Keep workflow shell logic to bootstrap, dependency ordering, and exit status. Zig owns source, ABI, comparator, and verdict calculations.
+- [x] Step 5: Run YAML/static workflow checks and record that CI still cannot prove detached-NIC, independent PDFium reconstruction, worker runtime, or recursive product PE closure.
 - [ ] Step 6: Commit the CI/package wiring.
 
 ### Task 5: Review and admission boundary

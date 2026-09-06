@@ -219,9 +219,15 @@ zig build t0-2b-lexilla-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseFast -
 The comparator is not installed, linked into `TExFlow.exe`, loaded at runtime,
 or reachable from the dependency worker; the contract also records positive
 library→snapshot/probe/source-root edges and negative product/install/worker/
-loader edges. Browser QA is not applicable to this native/CLI-only contract;
-Scintilla UI probing, recursive worker PE closure, and the remaining T0.2b
-package/admission gates are later work.
+loader edges. `t0-2b-static` is the target-aware aggregate: it always runs
+the host tree scan, runs Windows contracts when targeting Windows, and uses
+compile-only checks (including `t0-2b-package-check`) for Linux targets. The
+workflow runs the source-boundary, argv, SDK, and Lexilla steps in
+Debug/ReleaseSafe/ReleaseFast, then runs the package oracle and aggregate in
+ReleaseSafe with `--summary all -j1` and a 45-minute job timeout. Browser QA is
+not applicable to this native/CLI-only contract;
+Scintilla UI probing, recursive worker PE closure, PDFium reconstruction,
+sealed-network evidence, and final T0.2b admission remain later work.
 
 ## Native dependency workflow (T0.2a)
 
