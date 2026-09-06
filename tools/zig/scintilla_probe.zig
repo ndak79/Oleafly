@@ -22,8 +22,10 @@ pub const sources = [_][]const u8{
 // Upstream win32/makefile's CLANG=1 warnings and language mode. Zig owns
 // optimization/debug code generation. Keep the default exception/RTTI/regex
 // support: upstream catches exceptions and uses C++ regex; no local shim.
+// Pin the MSVC static runtime so the native probe and archive share a
+// deterministic CRT boundary instead of inheriting the host ABI's defaults.
 pub fn cxxFlags(comptime mode: std.builtin.OptimizeMode) []const []const u8 {
-    return &.{ "-std=c++17", "-Wall", "-Wextra", "-Wpedantic", if (mode == .Debug) "-DDEBUG" else "-DNDEBUG" };
+    return &.{ "-std=c++17", "-fms-runtime-lib=static", "-Wall", "-Wextra", "-Wpedantic", if (mode == .Debug) "-DDEBUG" else "-DNDEBUG" };
 }
 
 pub fn verifySourceList(actual: []const []const u8) !void {

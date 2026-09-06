@@ -30,7 +30,7 @@ test "C++17 debug and release flags preserve upstream exception and RTTI support
     if (comptime @hasDecl(probe, "cxxFlags")) {
         inline for (.{ std.builtin.OptimizeMode.Debug, .ReleaseSafe, .ReleaseFast }) |mode| {
             const flags = probe.cxxFlags(mode);
-            const expected = [_][]const u8{ "-std=c++17", "-Wall", "-Wextra", "-Wpedantic", if (mode == .Debug) "-DDEBUG" else "-DNDEBUG" };
+            const expected = [_][]const u8{ "-std=c++17", "-fms-runtime-lib=static", "-Wall", "-Wextra", "-Wpedantic", if (mode == .Debug) "-DDEBUG" else "-DNDEBUG" };
             try std.testing.expectEqual(expected.len, flags.len);
             for (expected, flags) |want, actual| try std.testing.expectEqualStrings(want, actual);
         }

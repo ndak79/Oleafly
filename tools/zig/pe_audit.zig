@@ -115,6 +115,14 @@ fn overlaps(a: u64, an: u64, b: u64, bn: u64) bool {
 }
 
 pub fn audit(bytes: []const u8, policy: Policy) !Report {
+    return auditWithForbiddenDlls(bytes, policy, &.{});
+}
+
+/// Audit a PE image while applying an intrinsic deny-list for role-bound
+/// imports.  The deny-list is deliberately separate from `Policy.imports`:
+/// callers may widen an allow-list, but they cannot use that input to bypass
+/// cross-role isolation.
+pub fn auditWithForbiddenDlls(bytes: []const u8, policy: Policy, forbidden_dlls: []const []const u8) !Report {
     if (bytes.len > max_image_bytes) return error.ImageTooLarge;
     if (!std.mem.eql(u8, try range(bytes, 0, 2), "MZ")) return error.InvalidDosHeader;
     const pe_offset = try read(u32, bytes, 0x3c);
@@ -214,7 +222,7 @@ pub fn audit(bytes: []const u8, policy: Policy) !Report {
     try debugDirectory(image, dirs[6]);
     try exceptions(image, dirs[3], &protected_metadata);
     var import_envelopes: MetadataEnvelopes = .{};
-    const imports = try auditImports(image, dirs[1], dirs[12], policy.imports, &import_envelopes);
+    const imports = try auditImports(image, dirs[1], dirs[12], policy.imports, forbidden_dlls, &import_envelopes);
     const cfg = auditCfg(image, dirs[10], dll_flags & 0x4000 != 0, &protected_metadata) catch return error.InvalidCfg;
     if (protected_metadata.intersectsRange(dirs[12].rva, dirs[12].size)) return error.InvalidIat;
     try relocations(image, dirs[5], &import_envelopes, &protected_metadata);
@@ -293,7 +301,7 @@ fn exceptions(image: Image, dir: Directory, protected: *MetadataEnvelopes) !void
     }
 }
 
-fn auditImports(image: Image, dir: Directory, iat: Directory, allow: []const Import, protected: *MetadataEnvelopes) !usize {
+fn auditImports(image: Image, dir: Directory, iat: Directory, allow: []const Import, forbidden_dlls: []const []const u8, protected: *MetadataEnvelopes) !usize {
     if (dir.size == 0) {
         if (iat.size != 0) return error.InvalidIat;
         return 0;
@@ -322,6 +330,9 @@ fn auditImports(image: Image, dir: Directory, iat: Directory, allow: []const Imp
         if (overlaps(iat.rva, iat.size, dll_rva, dll.len + 1)) return error.InvalidIat;
         try protected.include(image, dll_rva, dll.len + 1);
         if (std.mem.indexOfAny(u8, dll, "/\\:") != null) return error.InvalidImportName;
+        for (forbidden_dlls) |forbidden| {
+            if (std.ascii.indexOfIgnoreCase(dll, forbidden) != null) return error.CrossRoleImport;
+        }
         const allowed = for (allow) |rule| {
             if (std.ascii.eqlIgnoreCase(dll, rule.dll)) break rule.functions;
         } else return error.DisallowedImport;

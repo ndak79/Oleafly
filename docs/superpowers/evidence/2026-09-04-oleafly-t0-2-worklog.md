@@ -1818,3 +1818,32 @@ worker PE closure, the native Scintilla probe, complete ReleaseSafe payload
 reproducibility, and dependency advisory review remain open. Browser QA is
 not applicable to these native/CLI-only contracts. T0.2a remains paused and
 T0.2c remains unopened by sequencing rule.
+
+### T0.2b parallel shipped-image and native Scintilla slice (2026-09-06)
+
+Two independent bounded tracks were implemented in parallel and integrated
+behind explicit named build steps. They are evidence-producing gates, not a
+claim that the complete product payload or editor UI has been admitted.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Authenticated PE inventory | `t0-2b-shipped-pe-inventory-test` passed `6/8` with two documented symlink-permission skips in Windows Debug, ReleaseSafe, and ReleaseFast. The oracle binds `UI`, `PdfWorker`, and `ScienceWorker` to exact canonical TExFlow image paths, audits every recursive `.exe/.dll`, applies intrinsic role import deny-lists in addition to the authenticated allow-list, and returns a sorted SHA-256 inventory digest. | The caller-supplied payload root is fail-closed against manifest mismatch, traversal (including absolute-root dot segments), duplicate/extra/missing images, malformed/cross-role imports, reparse entries, and configured depth/entry/byte limits. It is not yet connected to the emitted product/install payload. |
+| PE Linux portability | `t0-2b-shipped-pe-inventory-check` compiled `2/2` for `x86_64-linux-gnu` in ReleaseSafe; Linux runtime returns `WindowsRuntimeOnly`. | Linux is compile-only; no Windows PE runtime claim is made. |
+| Real Scintilla runtime | `t0-2b-scintilla-native-test` passed `7/8` with one intentional non-Windows-only test skip in Windows Debug, ReleaseSafe, and ReleaseFast. The run target was explicitly `x86_64-windows-msvc`, not the host's GNU default ABI. | The probe executed the actual Win32/MSVC path: class registration, hidden parent/child HWND creation plus `GetParent` relationship verification, direct function/pointer resolution, document create/release, `SCI_SETILEXER(NULL)`/`SCLEX_CONTAINER`, parent `SCN_STYLENEEDED`, and batched styling verification. |
+| Scintilla Linux portability | `t0-2b-scintilla-native-check` compiled `2/2` for `x86_64-linux-gnu` in ReleaseSafe; no native window/library runtime was attempted. | Linux remains compile-only and explicitly outside the native probe scope. |
+| Aggregate gates | Final Windows ReleaseSafe `t0-2b-static`: `56/56` build steps, `109/114` tests with only the documented symlink-permission skips. Final Linux ReleaseSafe `t0-2b-static`: `30/30` compile steps. | Both parallel tracks are target-aware in the aggregate; Windows runtime uses the selected MSVC target, while non-Windows uses compile-only checks. The native runtime gate requires both host and target to be x86_64 Windows-MSVC; other target architectures remain compile-only. |
+| Runtime/link hardening | The Scintilla C++ archive is built with MSVC static runtime flags and linked as a raw archive path; the probe executable uses SDK-discovered Windows libraries and the selected target's Zig-managed CRT. A GNU-host false-positive lane was removed after it skipped the real MSVC probe; the real target run then exposed and fixed a CRT startup crash. | The runtime evidence is now from the intended Windows ABI. No developer-machine library path is hardcoded. |
+| Static hygiene/review | `zig fmt --check` (including all changed native tools), PyYAML workflow parsing, and `git diff --check` passed after the final fixes. Fresh independent Luna max follow-up review is CLEAN with no Critical/High/Medium findings; Browser QA is N/A because these are native/CLI-only gates. | Quality streak for this new slice is `1/1`; the implementation commit is now ready to be created. |
+
+Scope boundary: UIA-visible behavior is not claimed; the PE inventory is not
+yet authenticated against the actual installed product/worker payload; and
+independent PDFium reconstruction/equivalence, sealed network-none evidence,
+complete ReleaseSafe reproducibility, worker runtime authentication, and
+dependency advisory review remain open. Full T0.2b is therefore still **NOT
+ADMITTED**; T0.2a remains paused and T0.2c remains unopened.
+
+The follow-up review repaired and rechecked every finding from the first review
+(canonical role paths, root dot-segment rejection, bounded recursive entries,
+intrinsic cross-role import deny-lists, parent-child HWND relation, x86_64
+runtime gating, explicit formatting coverage, and pending-plan status). The
+slice is CLEAN at `1/1`; commit/push closure is the remaining mechanical step.

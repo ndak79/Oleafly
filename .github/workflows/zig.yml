@@ -99,7 +99,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
-          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig
+          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig tools/zig/scintilla_probe.zig tools/zig/pe_audit.zig tools/zig/shipped_pe_inventory.zig tools/zig/scintilla_native_probe.zig
           $translated = Join-Path $env:RUNNER_TEMP "texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h | Out-File -FilePath $translated -Encoding utf8
           if (-not (Select-String -LiteralPath $translated -Pattern "texflow_abi_get_version" -Quiet)) { throw "translated header omitted texflow_abi_get_version" }
@@ -137,7 +137,9 @@ jobs:
               "t0-2b-lexilla-test",
               "t0-2b-pdfium-repro-test",
               "t0-2b-pe-closure-test",
+              "t0-2b-shipped-pe-inventory-test",
               "t0-2b-scintilla-runtime-contract-test",
+              "t0-2b-scintilla-native-test",
               "t0-2b-source-boundary-check",
               "t0-2b-argv-check",
               "t0-2b-api-contract-check",
@@ -145,7 +147,9 @@ jobs:
               "t0-2b-repro-check",
               "t0-2b-pdfium-repro-check",
               "t0-2b-pe-closure-check",
-              "t0-2b-scintilla-runtime-contract-check"
+              "t0-2b-shipped-pe-inventory-check",
+              "t0-2b-scintilla-runtime-contract-check",
+              "t0-2b-scintilla-native-check"
             )) {
               Invoke-ZigBuild ($common + "-Doptimize=$mode" + $step + "--summary" + "all" + "-j1")
             }
@@ -277,7 +281,7 @@ jobs:
           set -euo pipefail
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
-          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig
+          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig tools/zig/scintilla_probe.zig tools/zig/pe_audit.zig tools/zig/shipped_pe_inventory.zig tools/zig/scintilla_native_probe.zig
           translated="$RUNNER_TEMP/texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h > "$translated"
           grep -q "texflow_abi_get_version" "$translated"
@@ -310,7 +314,9 @@ jobs:
               t0-2b-lexilla-check \
               t0-2b-pdfium-repro-check \
               t0-2b-pe-closure-check \
-              t0-2b-scintilla-runtime-contract-check; do
+              t0-2b-shipped-pe-inventory-check \
+              t0-2b-scintilla-runtime-contract-check \
+              t0-2b-scintilla-native-check; do
               zig_build "${common[@]}" "-Doptimize=$mode" "$step" --summary all -j1
             done
           done

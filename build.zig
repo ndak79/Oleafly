@@ -794,6 +794,49 @@ pub fn build(b: *std.Build) void {
     pe_closure_test_step.dependOn(&pe_closure_run.step);
     const pe_closure_check_step = b.step("t0-2b-pe-closure-check", "Compile the PE role closure oracle for the selected target");
     pe_closure_check_step.dependOn(&pe_closure_tests.step);
+
+    // Real release-payload PE inventory oracle. This lane is host-runtime
+    // only on Windows; Linux and cross-target invocations compile the same
+    // authenticated manifest surface without claiming Windows evidence.
+    const shipped_pe_inventory_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/shipped_pe_inventory.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    shipped_pe_inventory_module.addImport("pe_audit", pe_audit_module);
+    const shipped_pe_inventory_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/shipped_pe_inventory_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    shipped_pe_inventory_tests.root_module.addImport("shipped_pe_inventory", shipped_pe_inventory_module);
+    shipped_pe_inventory_tests.root_module.addImport("pe_audit", pe_audit_module);
+    const shipped_pe_inventory_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/shipped_pe_inventory.zig"),
+        .target = host_target,
+        .optimize = optimize,
+    });
+    shipped_pe_inventory_host_module.addImport("pe_audit", pe_audit_host_module);
+    const shipped_pe_inventory_host_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/shipped_pe_inventory_test.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    shipped_pe_inventory_host_tests.root_module.addImport("shipped_pe_inventory", shipped_pe_inventory_host_module);
+    shipped_pe_inventory_host_tests.root_module.addImport("pe_audit", pe_audit_host_module);
+    const shipped_pe_inventory_run = b.addRunArtifact(shipped_pe_inventory_host_tests);
+    const shipped_pe_inventory_test_step = b.step("t0-2b-shipped-pe-inventory-test", "Run the authenticated Windows payload PE inventory oracle");
+    if (host_target.result.os.tag == .windows and target.result.os.tag == .windows) {
+        shipped_pe_inventory_test_step.dependOn(&shipped_pe_inventory_run.step);
+    } else {
+        shipped_pe_inventory_test_step.dependOn(&shipped_pe_inventory_tests.step);
+    }
+    const shipped_pe_inventory_check_step = b.step("t0-2b-shipped-pe-inventory-check", "Compile the authenticated payload PE inventory for the selected target");
+    shipped_pe_inventory_check_step.dependOn(&shipped_pe_inventory_tests.step);
     const pe_artifact = b.addOptions();
     const pe_fixture = b.addExecutable(.{
         .name = "texflow-pe-fixture-unshipped",
@@ -1147,6 +1190,95 @@ pub fn build(b: *std.Build) void {
     scintilla_tests.root_module.addOptions("scintilla_contract", scintilla_contract);
     b.step("t0-2b-scintilla-test", "Run the unshipped Scintilla source and build contract tests").dependOn(&b.addRunArtifact(scintilla_tests).step);
     b.step("t0-2b-scintilla-check", "Compile Scintilla contract tests only; no Win32 C++ compilation on Linux").dependOn(&scintilla_tests.step);
+
+    // Native HWND/document/style probe. The target-facing artifact is always
+    // compile-only; it is linked and executed only when both the selected
+    // target and the host are x86_64 Windows, against the unshipped static
+    // Scintilla snapshot above.
+    const can_run_native_scintilla = host_target.result.os.tag == .windows and
+        target.result.os.tag == .windows and
+        target.result.abi == .msvc and
+        host_target.result.cpu.arch == .x86_64 and
+        target.result.cpu.arch == .x86_64;
+    // On a Windows host whose Zig default ABI is GNU, the selected MSVC
+    // target is still runnable and is the only honest native-runtime lane.
+    // On Linux/macOS, retain host-target declarations for compile-only checks.
+    const scintilla_native_probe_run_target = if (can_run_native_scintilla) target else host_target;
+    const scintilla_native_probe_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/scintilla_native_probe.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = false,
+    });
+    const scintilla_native_probe_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/scintilla_native_probe_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = false,
+        }),
+    });
+    scintilla_native_probe_tests.root_module.addImport("scintilla_native_probe", scintilla_native_probe_module);
+    const scintilla_native_probe_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/scintilla_native_probe.zig"),
+        .target = scintilla_native_probe_run_target,
+        .optimize = optimize,
+        .link_libc = false,
+    });
+    const scintilla_native_probe_host_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/scintilla_native_probe_test.zig"),
+            .target = scintilla_native_probe_run_target,
+            .optimize = optimize,
+            .link_libc = can_run_native_scintilla,
+        }),
+    });
+    scintilla_native_probe_host_tests.root_module.addImport("scintilla_native_probe", scintilla_native_probe_host_module);
+    if (scintilla_library) |library| {
+        if (can_run_native_scintilla) {
+            // Link the emitted archive as a raw static path rather than as a
+            // Build compile dependency. The Scintilla archive is compiled
+            // with its own MSVC `/MT` runtime; keeping it out of the Build
+            // dependency graph prevents its compile-time libc flag from
+            // leaking into other targets. The probe executable itself uses
+            // the selected MSVC target's Zig-managed CRT below.
+            scintilla_native_probe_host_tests.root_module.addObjectFile(library.getEmittedBin());
+            // Scintilla's MSVC-mode C++ objects carry /DEFAULTLIB records for
+            // the MSVC runtime and uuid.lib. Resolve those through the same
+            // installed SDK discovery used by the source build; never bake a
+            // developer-machine path into the project.
+            if (std.zig.WindowsSdk.find(b.allocator, b.graph.io, scintilla_native_probe_run_target.result.cpu.arch, &b.graph.environ_map)) |sdk| {
+                if (sdk.msvc_lib_dir) |msvc_lib_dir| {
+                    scintilla_native_probe_host_tests.root_module.addLibraryPath(.{ .cwd_relative = msvc_lib_dir });
+                }
+                if (sdk.windows10sdk) |windows_sdk| {
+                    const sdk_arch = switch (scintilla_native_probe_run_target.result.cpu.arch) {
+                        .x86_64 => "x64",
+                        .x86 => "x86",
+                        .aarch64 => "arm64",
+                        else => "x64",
+                    };
+                    const sdk_um = b.pathJoin(&.{ windows_sdk.path, "Lib", windows_sdk.version, "um", sdk_arch });
+                    const sdk_ucrt = b.pathJoin(&.{ windows_sdk.path, "Lib", windows_sdk.version, "ucrt", sdk_arch });
+                    scintilla_native_probe_host_tests.root_module.addLibraryPath(.{ .cwd_relative = sdk_um });
+                    scintilla_native_probe_host_tests.root_module.addLibraryPath(.{ .cwd_relative = sdk_ucrt });
+                    scintilla_native_probe_host_tests.root_module.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ sdk_um, "uuid.lib" }) });
+                }
+            } else |_| {}
+            inline for (.{ "advapi32", "comctl32", "d2d1", "d3d11", "dwrite", "gdi32", "imm32", "kernel32", "msimg32", "ole32", "oleaut32", "oldnames", "shell32", "shlwapi", "uxtheme", "user32", "usp10", "version", "dxgi" }) |library_name| {
+                scintilla_native_probe_host_tests.root_module.linkSystemLibrary(library_name, .{});
+            }
+        }
+    }
+    const scintilla_native_probe_run = b.addRunArtifact(scintilla_native_probe_host_tests);
+    const scintilla_native_probe_test_step = b.step("t0-2b-scintilla-native-test", "Run the real Windows Scintilla HWND/document/style probe");
+    if (can_run_native_scintilla and scintilla_library != null) {
+        scintilla_native_probe_test_step.dependOn(&scintilla_native_probe_run.step);
+    } else {
+        scintilla_native_probe_test_step.dependOn(&scintilla_native_probe_tests.step);
+    }
+    const scintilla_native_probe_check_step = b.step("t0-2b-scintilla-native-check", "Compile the Scintilla native probe for the selected target");
+    scintilla_native_probe_check_step.dependOn(&scintilla_native_probe_tests.step);
     const lexilla_probe_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/lexilla_probe.zig"),
         .target = target,
@@ -1774,8 +1906,10 @@ pub fn build(b: *std.Build) void {
         t0_2b_static.dependOn(lexilla_test_step);
         t0_2b_static.dependOn(repro_check_test_step);
         t0_2b_static.dependOn(pe_closure_test_step);
+        t0_2b_static.dependOn(shipped_pe_inventory_test_step);
         t0_2b_static.dependOn(pdfium_repro_test_step);
         t0_2b_static.dependOn(scintilla_runtime_contract_test_step);
+        t0_2b_static.dependOn(scintilla_native_probe_test_step);
     } else {
         t0_2b_static.dependOn(package_probe_check);
         t0_2b_static.dependOn(source_boundary_check);
@@ -1784,8 +1918,10 @@ pub fn build(b: *std.Build) void {
         t0_2b_static.dependOn(lexilla_check_step);
         t0_2b_static.dependOn(repro_check_target_step);
         t0_2b_static.dependOn(pe_closure_check_step);
+        t0_2b_static.dependOn(shipped_pe_inventory_check_step);
         t0_2b_static.dependOn(pdfium_repro_check_step);
         t0_2b_static.dependOn(scintilla_runtime_contract_check_step);
+        t0_2b_static.dependOn(scintilla_native_probe_check_step);
     }
 }
 

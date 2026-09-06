@@ -254,8 +254,12 @@ Files:
   observed from this pure contract module.
 - [x] Step 3: Run host runtime tests on Windows and compile-only checks on
   Linux across all three optimization modes.
-- [ ] Step 4: Add the real Windows native probe in a later authorized slice,
-  including UIA-visible behavior and document/style lifetime evidence.
+- [x] Step 4: Add the real Windows native probe in an authorized parallel
+  slice, including HWND/document/style lifetime evidence. The bounded probe
+  intentionally does not claim UI Automation behavior.
+- [ ] Step 5: Add UIA-visible behavior evidence and connect the probe to the
+  product's actual editor surface; the current native probe remains a
+  test-only Scintilla lifecycle gate.
 
 ### Task 10: Parallel-slice integration and review gate
 
@@ -273,3 +277,45 @@ Files:
   `origin/main`. Full T0.2b remains **NOT ADMITTED** until Tasks 6–9's
   deferred external evidence exists; T0.2a stays paused and T0.2c stays
   unopened.
+
+### Task 11: Parallel shipped-image inventory and native Scintilla probe
+
+Files:
+
+- Create `tools/zig/shipped_pe_inventory.zig`
+- Create `native/zig/tests/shipped_pe_inventory_test.zig`
+- Create `tools/zig/scintilla_native_probe.zig`
+- Create `native/zig/tests/scintilla_native_probe_test.zig`
+- Modify `native/zig/tests/source_inventory_test.zig`, `tools/zig/scintilla_probe.zig`,
+  `build.zig`, `build.zig.zon`, `.github/workflows/zig.yml`, and the T0.2b
+  evidence log
+
+- [x] Step 1: Add an authenticated, caller-supplied Windows payload oracle.
+  Bind exactly the UI, PdfWorker, and ScienceWorker roles to canonical image
+  paths; reject unauthenticated or digest-mismatched manifests, traversal,
+  duplicate/extra/missing images, malformed/cross-role PE imports, reparse
+  entries, and depth/file/byte-limit violations. Return a deterministic
+  sorted inventory digest. Linux is compile-only and explicitly returns
+  `WindowsRuntimeOnly`.
+- [x] Step 2: Add a real x86_64 Windows-MSVC Scintilla probe. Register the
+  parent and Scintilla classes, create/destroy HWNDs, resolve direct API and
+  document lifetime, select `SCI_SETILEXER(NULL)`/`SCLEX_CONTAINER`, observe
+  `SCN_STYLENEEDED`, and verify batched style application. The probe is
+  target-aware: on a Windows host it runs the selected MSVC target; elsewhere
+  it is compile-only. It does not claim UI Automation evidence.
+- [x] Step 3: Wire named runtime/check steps and all Debug/ReleaseSafe/
+  ReleaseFast Windows/Linux matrix entries; keep the inventory and native
+  Scintilla archive outside install/product/worker edges. Use SDK discovery
+  for the MSVC/Windows library paths; do not hardcode developer-machine
+  paths.
+- [x] Step 4: Verify focused modes, final Windows/Linux aggregates, formatting,
+  YAML parsing, and diff whitespace. The local Windows host produced
+  `6/8 + 2 skips` for the PE inventory and `7/8 + 1 skip` for the native
+  Scintilla probe in each runtime optimization mode; Linux checks remained
+  compile-only.
+- [ ] Step 5: Obtain one fresh independent read-only review after integration;
+  no Critical/High/Medium finding may remain. Commit/push this slice as its
+  own commit. Full T0.2b remains **NOT ADMITTED**: the authenticated
+  inventory is not yet connected to the product's emitted payload, UIA proof
+  is absent, and the independent PDFium/sealed-runner/reproducibility,
+  worker-runtime, and advisory gates remain open.
