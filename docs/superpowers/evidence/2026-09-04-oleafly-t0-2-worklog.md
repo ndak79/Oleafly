@@ -1934,3 +1934,35 @@ storage. No Medium+ finding remains. GitNexus was refreshed to commit
 and `rg` inspection remain the impact evidence for this Zig-only module. Browser
 QA is not applicable to this portable native value. The T1.1b closure is clean
 at `1/1`; this evidence is recorded in the closure commit.
+
+### T0.2c native DPI/visibility message seam (2026-09-06)
+
+This bounded native slice adds a pure Win32 message classifier and a shell-owned
+visibility state. `WM_SIZE` minimized/restore, `WM_DPICHANGED`, show/hide,
+activation, display-change, and power-resume messages now invalidate the next
+frame without introducing a timer. The state keeps hidden distinct from DXGI
+occlusion, carries packed horizontal/vertical DPI and a display epoch, gates
+Present while hidden/minimized/occluded, and preserves the normal
+`DefWindowProcW` path for system-caption messages. A `WM_PAINT` after an
+occluded Present is an explicit visibility hint: it may queue one retry when the
+window is not explicitly hidden or minimized, preventing starvation without a
+polling loop. The WM_DPICHANGED seam records the OS-packed DPI and rebuilds from
+the current client extent; it deliberately does not claim suggested-rectangle,
+DWM-pixel, or physical-display evidence.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows Debug aggregate | `t0-2c-models-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug`: `56/56` steps; `185/191` tests passed with 6 documented skips. | Classifier, state, presenter, shell, ETW, composition, UIA, and product-model coverage remain green after the seam and occlusion repair. |
+| Windows ReleaseSafe aggregate | Same command at `ReleaseSafe`: `56/56` steps; `185/191` tests passed with 6 documented skips. | Safe optimization preserves the message/state and render invariants. |
+| Linux portability | `t0-2c-models-check -Dtarget=x86_64-linux-gnu -Doptimize=ReleaseSafe`: `31/31` compile steps succeeded. | Linux remains compile-only on this Windows host; no Linux runtime claim is made. |
+| Product build | `t0-2c-product-build -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe`: `11/11` steps succeeded. | The shipped TExFlow GUI graph still compiles after the native seam. |
+| Static hygiene | `zig fmt` on changed Zig files and `git diff --check` passed. | No formatting or whitespace regression. |
+| Review/repair | Fresh review found one Medium occlusion-starvation gap; the repair added the `WM_PAINT` visibility hint and regression assertions. A fresh post-repair Luna max review returned `CLEAN` with no Critical/High/Medium issue. | The initial finding reset the streak to `0/1`; the repaired slice now has one clean final pass (`1/1`). |
+
+Implementation commits `37499771` (`feat(native): add DPI visibility message
+seam`), `c5e7df27` (`fix(native): preserve hidden state across resume`), and
+`92c5e43b` (`fix(native): retry occluded frame on paint`) are pushed to
+`origin/main`. Browser QA is not applicable: this is native Win32/CLI code with
+no HTML surface. This slice does not admit full T0.2c; authoritative DWM-visible
+capture, WIC round-trip, WPR/WPA/PresentMon evidence, physical DPI/occlusion/
+device-loss campaigns, and final T0.2c admission remain open.
