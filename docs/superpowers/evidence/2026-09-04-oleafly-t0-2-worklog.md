@@ -1744,14 +1744,15 @@ runner was authorized in this turn. Per the user's sequencing rule, T0.2a is
 not resumed and T0.2c is not opened.
 
 The independent final admission review classified the missing gates as
-Critical/High: no `pdfium_reproduce.zig`, approved toolchain receipt,
+Critical/High: no approved toolchain receipt from an actual sealed runner,
 independent rebuild/equivalence, detached-NIC/network-none proof, complete
 ReleaseSafe payload manifest/reproducibility/size gate, recursive product/worker
-PE closure, or authenticated worker runtime. It also recorded Medium gaps for
-Scintilla's native window/document/style probe and a dated dependency advisory
-review. The committed workflow does not yet run every existing T0.2b PDFium/
-PE/SQLite/notices/Scintilla lane remotely, so local static success is not
-presented as hosted-CI admission.
+PE closure, or authenticated worker runtime. The new receipt/closure/lifecycle
+files below are bounded contract oracles only and do not discharge those gates.
+It also recorded Medium gaps for Scintilla's native window/document/style probe
+and a dated dependency advisory review. The committed workflow does not yet
+run every existing T0.2b PDFium/PE/SQLite/notices/Scintilla lane remotely, so
+local static success is not presented as hosted-CI admission.
 
 ### T0.2b reproducibility preflight/payload oracle (2026-09-06)
 
@@ -1784,3 +1785,31 @@ evidence, complete ReleaseSafe payload manifest/two-root proof, recursive
 worker PE closure, native Scintilla probing, and dependency advisory review
 remain open. T0.2a remains paused and T0.2c remains unopened by sequencing
 rule.
+
+### T0.2b parallel admission-oracle slices (2026-09-06)
+
+Three independent bounded contracts were implemented in parallel. They are
+deliberately evidence-producing oracles, not claims that the deferred native
+runner, shipped-image inventory, or HWND probe already exists.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| PDFium receipt oracle | Windows host `t0-2b-pdfium-repro-test`: `10/10` tests in Debug, ReleaseSafe, and ReleaseFast; Linux `t0-2b-pdfium-repro-check`: `2/2` compile steps in all three modes. | Policy fixture pins, exact GN feature set, root-bound process/wrapper identities, explicit SHA-1/SHA-256 field semantics, network-none receipt, duplicate/unknown JSON fields, and approval revalidation are fail-closed. No process/network/compiler or PDFium rebuild was executed. |
+| PE role-closure oracle | Windows host `t0-2b-pe-closure-test`: `7/7` tests in Debug, ReleaseSafe, and ReleaseFast; Linux `t0-2b-pe-closure-check`: `2/2` compile steps in all three modes. | Fixture-driven recursive UI/PdfWorker/ScienceWorker role policy rejects missing/extra/duplicate roles, malformed PE bytes, path traversal, unexpected metadata, true set-equality violations, case-insensitive Scintilla/PDFium/Lexilla cross-role edges, and excessive depth. It is not shipped-image proof. |
+| Scintilla lifecycle contract | Windows host `t0-2b-scintilla-runtime-contract-test`: `3/3` tests in Debug, ReleaseSafe, and ReleaseFast; Linux `t0-2b-scintilla-runtime-contract-check`: `2/2` compile steps in all three modes. | The future Windows probe's six lifecycle facts have explicit satisfied/missing-event results; Linux is explicitly not-in-scope. No HWND, document, notification, or UIA observation is claimed. |
+| Aggregate integration | Windows ReleaseSafe `t0-2b-static`: `49/49` build steps, `96/98` tests with the two pre-existing symlink-permission skips; Linux ReleaseSafe: `26/26` compile steps. | All three slices are target-aware in the aggregate: runtime artifacts run only when both target and host are Windows; otherwise target-facing checks remain compile-only. |
+| Windows target compilation | The three new `*-check` steps plus the existing source/argv/API/Lexilla/repro checks each compiled for `x86_64-windows-msvc` in Debug, ReleaseSafe, and ReleaseFast. | CI now validates both host runtime artifacts and selected Windows target modules; the checks do not execute target binaries. |
+| CI/package wiring | The Windows matrix runs the three runtime steps plus all three new target compile-checks (and the existing static checks) in Debug/ReleaseSafe/ReleaseFast; the Linux matrix runs the compile-only checks in all three modes. `build.zig.zon` includes every new source/test path. | The parallel work is reproducible in CI configuration, but hosted execution and deferred external evidence remain unverified locally. |
+| Static hygiene | `zig fmt --check`, PyYAML workflow parse, and `git diff --check` passed after the final contract hardening. | No formatting, YAML, or whitespace gap was introduced. |
+
+The first review found three High and two Medium findings (GN/identity
+allowlists, host-vs-target aggregate selection, Windows target compile checks,
+and PE set equality). All were repaired, affected modes rerun, and the fresh
+independent review is CLEAN for this parallel scope (`1/1`) with no
+Critical/High/Medium finding remaining. Full T0.2b remains **NOT ADMITTED**.
+Independent PDFium reconstruction/equivalence, a sealed runner/toolchain
+receipt, detached-NIC/network-none proof, authenticated recursive product and
+worker PE closure, the native Scintilla probe, complete ReleaseSafe payload
+reproducibility, and dependency advisory review remain open. Browser QA is
+not applicable to these native/CLI-only contracts. T0.2a remains paused and
+T0.2c remains unopened by sequencing rule.

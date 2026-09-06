@@ -195,3 +195,79 @@ Files:
   authorized runner slice must add the independently reproducible PDFium
   rebuild, detached-NIC/network-none evidence, complete ReleaseSafe payload
   manifest/two-root proof, recursive worker PE closure, and toolchain receipt.
+
+### Task 7: Parallel PDFium reconstruction receipt contract
+
+Files:
+
+- Create `tools/zig/pdfium_reproduce.zig`
+- Create `native/zig/tests/pdfium_repro_toolchain_test.zig`
+- Modify `build.zig`, `build.zig.zon`, and `.github/workflows/zig.yml`
+
+- [x] Step 1: Define a strict JSON receipt schema for the future qualified
+  Windows reconstruction runner: fixed PDFium/recipe/depot pins, explicit
+  SHA-1 versus SHA-256 naming, GN feature locks, wrapper/process identities,
+  disposable root/resource thresholds, and a canonical network-none receipt.
+- [x] Step 2: Implement fail-closed parsing, duplicate/unknown-field rejection,
+  exact target/phase/status checks, canonical argument ordering, safe path
+  tokens, and approval revalidation. The module is pure Zig and never spawns,
+  fetches, compiles, or mutates a cache.
+- [x] Step 3: Add host runtime tests and target compile-only tests for Windows
+  Debug/ReleaseSafe/ReleaseFast and Linux Debug/ReleaseSafe/ReleaseFast.
+- [ ] Step 4: Do not claim reconstruction: a future authorized slice must
+  supply the actual sealed runner, independent PDFium rebuild/equivalence,
+  detached-NIC/network-none evidence, and a signed/retained receipt.
+
+### Task 8: Parallel recursive PE role-closure oracle
+
+Files:
+
+- Create `tools/zig/pe_closure.zig`
+- Create `native/zig/tests/pe_closure_test.zig`
+- Modify `build.zig`, `build.zig.zon`, and `.github/workflows/zig.yml`
+
+- [x] Step 1: Define a fixture-driven recursive role manifest for UI,
+  PdfWorker, and ScienceWorker, with exact image paths, module/import/resource
+  lists, depth bounds, and reuse of the offline PE parser.
+- [x] Step 2: Reject missing/extra/duplicate roles, path traversal, malformed
+  PE input, unexpected metadata, case-insensitive Scintilla/PDFium/Lexilla
+  cross-role edges, and excessive traversal depth.
+- [x] Step 3: Run the host runtime oracle on Windows and compile-only target
+  checks on Linux across Debug/ReleaseSafe/ReleaseFast.
+- [ ] Step 4: Do not treat fixture manifests as shipped-image evidence: a
+  future product lane must inventory every emitted UI/worker PE recursively,
+  authenticate the inventory, and prove the release payload closure.
+
+### Task 9: Parallel Scintilla lifecycle contract oracle
+
+Files:
+
+- Create `tools/zig/scintilla_runtime_contract.zig`
+- Create `native/zig/tests/scintilla_runtime_contract_test.zig`
+- Modify `build.zig`, `build.zig.zon`, and `.github/workflows/zig.yml`
+
+- [x] Step 1: Define the Windows lifecycle facts required by the future native
+  probe: class registration, direct API resolution, document creation, null
+  lexer selection, style notification, and batched style application.
+- [x] Step 2: Return an explicit missing-event result and an explicit Linux
+  not-in-scope result; do not claim that an HWND/document/notification was
+  observed from this pure contract module.
+- [x] Step 3: Run host runtime tests on Windows and compile-only checks on
+  Linux across all three optimization modes.
+- [ ] Step 4: Add the real Windows native probe in a later authorized slice,
+  including UIA-visible behavior and document/style lifetime evidence.
+
+### Task 10: Parallel-slice integration and review gate
+
+- [x] Step 1: Keep runtime artifacts host-targeted and target checks
+  compile-only; select aggregate runtime only when both host and target are
+  Windows; wire all three new gates into `t0-2b-static` and both CI matrices.
+- [x] Step 2: Run the combined Windows ReleaseSafe and Linux ReleaseSafe
+  aggregates, formatting, workflow parsing, and whitespace checks.
+- [x] Step 3: Obtain one independent clean review pass for this parallel
+  scope. The first review found 3 High and 2 Medium findings; all were
+  repaired, affected modes rerun, and the fresh independent review is CLEAN
+  (`1/1`) with no Critical/High/Medium finding remaining.
+- [ ] Step 4: Commit/push this bounded slice separately. Full T0.2b remains
+  **NOT ADMITTED** until Tasks 6–9's deferred external evidence exists;
+  T0.2a stays paused and T0.2c stays unopened.

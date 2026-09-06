@@ -134,7 +134,18 @@ jobs:
               "t0-2b-source-boundary-test",
               "t0-2b-argv-test",
               "t0-2b-api-contract-test",
-              "t0-2b-lexilla-test"
+              "t0-2b-lexilla-test",
+              "t0-2b-pdfium-repro-test",
+              "t0-2b-pe-closure-test",
+              "t0-2b-scintilla-runtime-contract-test",
+              "t0-2b-source-boundary-check",
+              "t0-2b-argv-check",
+              "t0-2b-api-contract-check",
+              "t0-2b-lexilla-check",
+              "t0-2b-repro-check",
+              "t0-2b-pdfium-repro-check",
+              "t0-2b-pe-closure-check",
+              "t0-2b-scintilla-runtime-contract-check"
             )) {
               Invoke-ZigBuild ($common + "-Doptimize=$mode" + $step + "--summary" + "all" + "-j1")
             }
@@ -296,7 +307,10 @@ jobs:
               t0-2b-source-boundary-check \
               t0-2b-argv-check \
               t0-2b-api-contract-check \
-              t0-2b-lexilla-check; do
+              t0-2b-lexilla-check \
+              t0-2b-pdfium-repro-check \
+              t0-2b-pe-closure-check \
+              t0-2b-scintilla-runtime-contract-check; do
               zig_build "${common[@]}" "-Doptimize=$mode" "$step" --summary all -j1
             done
           done

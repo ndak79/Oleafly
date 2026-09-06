@@ -746,6 +746,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const pe_audit_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/pe_audit.zig"),
+        .target = host_target,
+        .optimize = optimize,
+    });
     const pe_audit_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/pe_audit_test.zig"),
@@ -754,6 +759,41 @@ pub fn build(b: *std.Build) void {
         }),
     });
     pe_audit_tests.root_module.addImport("pe_audit", pe_audit_module);
+    const pe_closure_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/pe_closure.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pe_closure_module.addImport("pe_audit", pe_audit_module);
+    const pe_closure_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pe_closure_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pe_closure_tests.root_module.addImport("pe_closure", pe_closure_module);
+    pe_closure_tests.root_module.addImport("pe_audit", pe_audit_module);
+    const pe_closure_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/pe_closure.zig"),
+        .target = host_target,
+        .optimize = optimize,
+    });
+    pe_closure_host_module.addImport("pe_audit", pe_audit_host_module);
+    const pe_closure_host_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pe_closure_test.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    pe_closure_host_tests.root_module.addImport("pe_closure", pe_closure_host_module);
+    pe_closure_host_tests.root_module.addImport("pe_audit", pe_audit_host_module);
+    const pe_closure_run = b.addRunArtifact(pe_closure_host_tests);
+    const pe_closure_test_step = b.step("t0-2b-pe-closure-test", "Run the fixture-driven recursive PE role closure oracle");
+    pe_closure_test_step.dependOn(&pe_closure_run.step);
+    const pe_closure_check_step = b.step("t0-2b-pe-closure-check", "Compile the PE role closure oracle for the selected target");
+    pe_closure_check_step.dependOn(&pe_closure_tests.step);
     const pe_artifact = b.addOptions();
     const pe_fixture = b.addExecutable(.{
         .name = "texflow-pe-fixture-unshipped",
@@ -918,6 +958,68 @@ pub fn build(b: *std.Build) void {
     repro_check_target.root_module.addImport("repro_check", repro_check_target_module);
     const repro_check_target_step = b.step("t0-2b-repro-check", "Compile the reproducibility oracle for the selected target");
     repro_check_target_step.dependOn(&repro_check_target.step);
+    const pdfium_repro_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/pdfium_reproduce.zig"),
+        .target = host_target,
+        .optimize = optimize,
+    });
+    const pdfium_repro_host_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdfium_repro_toolchain_test.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    pdfium_repro_host_tests.root_module.addImport("pdfium_reproduce", pdfium_repro_host_module);
+    const pdfium_repro_run = b.addRunArtifact(pdfium_repro_host_tests);
+    const pdfium_repro_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/pdfium_reproduce.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const pdfium_repro_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdfium_repro_toolchain_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pdfium_repro_tests.root_module.addImport("pdfium_reproduce", pdfium_repro_module);
+    const pdfium_repro_test_step = b.step("t0-2b-pdfium-repro-test", "Run the offline PDFium reconstruction receipt schema oracle");
+    pdfium_repro_test_step.dependOn(&pdfium_repro_run.step);
+    const pdfium_repro_check_step = b.step("t0-2b-pdfium-repro-check", "Compile the PDFium reconstruction receipt oracle for the selected target");
+    pdfium_repro_check_step.dependOn(&pdfium_repro_tests.step);
+    const scintilla_runtime_contract_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/scintilla_runtime_contract.zig"),
+        .target = host_target,
+        .optimize = optimize,
+    });
+    const scintilla_runtime_contract_host_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/scintilla_runtime_contract_test.zig"),
+            .target = host_target,
+            .optimize = optimize,
+        }),
+    });
+    scintilla_runtime_contract_host_tests.root_module.addImport("scintilla_runtime_contract", scintilla_runtime_contract_host_module);
+    const scintilla_runtime_contract_run = b.addRunArtifact(scintilla_runtime_contract_host_tests);
+    const scintilla_runtime_contract_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/scintilla_runtime_contract.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const scintilla_runtime_contract_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/scintilla_runtime_contract_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    scintilla_runtime_contract_tests.root_module.addImport("scintilla_runtime_contract", scintilla_runtime_contract_module);
+    const scintilla_runtime_contract_test_step = b.step("t0-2b-scintilla-runtime-contract-test", "Run the Windows-only Scintilla lifecycle contract oracle");
+    scintilla_runtime_contract_test_step.dependOn(&scintilla_runtime_contract_run.step);
+    const scintilla_runtime_contract_check_step = b.step("t0-2b-scintilla-runtime-contract-check", "Compile the Scintilla lifecycle contract for the selected target");
+    scintilla_runtime_contract_check_step.dependOn(&scintilla_runtime_contract_tests.step);
     const notices_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/notices.zig"),
         .target = target,
@@ -1660,13 +1762,20 @@ pub fn build(b: *std.Build) void {
     // admission; those remain owned by their later T0.2 phases.
     const t0_2b_static = b.step("t0-2b-static", "Run the T0.2b static boundary contracts and mandatory host tree scan");
     t0_2b_static.dependOn(source_boundary_tree);
-    if (target.result.os.tag == .windows) {
+    // Runtime tests are evidence only when the selected target is Windows
+    // and the current host can execute that target. Cross-compiling a
+    // Windows target from Linux must stay compile-only.
+    const can_run_windows_runtime = target.result.os.tag == .windows and host_target.result.os.tag == .windows;
+    if (can_run_windows_runtime) {
         t0_2b_static.dependOn(package_probe_test);
         t0_2b_static.dependOn(source_boundary_step);
         t0_2b_static.dependOn(windows_argv_step);
         t0_2b_static.dependOn(windows_api_contract_test);
         t0_2b_static.dependOn(lexilla_test_step);
         t0_2b_static.dependOn(repro_check_test_step);
+        t0_2b_static.dependOn(pe_closure_test_step);
+        t0_2b_static.dependOn(pdfium_repro_test_step);
+        t0_2b_static.dependOn(scintilla_runtime_contract_test_step);
     } else {
         t0_2b_static.dependOn(package_probe_check);
         t0_2b_static.dependOn(source_boundary_check);
@@ -1674,6 +1783,9 @@ pub fn build(b: *std.Build) void {
         t0_2b_static.dependOn(windows_api_contract_check);
         t0_2b_static.dependOn(lexilla_check_step);
         t0_2b_static.dependOn(repro_check_target_step);
+        t0_2b_static.dependOn(pe_closure_check_step);
+        t0_2b_static.dependOn(pdfium_repro_check_step);
+        t0_2b_static.dependOn(scintilla_runtime_contract_check_step);
     }
 }
 
