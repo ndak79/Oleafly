@@ -885,6 +885,39 @@ pub fn build(b: *std.Build) void {
         .target = host_target,
         .optimize = .ReleaseSafe,
     });
+    const repro_check_host_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/repro_check.zig"),
+        .target = host_target,
+        .optimize = .ReleaseSafe,
+    });
+    repro_check_host_module.addImport("deps", deps_host_module);
+    const repro_check_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/repro_check_test.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    repro_check_tests.root_module.addImport("repro_check", repro_check_host_module);
+    const run_repro_check_tests = b.addRunArtifact(repro_check_tests);
+    const repro_check_test_step = b.step("t0-2b-repro-test", "Run the offline reproducibility and sealed-runner preflight oracle");
+    repro_check_test_step.dependOn(&run_repro_check_tests.step);
+    const repro_check_target_module = b.createModule(.{
+        .root_source_file = b.path("tools/zig/repro_check.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    repro_check_target_module.addImport("deps", deps_module);
+    const repro_check_target = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/repro_check_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    repro_check_target.root_module.addImport("repro_check", repro_check_target_module);
+    const repro_check_target_step = b.step("t0-2b-repro-check", "Compile the reproducibility oracle for the selected target");
+    repro_check_target_step.dependOn(&repro_check_target.step);
     const notices_module = b.createModule(.{
         .root_source_file = b.path("tools/zig/notices.zig"),
         .target = target,
@@ -1633,12 +1666,14 @@ pub fn build(b: *std.Build) void {
         t0_2b_static.dependOn(windows_argv_step);
         t0_2b_static.dependOn(windows_api_contract_test);
         t0_2b_static.dependOn(lexilla_test_step);
+        t0_2b_static.dependOn(repro_check_test_step);
     } else {
         t0_2b_static.dependOn(package_probe_check);
         t0_2b_static.dependOn(source_boundary_check);
         t0_2b_static.dependOn(windows_argv_check);
         t0_2b_static.dependOn(windows_api_contract_check);
         t0_2b_static.dependOn(lexilla_check_step);
+        t0_2b_static.dependOn(repro_check_target_step);
     }
 }
 

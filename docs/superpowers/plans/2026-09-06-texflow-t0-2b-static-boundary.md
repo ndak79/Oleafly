@@ -151,12 +151,47 @@ Review outcome (2026-09-06): the bounded static implementation is clean at
 `1/1` after repairing the COFF canonical-path and special-member findings, and
 the package/CI implementation is clean at `1/1` after correcting the Linux
 compile-only aggregate. This does **not** admit full T0.2b. The original
-roadmap still requires the missing `repro_check.zig`/sealed-runner receipt,
-independent PDFium source reconstruction and equivalence, recursive
+roadmap still requires the sealed-runner receipt and actual reconstruction
+execution, independent PDFium source reconstruction and equivalence, recursive
 product/worker PE closure, complete ReleaseSafe payload/reproducibility proof,
 Scintilla native runtime probing, dependency advisory review, and final
 A01/A03/A11/A17 evidence. The committed CI matrix still covers only this
 bounded static slice; hosted CI and detached-NIC/network-none evidence remain
 unverified. T0.2a is therefore deliberately paused; T0.2c must not start.
 
-This plan intentionally does not close T0.2b. Missing repro_check.zig, pdfium_reproduce.zig, independent PDFium reconstruction/equivalence, sealed network evidence, recursive product/worker PE closure, and final A01/A03/A11/A17 admission remain explicit follow-up tasks.
+This plan intentionally does not close T0.2b. The new `repro_check.zig` slice
+provides only a Zig-owned preflight/receipt/payload oracle; it does not launch a
+sealed runner or prove PDFium reconstruction. Independent PDFium
+reconstruction/equivalence, sealed network evidence, recursive product/worker
+PE closure, and final A01/A03/A11/A17 admission remain explicit follow-up
+tasks.
+
+### Task 6: Add the bounded reproducibility preflight and payload oracle
+
+Files:
+
+- Create `tools/zig/repro_check.zig`
+- Create `native/zig/tests/repro_check_test.zig`
+- Modify `build.zig`, `build.zig.zon`, and `.github/workflows/zig.yml`
+
+- [x] Step 1: Add RED tests for target/root/preflight, exact network receipts,
+  Windows role inventory, and equal/mutated payload roots.
+- [x] Step 2: Implement fail-closed Zig-owned validation. The tool validates
+  only the two allowlisted targets, rejects unsafe reconstruction roots,
+  requires explicit runner authorization and resource thresholds, requires an
+  offline receipt for reproduction, rejects unexpected Linux product roles,
+  and compares complete canonical directory digests through the existing
+  no-follow materialized-directory hasher. It never invokes a shell, network,
+  compiler, or external runner.
+- [x] Step 3: Wire a host `t0-2b-repro-test` runtime step and a target-aware
+  `t0-2b-repro-check` compile-only step. Include the correct one in the
+  Windows/Linux `t0-2b-static` aggregate and CI matrix. Linux remains
+  compile-only; no Linux target test is executed.
+- [x] Step 4: Verify Windows Debug/ReleaseSafe/ReleaseFast compile-only,
+  Windows ReleaseSafe runtime (`4/4` tests), Linux Debug/ReleaseSafe/
+  ReleaseFast compile-only, aggregate wiring, formatting, YAML parsing, and
+  diff whitespace.
+- [ ] Step 5: Do not treat this oracle as full T0.2b admission. A future
+  authorized runner slice must add the independently reproducible PDFium
+  rebuild, detached-NIC/network-none evidence, complete ReleaseSafe payload
+  manifest/two-root proof, recursive worker PE closure, and toolchain receipt.

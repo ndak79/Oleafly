@@ -141,6 +141,7 @@ jobs:
           }
           Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-source-boundary" + "--summary" + "all" + "-j1")
           Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-package-test" + "--summary" + "all" + "-j1")
+          Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-repro-test" + "--summary" + "all" + "-j1")
           Invoke-ZigBuild ($common + "-Doptimize=ReleaseSafe" + "t0-2b-static" + "--summary" + "all" + "-j1")
 
       - name: Build ABI, miscompile, and SIMD comparison modes
@@ -301,6 +302,7 @@ jobs:
           done
           zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-source-boundary --summary all -j1
           zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-package-check --summary all -j1
+          zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-repro-check --summary all -j1
           zig_build "${common[@]}" -Doptimize=ReleaseSafe t0-2b-static --summary all -j1
 
       - name: Build ABI, miscompile, and SIMD comparison modes

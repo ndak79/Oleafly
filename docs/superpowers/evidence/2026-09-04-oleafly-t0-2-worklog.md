@@ -1744,11 +1744,43 @@ runner was authorized in this turn. Per the user's sequencing rule, T0.2a is
 not resumed and T0.2c is not opened.
 
 The independent final admission review classified the missing gates as
-Critical/High: no `pdfium_reproduce.zig`, `repro_check.zig`, approved toolchain
-receipt, independent rebuild/equivalence, detached-NIC/network-none proof,
-complete ReleaseSafe payload manifest/reproducibility/size gate, recursive
-product/worker PE closure, or authenticated worker runtime. It also recorded
-Medium gaps for Scintilla's native window/document/style probe and a dated
-dependency advisory review. The committed workflow does not yet run every
-existing T0.2b PDFium/PE/SQLite/notices/Scintilla lane remotely, so local static
-success is not presented as hosted-CI admission.
+Critical/High: no `pdfium_reproduce.zig`, approved toolchain receipt,
+independent rebuild/equivalence, detached-NIC/network-none proof, complete
+ReleaseSafe payload manifest/reproducibility/size gate, recursive product/worker
+PE closure, or authenticated worker runtime. It also recorded Medium gaps for
+Scintilla's native window/document/style probe and a dated dependency advisory
+review. The committed workflow does not yet run every existing T0.2b PDFium/
+PE/SQLite/notices/Scintilla lane remotely, so local static success is not
+presented as hosted-CI admission.
+
+### T0.2b reproducibility preflight/payload oracle (2026-09-06)
+
+This bounded slice adds a Zig-owned `repro_check` module and named build gates.
+It is deliberately an oracle, not a reconstruction runner: it does not spawn a
+process, access the network, fetch a toolchain, compile PDFium, or mutate the
+shipping graph. `validatePreflight` requires explicit runner-policy
+authorization, a disposable root, at least 100 GiB free space and 16 GiB
+physical memory; reproduction additionally requires a verified `network=none`
+receipt. `verifyNetworkReceipt` accepts only the canonical five-line receipt and
+classifies unknown modes, proxies, and routes as isolation failures. The role
+inventory is exact for the three Windows payload roles and rejects product-like
+Linux paths. `comparePayloadRoots` opens both absolute roots without following
+reparse points and reuses the existing canonical materialized-directory hasher;
+file count, byte count, and digest must all match.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD RED | Before `tools/zig/repro_check.zig` existed, `t0-2b-repro-test` failed at compilation with `file_hash FileNotFound`. | The tests detected the missing implementation rather than silently passing. |
+| Windows runtime | `t0-2b-repro-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe`: `4/4` tests passed. | Preflight, receipt, role, equal-root, and mutated-root oracles execute on the Windows host. |
+| Windows compile portfolio | `t0-2b-repro-check` Debug, ReleaseSafe, ReleaseFast: `2/2` steps succeeded for each profile. | The target-facing module compiles across the required Windows profiles. |
+| Linux compile portfolio | `t0-2b-repro-check` Debug, ReleaseSafe, ReleaseFast: `2/2` steps succeeded for each profile. | Linux remains compile-only; no Linux target test was run. |
+| Aggregate wiring | Windows ReleaseSafe `t0-2b-static`: `40/40` steps, `76/78` tests with the same 2 explicit symlink-permission skips; Linux ReleaseSafe: `20/20` compile steps. | The new gate is present in the target-aware aggregate without executing Linux target tests. |
+| Static checks | `zig fmt --check`, PyYAML workflow parse, and `git diff --check` passed. | Source/package/CI wiring is structurally clean. |
+
+The bounded slice is clean for its stated oracle scope (`1/1` review streak),
+but it does not admit full T0.2b. Independent PDFium reconstruction and
+equivalence, a sealed runner/toolchain receipt, detached-NIC/network-none
+evidence, complete ReleaseSafe payload manifest/two-root proof, recursive
+worker PE closure, native Scintilla probing, and dependency advisory review
+remain open. T0.2a remains paused and T0.2c remains unopened by sequencing
+rule.
