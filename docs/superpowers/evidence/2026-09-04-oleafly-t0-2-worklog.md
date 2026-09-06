@@ -1719,3 +1719,36 @@ test from a Windows host; this was fixed by making the aggregate depend on
 passed. This closes the Task 4 implementation scope, but not PDFium
 reconstruction/equivalence, sealed-network, worker/runtime PE, or final
 T0.2b admission evidence.
+
+### T0.2b static admission review (2026-09-06)
+
+The existing static lanes were rerun before making any sequencing decision. On
+Windows x64 ReleaseSafe, `t0-2b-pdfium-abi` passed `7/7`, `t0-2b-pe-test`
+passed `31/31`, `t0-2b-package-test` passed `20/20`, `t0-2b-sqlite-test`
+passed `14/14`, `t0-2b-notices-test` passed `10/10`, and
+`t0-2b-scintilla-test` passed `9/9`. On Linux x64 ReleaseSafe, the corresponding
+compile-only lanes passed `4/4`, `3/3`, `3/3`, `8/8`, `3/3`, and `5/5`; no Linux
+target binary was executed. The five-pass review covered the acceptance oracle,
+Debug/Safe/Fast portfolio, hostile archive/aggregate mutations, graph/load/
+fetch/worker-edge falsification, and runtime reality. Independent review found
+no Medium+ issue in the bounded static/CI implementation after the recorded
+repairs (`1/1`).
+
+Admission decision: **NOT ADMITTED** for full T0.2b. The static evidence does
+not substitute for the original roadmap's independent PDFium source rebuild and
+equivalence, a sealed-network/negative-fetch receipt, recursive product/worker
+PE closure, authenticated worker runtime, and final A01/A03/A11/A17 admission.
+The local host has no authorized disposable reconstruction runner with the
+specified >=100 GiB NTFS / >=16 GiB RAM isolation envelope, and no such external
+runner was authorized in this turn. Per the user's sequencing rule, T0.2a is
+not resumed and T0.2c is not opened.
+
+The independent final admission review classified the missing gates as
+Critical/High: no `pdfium_reproduce.zig`, `repro_check.zig`, approved toolchain
+receipt, independent rebuild/equivalence, detached-NIC/network-none proof,
+complete ReleaseSafe payload manifest/reproducibility/size gate, recursive
+product/worker PE closure, or authenticated worker runtime. It also recorded
+Medium gaps for Scintilla's native window/document/style probe and a dated
+dependency advisory review. The committed workflow does not yet run every
+existing T0.2b PDFium/PE/SQLite/notices/Scintilla lane remotely, so local static
+success is not presented as hosted-CI admission.

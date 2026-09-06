@@ -139,12 +139,24 @@ Files:
 - [x] Step 3: Set standard job timeout to 45 minutes; keep qualified PDFium reconstruction separate and emit not-in-scope on hosted runners with only 14 GiB storage.
 - [x] Step 4: Keep workflow shell logic to bootstrap, dependency ordering, and exit status. Zig owns source, ABI, comparator, and verdict calculations.
 - [x] Step 5: Run YAML/static workflow checks and record that CI still cannot prove detached-NIC, independent PDFium reconstruction, worker runtime, or recursive product PE closure.
-- [ ] Step 6: Commit the CI/package wiring.
+- [x] Step 6: Commit the CI/package wiring.
 
 ### Task 5: Review and admission boundary
 
-- [ ] Step 1: Run the five-pass loop: oracle, optimization portfolio, adversarial mutations, falsification of load/fetch/worker edges, and runtime reality.
-- [ ] Step 2: Run independent spec review and quality review against Task 2 lines 1255-1455. Any Medium+ finding resets the streak to 0/1; repair and rerun all affected modes until one clean pass is recorded.
-- [ ] Step 3: Push the committed branch to the configured remote branch after verifying its name; do not silently push an unrelated branch.
+- [x] Step 1: Run the five-pass loop: oracle, optimization portfolio, adversarial mutations, falsification of load/fetch/worker edges, and runtime reality.
+- [x] Step 2: Run independent spec review and quality review against Task 2 lines 1255-1455. Any Medium+ finding resets the streak to 0/1; repair and rerun all affected modes until one clean pass is recorded.
+- [x] Step 3: Push the committed branch to the configured remote branch after verifying its name; do not silently push an unrelated branch.
+
+Review outcome (2026-09-06): the bounded static implementation is clean at
+`1/1` after repairing the COFF canonical-path and special-member findings, and
+the package/CI implementation is clean at `1/1` after correcting the Linux
+compile-only aggregate. This does **not** admit full T0.2b. The original
+roadmap still requires the missing `repro_check.zig`/sealed-runner receipt,
+independent PDFium source reconstruction and equivalence, recursive
+product/worker PE closure, complete ReleaseSafe payload/reproducibility proof,
+Scintilla native runtime probing, dependency advisory review, and final
+A01/A03/A11/A17 evidence. The committed CI matrix still covers only this
+bounded static slice; hosted CI and detached-NIC/network-none evidence remain
+unverified. T0.2a is therefore deliberately paused; T0.2c must not start.
 
 This plan intentionally does not close T0.2b. Missing repro_check.zig, pdfium_reproduce.zig, independent PDFium reconstruction/equivalence, sealed network evidence, recursive product/worker PE closure, and final A01/A03/A11/A17 admission remain explicit follow-up tasks.
