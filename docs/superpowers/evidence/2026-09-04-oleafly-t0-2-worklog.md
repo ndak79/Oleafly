@@ -1484,3 +1484,31 @@ runtime and has no HTML/browser surface. Loss-free WPR/WPA/PresentMon
 collection, long-run event-rate/energy evidence, full DPI/occlusion/device-loss
 campaigns, DWM-visible capture, separate-process UIA journey, and Task 7's
 physical matrix remain open T0.2c obligations.
+
+## T0.2c ETW lifecycle/admission closure (2026-09-06)
+
+The first ETW implementation review found four concrete seams that were not
+safe to leave implicit: shell registration errors were discarded, teardown
+used a best-effort path that could lose a failed handle, an all-zero supplied
+trial reached the shell before being rejected by the provider, and the native
+provider test was absent from the aggregate model gate. This correction keeps
+ETW non-blocking for startup while exposing a typed shell state/error, makes
+teardown retryable and propagates cleanup failure, rejects the sentinel during
+GUI admission, and wires both native ETW and shell tests into the aggregate.
+The provider now has a narrow injected ABI seam solely for deterministic native
+fault tests; production registration still binds directly to advapi32.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| TDD/adversarial | `t0-2c-entry-test`: `13/13`; `t0-2c-telemetry-test`: `2/2`; `t0-2c-telemetry-native-test`: `5/5` in Windows Debug and ReleaseSafe. Native fault tests cover registration failure, write failure, failed unregister with preserved handle, and successful retry. | Sentinel admission and ETW error/ownership contracts are exercised rather than inferred from the happy path. |
+| Shell integration | `t0-2c-shell-native-test`: `13/13` in Windows Debug and ReleaseSafe. The real backend registers the admitted trial, emits the post-create snapshot and subsequent Present event, exposes the registered state/count, and clears registration on teardown; a zero trial exposes `registration_failed` without blocking the caller. | Shell binding, event ordering, diagnostic state, and normal teardown are directly covered on Windows. |
+| Product black-box | `t0-2c-product-build` and `t0-2c-product-test`: `12/12` in ReleaseSafe; malformed-argument coverage now includes the all-zero trial. Explicit `flip_discard` build/test also passed `12/12`. | The shipped TExFlow image retains its PE/import contract and fails closed before native setup for sentinel input. |
+| Aggregate gate | `t0-2c-models-test`: `168/171` passed with the same three documented skips in Windows Debug; aggregate now includes the native ETW and shell suites. | The aggregate count is a real gate over the native seams, not a standalone-only green result. |
+| Portability/hygiene | `t0-2c-entry-check`, `t0-2c-telemetry-check`, `t0-2c-telemetry-native-check`, `t0-2c-shell-native-check`, and `t0-2c-models-check` passed for `x86_64-linux-gnu`; `zig fmt --check` and `git diff --check` passed. | Non-Windows remains compile-only and formatting/whitespace are clean. |
+| Review | Root five-axis review checked state transitions, preserved-handle retry, provider ABI indirection, trial identity immutability after registration, event-count semantics, privacy, and aggregate wiring. The requested Luna follow-up review is recorded separately; no Medium+ root finding remains for this correction. | Quality streak for this correction is `1/1`; this closes the previously identified ETW P1/P2 seams. |
+
+Browser QA is not applicable: this correction changes only native Win32/ETW
+runtime and has no HTML/browser surface. It does not claim loss-free WPR/WPA/
+PresentMon collection, long-run event-rate/energy evidence, full
+DPI/occlusion/device-loss campaigns, DWM-visible capture, separate-process UIA
+journey, or Task 7's physical matrix; those remain open T0.2c obligations.

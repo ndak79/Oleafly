@@ -329,8 +329,12 @@ pub fn build(b: *std.Build) void {
     telemetry_native_tests.root_module.addImport("windows_telemetry", windows_telemetry_module);
     if (target.result.os.tag == .windows) telemetry_native_tests.root_module.linkSystemLibrary("advapi32", .{});
     const telemetry_native_run = b.addRunArtifact(telemetry_native_tests);
-    b.step("t0-2c-telemetry-native-test", "Exercise the native ETW provider ABI").dependOn(&telemetry_native_run.step);
-    b.step("t0-2c-telemetry-native-check", "Compile the native ETW provider ABI").dependOn(&telemetry_native_tests.step);
+    const telemetry_native_test_step = b.step("t0-2c-telemetry-native-test", "Exercise the native ETW provider ABI");
+    telemetry_native_test_step.dependOn(&telemetry_native_run.step);
+    const telemetry_native_check_step = b.step("t0-2c-telemetry-native-check", "Compile the native ETW provider ABI");
+    telemetry_native_check_step.dependOn(&telemetry_native_tests.step);
+    t0_2c_models_test.dependOn(&telemetry_native_run.step);
+    t0_2c_models_check.dependOn(&telemetry_native_tests.step);
     const icon_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/icon_gen_test.zig"),
@@ -545,8 +549,13 @@ pub fn build(b: *std.Build) void {
     shell_native_tests.root_module.addImport("windows_shell", windows_shell_module);
     shell_native_tests.root_module.addImport("windows_com", windows_com_module);
     shell_native_tests.root_module.addImport("graphics", graphics_module);
-    b.step("t0-2c-shell-native-test", "Test narrow Win32 ABI command line and COM contracts").dependOn(&b.addRunArtifact(shell_native_tests).step);
-    b.step("t0-2c-shell-native-check", "Compile narrow Win32 ABI contracts").dependOn(&shell_native_tests.step);
+    const run_shell_native_tests = b.addRunArtifact(shell_native_tests);
+    const shell_native_test_step = b.step("t0-2c-shell-native-test", "Test narrow Win32 ABI command line and COM contracts");
+    shell_native_test_step.dependOn(&run_shell_native_tests.step);
+    const shell_native_check_step = b.step("t0-2c-shell-native-check", "Compile narrow Win32 ABI contracts");
+    shell_native_check_step.dependOn(&shell_native_tests.step);
+    t0_2c_models_test.dependOn(&run_shell_native_tests.step);
+    t0_2c_models_check.dependOn(&shell_native_tests.step);
     const product_contract = b.addOptions();
     const product_tests = b.addTest(.{
         .root_module = b.createModule(.{

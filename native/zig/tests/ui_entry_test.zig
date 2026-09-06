@@ -35,11 +35,13 @@ test "supplied trace trial decodes exact bytes without entropy" {
     try std.testing.expectEqual(entry.Origin.supplied, admitted.origin);
     try std.testing.expectEqual(@as(usize, 0), entropy.calls);
 
-    const zeros = try entry.admit(&.{"--trace-trial=00000000000000000000000000000000"}, entropy.source());
     const ones = try entry.admit(&.{"--trace-trial=ffffffffffffffffffffffffffffffff"}, entropy.source());
-    try std.testing.expectEqualSlices(u8, &([_]u8{0} ** 16), &zeros.trace_trial);
     try std.testing.expectEqualSlices(u8, &([_]u8{0xff} ** 16), &ones.trace_trial);
     try std.testing.expectEqual(@as(usize, 0), entropy.calls);
+}
+
+test "sentinel all-zero trace trial is rejected before backend startup" {
+    try expectRejected(error.SentinelTraceTrial, &.{"--trace-trial=00000000000000000000000000000000"});
 }
 
 test "absent trace trial requests exactly sixteen entropy bytes once" {

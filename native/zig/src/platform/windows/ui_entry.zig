@@ -18,6 +18,7 @@ pub const Admission = struct { trace_trial: [16]u8, origin: Origin };
 pub const ArgumentError = error{
     DuplicateTraceTrial,
     MalformedTraceTrial,
+    SentinelTraceTrial,
     WorkerSelectorNotAllowed,
     InternalProbeNotAllowed,
     WorkerBootstrapNotAllowed,
@@ -69,13 +70,19 @@ fn fillOs(context: ?*anyopaque, bytes: []u8) std.Io.RandomSecureError!void {
     try io.randomSecure(bytes);
 }
 
-fn decodeTrial(text: []const u8) error{MalformedTraceTrial}![16]u8 {
+fn decodeTrial(text: []const u8) error{ MalformedTraceTrial, SentinelTraceTrial }![16]u8 {
     if (text.len != 32) return error.MalformedTraceTrial;
     var result: [16]u8 = undefined;
     for (&result, 0..) |*byte, index| {
         byte.* = (try lowerHex(text[index * 2])) << 4 | try lowerHex(text[index * 2 + 1]);
     }
+    if (!hasNonZeroByte(result[0..])) return error.SentinelTraceTrial;
     return result;
+}
+
+fn hasNonZeroByte(bytes: []const u8) bool {
+    for (bytes) |byte| if (byte != 0) return true;
+    return false;
 }
 
 fn lowerHex(byte: u8) error{MalformedTraceTrial}!u8 {

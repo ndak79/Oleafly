@@ -7,6 +7,7 @@ test "telemetry trial ids are strict lowercase hex" {
     try std.testing.expectEqual(@as(u8, 0xff), id[15]);
     try std.testing.expectError(error.InvalidTrialId, telemetry.parseTrialId("00112233445566778899AABBCCDDEEFF"));
     try std.testing.expectError(error.InvalidTrialId, telemetry.parseTrialId("00"));
+    try std.testing.expectError(error.InvalidTrialId, telemetry.parseTrialId("00000000000000000000000000000000"));
 }
 
 test "telemetry encoding is fixed width and excludes content-bearing fields" {

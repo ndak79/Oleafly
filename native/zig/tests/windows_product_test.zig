@@ -958,7 +958,7 @@ test "real GUI process exposes named native shell controls" {
 
 test "real product rejects worker probe bootstrap malformed and unknown arguments" {
     if (!supported) return error.SkipZigTest;
-    for ([_][]const u8{ "--worker", "--probe", "--internal", "--bootstrap-handle=7", "--worker-bootstrap-handle=7", "--trace-trial=ABC", "--unknown", "--\u{1f642}" }) |argument| {
+    for ([_][]const u8{ "--worker", "--probe", "--internal", "--bootstrap-handle=7", "--worker-bootstrap-handle=7", "--trace-trial=ABC", "--trace-trial=00000000000000000000000000000000", "--unknown", "--\u{1f642}" }) |argument| {
         var child = try launch(&.{argument});
         defer child.deinit();
         try std.testing.expectEqual(@as(u32, 2), try child.exitCode());

@@ -70,10 +70,10 @@ test "real native argv parser rejects invalid admission before backend setup" {
     @setEvalBranchQuota(10_000);
     if (builtin.os.tag != .windows) return error.SkipZigTest;
     const lines = [_][*:0]const u16{
-        w("TExFlow.exe --worker"),                                                 w("TExFlow.exe --probe"),                                                                                       w("TExFlow.exe --internal"),
-        w("TExFlow.exe --bootstrap-handle=7"),                                     w("TExFlow.exe --worker-bootstrap-handle=7"),                                                                   w("TExFlow.exe --trace-trial 00112233445566778899aabbccddeeff"),
-        w("TExFlow.exe --trace-trial=00112233445566778899aabbccddeeff --unknown"), w("TExFlow.exe --trace-trial=00112233445566778899aabbccddeeff --trace-trial=00112233445566778899aabbccddeeff"), w("TExFlow.exe --trace-trial=00112233445566778899AABBCCDDEEFF"),
-        w("TExFlow.exe --\u{1f642}"),
+        w("TExFlow.exe --worker"),                                       w("TExFlow.exe --probe"),                                                  w("TExFlow.exe --internal"),
+        w("TExFlow.exe --bootstrap-handle=7"),                           w("TExFlow.exe --worker-bootstrap-handle=7"),                              w("TExFlow.exe --trace-trial 00112233445566778899aabbccddeeff"),
+        w("TExFlow.exe --trace-trial=00000000000000000000000000000000"), w("TExFlow.exe --trace-trial=00112233445566778899aabbccddeeff --unknown"), w("TExFlow.exe --trace-trial=00112233445566778899aabbccddeeff --trace-trial=00112233445566778899aabbccddeeff"),
+        w("TExFlow.exe --trace-trial=00112233445566778899AABBCCDDEEFF"), w("TExFlow.exe --\u{1f642}"),
     };
     for (lines) |line| {
         var backend: Forbidden = .{};
@@ -181,7 +181,15 @@ test "real native backend creates and presents its first frame before showing" {
     defer _ = backend.destroyWindow();
     try std.testing.expect(backend.hasShellControls());
     try std.testing.expect(backend.hasFrameResources());
+    const trial = [_]u8{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10 };
+    backend.setTraceTrial(trial);
+    backend.startTelemetry();
+    try std.testing.expect(backend.telemetryRegistered());
+    try std.testing.expectEqual(native.TelemetryState.registered, backend.telemetryState());
+    try std.testing.expectEqual(trial, backend.telemetryTrialId());
+    try std.testing.expect(backend.telemetryEventCount() >= 1); // bootstrap snapshot
     try std.testing.expect(backend.renderFrame());
+    try std.testing.expect(backend.telemetryEventCount() >= 2);
     backend.showWindow();
     try std.testing.expect(!backend.frameTimerActive());
     try std.testing.expect(backend.tickFrame());
@@ -190,8 +198,22 @@ test "real native backend creates and presents its first frame before showing" {
     try std.testing.expect(backend.resizeFrame(640, 480));
     try std.testing.expect(backend.rebuildFrameResources());
     try std.testing.expect(backend.destroyWindow());
+    try std.testing.expect(!backend.telemetryRegistered());
+    try std.testing.expectEqual(native.TelemetryState.disabled, backend.telemetryState());
+    try std.testing.expect(backend.telemetryError() == null);
     try std.testing.expect(!backend.hasShellControls());
     try std.testing.expect(!backend.hasFrameResources());
+}
+
+test "native shell surfaces telemetry registration failure without blocking startup" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    const instance: native.HINSTANCE = @ptrFromInt(1);
+    var backend: native.Backend = .{ .instance = instance, .show = 0 };
+    backend.setTraceTrial([_]u8{0} ** 16);
+    backend.startTelemetry();
+    try std.testing.expect(!backend.telemetryRegistered());
+    try std.testing.expectEqual(native.TelemetryState.registration_failed, backend.telemetryState());
+    try std.testing.expect(backend.telemetryError() != null);
 }
 
 test "native frame admission rejects device-loss present outcomes" {

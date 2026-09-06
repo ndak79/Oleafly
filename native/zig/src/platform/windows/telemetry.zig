@@ -71,6 +71,7 @@ pub fn parseTrialId(text: []const u8) ![16]u8 {
         const low = hexNibble(text[index * 2 + 1]) orelse return error.InvalidTrialId;
         result[index] = (high << 4) | low;
     }
+    if (!hasNonZeroByte(result[0..])) return error.InvalidTrialId;
     return result;
 }
 
@@ -124,6 +125,24 @@ const raw = struct {
     extern "advapi32" fn EventWrite(u64, *const EventDescriptor, u32, *const EventDataDescriptor) callconv(.winapi) u32;
 };
 
+/// The provider keeps the ABI behind a tiny function table so native tests can
+/// deterministically exercise registration/write/unregister failures without
+/// patching advapi32 or relying on an ETW session being active. Production
+/// callers always use `Provider.register`, which supplies the real functions.
+pub const Abi = struct {
+    event_register: *const fn (*const Guid, ?*anyopaque, ?*anyopaque, *u64) callconv(.winapi) u32,
+    event_unregister: *const fn (u64) callconv(.winapi) u32,
+    event_write: *const fn (u64, *const EventDescriptor, u32, *const EventDataDescriptor) callconv(.winapi) u32,
+};
+
+fn productionAbi() Abi {
+    return .{
+        .event_register = raw.EventRegister,
+        .event_unregister = raw.EventUnregister,
+        .event_write = raw.EventWrite,
+    };
+}
+
 pub const ProviderError = error{
     UnsupportedTarget,
     InvalidTrialId,
@@ -136,15 +155,23 @@ pub const ProviderError = error{
 pub const Provider = struct {
     handle: ?u64 = null,
     trial_id: [16]u8 = [_]u8{0} ** 16,
+    abi: Abi = productionAbi(),
 
     pub fn register(trial_id: [16]u8) ProviderError!Provider {
+        return registerWithAbi(trial_id, productionAbi());
+    }
+
+    /// Deterministic ABI seam used by native tests. It does not add a second
+    /// runtime path: the product entry point above remains the only production
+    /// constructor and still binds directly to advapi32.
+    pub fn registerWithAbi(trial_id: [16]u8, abi: Abi) ProviderError!Provider {
         if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
         if (!hasNonZeroByte(trial_id[0..])) return error.InvalidTrialId;
         var handle: u64 = 0;
-        if (raw.EventRegister(&provider_guid, null, null, &handle) != 0 or handle == 0) {
+        if (abi.event_register(&provider_guid, null, null, &handle) != 0 or handle == 0) {
             return error.RegisterFailed;
         }
-        return .{ .handle = handle, .trial_id = trial_id };
+        return .{ .handle = handle, .trial_id = trial_id, .abi = abi };
     }
 
     pub fn write(self: *const Provider, event: Event) ProviderError!void {
@@ -158,25 +185,30 @@ pub const Provider = struct {
             .Size = @intCast(encoded.len),
             .Reserved = 0,
         };
-        if (raw.EventWrite(handle, &render_event_descriptor, 1, &data) != 0) return error.WriteFailed;
+        if (self.abi.event_write(handle, &render_event_descriptor, 1, &data) != 0) return error.WriteFailed;
     }
 
     pub fn unregister(self: *Provider) ProviderError!void {
         if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
         const handle = self.handle orelse return error.NotRegistered;
-        if (raw.EventUnregister(handle) != 0) return error.UnregisterFailed;
+        if (self.abi.event_unregister(handle) != 0) return error.UnregisterFailed;
         self.handle = null;
     }
 
-    pub fn deinit(self: *Provider) void {
+    /// Teardown path with an observable error. A failed unregister leaves the
+    /// handle intact, making a later call a real retry rather than a no-op.
+    pub fn tryDeinit(self: *Provider) ProviderError!void {
         if (comptime builtin.os.tag != .windows) {
             self.handle = null;
             return;
         }
-        if (self.handle) |handle| {
-            _ = raw.EventUnregister(handle);
-            self.handle = null;
-        }
+        if (self.handle != null) try self.unregister();
+    }
+
+    pub fn deinit(self: *Provider) void {
+        // Best-effort callers retain the same retryable state as explicit
+        // teardown; shell-owned paths use tryDeinit to surface the failure.
+        _ = self.tryDeinit() catch {};
     }
 
     pub fn isRegistered(self: *const Provider) bool {

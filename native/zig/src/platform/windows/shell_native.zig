@@ -133,6 +133,14 @@ const FrameAttempt = enum {
     failed,
 };
 
+pub const TelemetryState = enum {
+    disabled,
+    registered,
+    registration_failed,
+    write_failed,
+    teardown_failed,
+};
+
 pub fn isPaintMessage(message: u32) bool {
     return message == wm_paint;
 }
@@ -240,6 +248,9 @@ pub const Backend = struct {
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
     frame_pending: bool = false,
+    telemetry_state: TelemetryState = .disabled,
+    telemetry_error: ?telemetry.ProviderError = null,
+    telemetry_event_count: u32 = 0,
     message: MSG = undefined,
 
     pub const initial_clear_color: [4]f32 = .{ 0.035, 0.055, 0.09, 1.0 };
@@ -268,15 +279,47 @@ pub const Backend = struct {
         com.uninitialize();
     }
     pub fn setTraceTrial(self: *Backend, trial: [16]u8) void {
+        // A provider owns the correlation identity for its whole registration
+        // lifetime. Ignore late mutation instead of emitting mixed-trial data.
+        if (self.telemetry_provider != null) return;
         self.trace_trial = trial;
+        self.telemetry_state = .disabled;
+        self.telemetry_error = null;
+        self.telemetry_event_count = 0;
     }
     pub fn startTelemetry(self: *Backend) void {
         if (self.telemetry_provider != null) return;
-        self.telemetry_provider = telemetry.Provider.register(self.trace_trial) catch null;
+        self.telemetry_error = null;
+        self.telemetry_event_count = 0;
+        const provider = telemetry.Provider.register(self.trace_trial) catch |err| {
+            // ETW is diagnostic-only: startup remains non-blocking, but the
+            // typed state/error make registration failure observable to QA and
+            // future diagnostics rather than silently disabling tracing.
+            self.telemetry_state = .registration_failed;
+            self.telemetry_error = err;
+            return;
+        };
+        self.telemetry_provider = provider;
+        self.telemetry_state = .registered;
         // Registration happens after the hidden bootstrap frame has been
         // presented, so emit one dimension/QPC snapshot to bind that first
         // displayed frame to the trial without tracing any source content.
         if (self.telemetry_provider != null) self.emitTelemetrySnapshot();
+    }
+    pub fn telemetryState(self: *const Backend) TelemetryState {
+        return self.telemetry_state;
+    }
+    pub fn telemetryError(self: *const Backend) ?telemetry.ProviderError {
+        return self.telemetry_error;
+    }
+    pub fn telemetryRegistered(self: *const Backend) bool {
+        return self.telemetry_provider != null and self.telemetry_provider.?.isRegistered();
+    }
+    pub fn telemetryEventCount(self: *const Backend) u32 {
+        return self.telemetry_event_count;
+    }
+    pub fn telemetryTrialId(self: *const Backend) [16]u8 {
+        return self.trace_trial;
     }
     pub fn registerClass(self: *Backend) bool {
         const cursor = raw.LoadCursorW(null, @ptrFromInt(32512)) orelse return false; // IDC_ARROW, shared
@@ -625,7 +668,7 @@ pub const Backend = struct {
     }
 
     fn emitRenderTelemetry(self: *Backend, width: u32, height: u32) void {
-        const provider = self.telemetry_provider orelse return;
+        const provider = &(self.telemetry_provider orelse return);
         var qpc: i64 = 0;
         if (raw.QueryPerformanceCounter(&qpc) == 0 or qpc <= 0) return;
         const pixels = std.math.mul(u64, width, height) catch return;
@@ -633,7 +676,7 @@ pub const Backend = struct {
             if (device.path == .warp) .warp else .hardware
         else
             .hardware;
-        _ = provider.write(.{
+        provider.write(.{
             .trial_id = self.trace_trial,
             .process_id = raw.GetCurrentProcessId(),
             .thread_id = raw.GetCurrentThreadId(),
@@ -644,7 +687,12 @@ pub const Backend = struct {
             .height = height,
             .dirty_pixels = pixels,
             .version = 1,
-        }) catch {};
+        }) catch |err| {
+            self.telemetry_state = .write_failed;
+            self.telemetry_error = err;
+            return;
+        };
+        self.telemetry_event_count +%= 1;
     }
 
     fn emitTelemetrySnapshot(self: *Backend) void {
@@ -800,18 +848,32 @@ pub const Backend = struct {
     }
 
     pub fn destroyWindow(self: *Backend) bool {
+        var ok = true;
         self.frame_pending = false;
         self.destroyShellControls();
         self.releaseFrameResources();
         if (self.telemetry_provider) |*provider| {
-            provider.deinit();
-            self.telemetry_provider = null;
+            provider.tryDeinit() catch |err| {
+                // Keep the provider handle for a subsequent retry. Reporting a
+                // cleanup failure is safer than claiming release while the OS
+                // still owns the registration.
+                self.telemetry_state = .teardown_failed;
+                self.telemetry_error = err;
+                ok = false;
+            };
+            if (!provider.isRegistered()) {
+                self.telemetry_provider = null;
+                if (ok) {
+                    self.telemetry_state = .disabled;
+                    self.telemetry_error = null;
+                }
+            }
         }
-        const window = self.window orelse return true;
+        const window = self.window orelse return ok;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
-        if (raw.IsWindow(window) != 0 and raw.DestroyWindow(window) == 0) return false;
+        if (raw.IsWindow(window) != 0 and raw.DestroyWindow(window) == 0) ok = false;
         self.window = null;
-        return true;
+        return ok;
     }
     pub fn showWindow(self: *Backend) void {
         // ShowWindow's return reports previous visibility, not success/failure.
