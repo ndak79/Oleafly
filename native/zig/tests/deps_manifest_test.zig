@@ -388,6 +388,41 @@ test "source package carries Unicode-3.0 notice and excludes UCD archives and ca
     try std.testing.expect(std.mem.indexOf(u8, package_manifest, "tools/zig/icon_gen.zig") != null);
 }
 
+test "source package carries every T0.2a fetch and audit input" {
+    const package_manifest = package_contract.zon;
+    const required_paths = [_][]const u8{
+        "native/zig",
+        "tools/zig/ascii_collision.zig",
+        "tools/zig/attestation_verify.zig",
+        "tools/zig/attestations/github-attestation-trusted-root-2026-09-04.jsonl",
+        "tools/zig/attestations/pdfium-chromium-8035-win-x64.jsonl",
+        "tools/zig/attestations/pdfium-chromium-8035-win-x64.snappy",
+        "tools/zig/deps.zig",
+        "tools/zig/deps_fetch.zig",
+        "tools/zig/native-deps.json",
+        "tools/zig/toolchain.json",
+        "tools/zig/unicode_gen.zig",
+        "docs/development.md",
+        "docs/superpowers/2026-09-04-native-dependency-update-adr.md",
+        "NOTICE",
+    };
+    for (required_paths) |path| {
+        try std.testing.expect(std.mem.indexOf(u8, package_manifest, path) != null);
+    }
+
+    const forbidden_roots = [_][]const u8{
+        "tools/zig/.cache",
+        "docs/superpowers/evidence/raw",
+        "docs/superpowers/evidence/generated",
+        ".zig-cache",
+        "archive.bin",
+        "UCD.zip",
+    };
+    for (forbidden_roots) |path| {
+        try std.testing.expect(std.mem.indexOf(u8, package_manifest, path) == null);
+    }
+}
+
 test "attestation and trusted-root locks reject origin and identity drift" {
     try expectManifestReplacementError(
         error.UnapprovedAttestationApiHost,

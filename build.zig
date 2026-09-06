@@ -1917,7 +1917,10 @@ pub fn build(b: *std.Build) void {
     // Runtime tests are evidence only when the selected target is Windows
     // and the current host can execute that target. Cross-compiling a
     // Windows target from Linux must stay compile-only.
-    const can_run_windows_runtime = target.result.os.tag == .windows and host_target.result.os.tag == .windows;
+    const can_run_windows_runtime = target.result.os.tag == .windows and
+        host_target.result.os.tag == .windows and
+        target.result.cpu.arch == .x86_64 and
+        host_target.result.cpu.arch == .x86_64;
     if (can_run_windows_runtime) {
         t0_2b_static.dependOn(package_probe_test);
         t0_2b_static.dependOn(source_boundary_step);
@@ -1943,6 +1946,143 @@ pub fn build(b: *std.Build) void {
         t0_2b_static.dependOn(scintilla_runtime_contract_check_step);
         t0_2b_static.dependOn(scintilla_native_probe_check_step);
     }
+
+    // T0.2g fixture-only benchmark/evidence contracts. These modules are pure
+    // Zig and deliberately have no WPR/WPA/PresentMon process or filesystem
+    // campaign side effects. Windows executes the fixture tests; Linux and
+    // other cross-target lanes compile the same contracts only.
+    const bench_events_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/events.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bench_events_module.addImport("windows_telemetry", windows_telemetry_module);
+    const bench_presentmon_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/presentmon_csv.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const bench_wpa_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/wpa_csv.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bench_wpa_module.addImport("bench_events", bench_events_module);
+    const bench_matrix_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/matrix.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const bench_evidence_pack_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/evidence_pack.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const bench_runner_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    bench_runner_module.addImport("bench_events", bench_events_module);
+    bench_runner_module.addImport("bench_presentmon_csv", bench_presentmon_module);
+    bench_runner_module.addImport("bench_wpa_csv", bench_wpa_module);
+    const bench_parser_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/bench_parser_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    bench_parser_tests.root_module.addImport("windows_telemetry", windows_telemetry_module);
+    bench_parser_tests.root_module.addImport("bench_events", bench_events_module);
+    bench_parser_tests.root_module.addImport("bench_presentmon_csv", bench_presentmon_module);
+    bench_parser_tests.root_module.addImport("bench_wpa_csv", bench_wpa_module);
+    bench_parser_tests.root_module.addImport("bench_runner", bench_runner_module);
+    const run_bench_parser_tests = b.addRunArtifact(bench_parser_tests);
+    const bench_matrix_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/bench_matrix_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    bench_matrix_tests.root_module.addImport("bench_matrix", bench_matrix_module);
+    const run_bench_matrix_tests = b.addRunArtifact(bench_matrix_tests);
+    const evidence_pack_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/evidence_pack_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    evidence_pack_tests.root_module.addImport("bench_evidence_pack", bench_evidence_pack_module);
+    const run_evidence_pack_tests = b.addRunArtifact(evidence_pack_tests);
+    const bench_test_step = b.step("t0-2g-bench-test", "Run fixture-only benchmark tests only for a matching native x86_64 Windows host; otherwise compile the same contracts");
+    const bench_check_step = b.step("t0-2g-bench-check", "Compile fixture-only benchmark and evidence contracts for the selected target");
+    bench_check_step.dependOn(&bench_parser_tests.step);
+    bench_check_step.dependOn(&bench_matrix_tests.step);
+    bench_check_step.dependOn(&evidence_pack_tests.step);
+    // Match the existing Scintilla host-run rule: Windows PE test binaries
+    // may execute when host and selected target are both native x86_64
+    // Windows even when their Zig ABIs differ. This proves the selected
+    // target binary ran on Windows; it does not claim that the host itself
+    // uses the selected target's CRT/ABI.
+    const bench_runs_on_host = target.result.os.tag == .windows and
+        host_target.result.os.tag == .windows and
+        target.result.cpu.arch == .x86_64 and
+        host_target.result.cpu.arch == .x86_64;
+    if (bench_runs_on_host) {
+        bench_test_step.dependOn(&run_bench_parser_tests.step);
+        bench_test_step.dependOn(&run_bench_matrix_tests.step);
+        bench_test_step.dependOn(&run_evidence_pack_tests.step);
+        t0_2c_models_test.dependOn(&run_bench_parser_tests.step);
+        t0_2c_models_test.dependOn(&run_bench_matrix_tests.step);
+        t0_2c_models_test.dependOn(&run_evidence_pack_tests.step);
+    } else {
+        bench_test_step.dependOn(bench_check_step);
+    }
+    t0_2c_models_check.dependOn(&bench_parser_tests.step);
+    t0_2c_models_check.dependOn(&bench_matrix_tests.step);
+    t0_2c_models_check.dependOn(&evidence_pack_tests.step);
+    const bench_step = b.step("t0-2g-bench", "Validate fixture-only benchmark contracts without making external campaign claims");
+    bench_step.dependOn(bench_check_step);
+    if (bench_runs_on_host) bench_step.dependOn(bench_test_step);
+
+    // T0.2c capture boundary contract. This is intentionally a pure fixture
+    // module: it validates frame metadata, crop/DPI rules, bounded waits,
+    // access-loss generations, and deterministic digests without claiming a
+    // live DXGI Desktop Duplication/WIC/DWM adapter or physical capture run.
+    const capture_contract_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/capture_contract.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const capture_contract_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/capture_contract_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    capture_contract_tests.root_module.addImport("capture_contract", capture_contract_module);
+    const run_capture_contract_tests = b.addRunArtifact(capture_contract_tests);
+    const capture_contract_test_step = b.step("t0-2c-capture-contract-test", "Run capture boundary tests only for a matching native x86_64 Windows host; otherwise compile the same contract");
+    const capture_contract_check_step = b.step("t0-2c-capture-contract-check", "Compile deterministic capture boundary contracts for the selected target");
+    capture_contract_check_step.dependOn(&capture_contract_tests.step);
+    const capture_runs_on_host = target.result.os.tag == .windows and
+        host_target.result.os.tag == .windows and
+        target.result.cpu.arch == .x86_64 and
+        host_target.result.cpu.arch == .x86_64;
+    if (capture_runs_on_host) {
+        capture_contract_test_step.dependOn(&run_capture_contract_tests.step);
+        t0_2c_models_test.dependOn(&run_capture_contract_tests.step);
+    } else {
+        capture_contract_test_step.dependOn(capture_contract_check_step);
+    }
+    t0_2c_models_check.dependOn(&capture_contract_tests.step);
+    const capture_contract_step = b.step("t0-2c-capture-contract", "Validate capture boundary contracts without making physical capture claims");
+    capture_contract_step.dependOn(capture_contract_check_step);
+    if (capture_runs_on_host) capture_contract_step.dependOn(capture_contract_test_step);
 }
 
 // Inspect actual build steps and transitive module/library edges. Checking only
