@@ -115,14 +115,17 @@ cutover is not implemented yet.
 scanner used before native dependency/API work is admitted. It scans filesystem
 files with a `.zig` suffix (case-insensitive to prevent a Windows `.ZIG`
 bypass) in deterministic byte order, keeps the two named cache/facade
-exceptions explicit, ignores only generated/metadata trees (`.git`,
-`.zig-cache`, `zig-cache`, `zig-out`, `tools/zig/.cache`, and repository
-metadata directories), and rejects direct `zigwin32` and `everything.zig`
+exceptions explicit, ignores only generated/metadata trees (`.git`, the
+repository-root `node_modules`, direct `packages/<workspace>/node_modules`,
+`.zig-cache`, `zig-cache`, `zig-out`, `tools/zig/.cache`, and repository metadata
+directories), and rejects direct `zigwin32` and `everything.zig`
 imports elsewhere. Ordinary drive/UNC roots are walked component-by-component
 without following reparse points; unsupported local-device/rooted namespaces
 fail closed. Directory and file handles are opened without following
 symlinks; reparse/unknown entries, ancestor reparse points, malformed UTF-8 or
-source, and per-file/aggregate/depth limits fail closed. On Zig 0.16 Windows,
+source, and per-file/aggregate/depth/entry-count limits fail closed. The
+default entry-count limit is 4096 candidate source/violation entries, and it is
+checked before a relative path or candidate file handle is retained. On Zig 0.16 Windows,
 the scanner compensates for the standard-library nofollow handle metadata bug
 before using its bounded positional reader. Generated import names are matched
 with Windows filesystem case-folding while the facade exception remains an

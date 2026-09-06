@@ -175,6 +175,72 @@ test "tree scan ignores generated directories and preserves byte-order violation
     );
 }
 
+test "tree scan ignores the generated dependency checkout" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    try temporary.dir.createDirPath(io, "node_modules/.pnpm");
+    try temporary.dir.writeFile(io, .{
+        .sub_path = "node_modules/.pnpm/generated.zig",
+        .data = "const z = @import(\"zigwin32\");",
+    });
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    const report = try source_boundary.scanTree(testing.allocator, io, root);
+    try testing.expectEqual(@as(usize, 0), report.files_scanned);
+    try testing.expectEqual(@as(u64, 0), report.bytes_scanned);
+}
+
+test "tree scan applies Windows skip policy without case bypass" {
+    if (comptime builtin.os.tag != .windows) return error.SkipZigTest;
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    try temporary.dir.createDirPath(io, "NODE_MODULES/.pnpm");
+    try temporary.dir.writeFile(io, .{
+        .sub_path = "NODE_MODULES/.pnpm/generated.zig",
+        .data = "const z = @import(\"zigwin32\");",
+    });
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    const report = try source_boundary.scanTree(testing.allocator, io, root);
+    try testing.expectEqual(@as(usize, 0), report.files_scanned);
+    try testing.expectEqual(@as(u64, 0), report.bytes_scanned);
+}
+
+test "tree scan does not hide a nested project-owned node_modules" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    try temporary.dir.createDirPath(io, "project/node_modules");
+    try temporary.dir.writeFile(io, .{
+        .sub_path = "project/node_modules/owned.zig",
+        .data = "const z = @import(\"zigwin32\");",
+    });
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    try testing.expectError(
+        error.DirectZigwin32Import,
+        source_boundary.scanTree(testing.allocator, io, root),
+    );
+}
+
+test "tree scan ignores pnpm checkouts beside workspace packages" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    try temporary.dir.createDirPath(io, "packages/editor/node_modules");
+    try temporary.dir.writeFile(io, .{
+        .sub_path = "packages/editor/node_modules/generated.zig",
+        .data = "const z = @import(\"zigwin32\");",
+    });
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    const report = try source_boundary.scanTree(testing.allocator, io, root);
+    try testing.expectEqual(@as(usize, 0), report.files_scanned);
+    try testing.expectEqual(@as(u64, 0), report.bytes_scanned);
+}
+
 test "tree scan diagnostics preserve the first violating path" {
     const io = testing.io;
     var temporary = testing.tmpDir(.{ .iterate = true });
@@ -246,6 +312,129 @@ test "tree scan enforces file aggregate and depth limits" {
         error.DepthLimit,
         source_boundary.scanTreeWithLimits(testing.allocator, io, root, .{ .max_depth = 1 }),
     );
+}
+
+test "tree scan accepts exactly the configured entry count of empty sources" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const names = [_][]const u8{ "a.zig", "b.zig" };
+    for (names) |name| {
+        try temporary.dir.writeFile(io, .{ .sub_path = name, .data = "" });
+    }
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+
+    const report = try source_boundary.scanTreeWithLimits(
+        testing.allocator,
+        io,
+        root,
+        .{ .max_entries = names.len },
+    );
+    try testing.expectEqual(names.len, report.files_scanned);
+    try testing.expectEqual(@as(usize, 0), report.bytes_scanned);
+    for (names) |name| try temporary.dir.deleteFile(io, name);
+}
+
+test "tree scan does not spend source entry budget on ordinary files" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const names = [_][]const u8{ "notes.txt", "source.zig" };
+    try temporary.dir.writeFile(io, .{ .sub_path = names[0], .data = "" });
+    try temporary.dir.writeFile(io, .{ .sub_path = names[1], .data = "" });
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+
+    const report = try source_boundary.scanTreeWithLimits(
+        testing.allocator,
+        io,
+        root,
+        .{ .max_entries = 1 },
+    );
+    try testing.expectEqual(@as(usize, 1), report.files_scanned);
+    try testing.expectEqual(@as(usize, 0), report.bytes_scanned);
+    for (names) |name| try temporary.dir.deleteFile(io, name);
+}
+
+test "tree scan bounds retained directory violations with the entry limit" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const names = [_][]const u8{ "a", "b", "c" };
+    for (names) |name| try temporary.dir.createDirPath(io, name);
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+
+    var diagnostic: ?source_boundary.Diagnostic = null;
+    try testing.expectError(
+        error.EntryLimit,
+        source_boundary.scanTreeWithDiagnostics(
+            testing.allocator,
+            io,
+            root,
+            .{ .max_entries = 1, .max_depth = 0 },
+            &diagnostic,
+        ),
+    );
+    try testing.expect(diagnostic != null);
+    if (diagnostic) |item| {
+        defer testing.allocator.free(item.path);
+        try testing.expectEqualStrings(root, item.path);
+        try testing.expectEqual(error.EntryLimit, item.err);
+    }
+
+    for (names) |name| try temporary.dir.deleteDir(io, name);
+}
+
+test "tree scan enforces a deterministic entry limit and releases retained handles" {
+    const io = testing.io;
+    var temporary = testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const names = [_][]const u8{ "z.zig", "a.zig", "m.zig", "b.zig", "c.zig" };
+    for (names) |name| {
+        try temporary.dir.writeFile(io, .{ .sub_path = name, .data = "" });
+    }
+    var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+
+    var first_diagnostic: ?source_boundary.Diagnostic = null;
+    try testing.expectError(
+        error.EntryLimit,
+        source_boundary.scanTreeWithDiagnostics(
+            testing.allocator,
+            io,
+            root,
+            .{ .max_entries = 3 },
+            &first_diagnostic,
+        ),
+    );
+    try testing.expect(first_diagnostic != null);
+    if (first_diagnostic) |item| {
+        defer testing.allocator.free(item.path);
+        try testing.expectEqualStrings(root, item.path);
+        try testing.expectEqual(error.EntryLimit, item.err);
+    }
+
+    var second_diagnostic: ?source_boundary.Diagnostic = null;
+    try testing.expectError(
+        error.EntryLimit,
+        source_boundary.scanTreeWithDiagnostics(
+            testing.allocator,
+            io,
+            root,
+            .{ .max_entries = 3 },
+            &second_diagnostic,
+        ),
+    );
+    try testing.expect(second_diagnostic != null);
+    if (second_diagnostic) |item| {
+        defer testing.allocator.free(item.path);
+        try testing.expectEqualStrings(root, item.path);
+        try testing.expectEqual(error.EntryLimit, item.err);
+    }
+
+    for (names) |name| try temporary.dir.deleteFile(io, name);
 }
 
 test "tree scan rejects symlink entries or records unavailable evidence" {

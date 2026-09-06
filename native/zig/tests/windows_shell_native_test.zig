@@ -106,6 +106,106 @@ test "WM_DPICHANGED packs independent horizontal and vertical DPI values" {
     try std.testing.expect(native.dpiFromWParam(@as(usize, 144)) == null);
 }
 
+test "frame wait failures become classified terminal state and retain pending work" {
+    try std.testing.expectEqual(native.FrameFailure.wait_abandoned, native.classifyWaitFailure(error.FrameLatencyWaitAbandoned));
+    try std.testing.expectEqual(native.FrameFailure.wait_failed, native.classifyWaitFailure(error.FrameLatencyWaitFailed));
+
+    var lifecycle: native.FrameLifecycle = .{};
+    lifecycle.request();
+    lifecycle.fail(.wait_abandoned, true);
+    try std.testing.expectEqual(native.FrameLifecycleState.terminal, lifecycle.state);
+    try std.testing.expectEqual(native.FrameFailure.wait_abandoned, lifecycle.failure.?);
+    try std.testing.expect(lifecycle.pending);
+
+    lifecycle.complete(false);
+    try std.testing.expectEqual(native.FrameLifecycleState.ready, lifecycle.state);
+    try std.testing.expect(lifecycle.failure == null);
+    try std.testing.expect(!lifecycle.pending);
+}
+
+test "failed render and rebuild keep a requested frame queued" {
+    var lifecycle: native.FrameLifecycle = .{};
+    lifecycle.request();
+    lifecycle.fail(.render_failed, true);
+    try std.testing.expectEqual(native.FrameFailure.render_failed, lifecycle.failure.?);
+    try std.testing.expect(lifecycle.pending);
+
+    lifecycle.complete(true);
+    lifecycle.request();
+    lifecycle.fail(.rebuild_failed, true);
+    try std.testing.expectEqual(native.FrameLifecycleState.terminal, lifecycle.state);
+    try std.testing.expectEqual(native.FrameFailure.rebuild_failed, lifecycle.failure.?);
+    try std.testing.expect(lifecycle.pending);
+}
+
+test "frame lifecycle clears pending work on terminal failure" {
+    var lifecycle: native.FrameLifecycle = .{};
+    lifecycle.request();
+    lifecycle.fail(.render_failed, false);
+    try std.testing.expectEqual(native.FrameLifecycleState.terminal, lifecycle.state);
+    try std.testing.expectEqual(native.FrameFailure.render_failed, lifecycle.failure.?);
+    try std.testing.expect(!lifecycle.pending);
+}
+
+test "combined frame wait failures retain their terminal classification" {
+    try std.testing.expectEqual(native.FrameFailure.wait_abandoned, native.classifyMessageWaitFailure(128));
+    try std.testing.expectEqual(native.FrameFailure.wait_failed, native.classifyMessageWaitFailure(std.math.maxInt(u32)));
+    try std.testing.expectEqual(native.FrameFailure.unexpected_wait_result, native.classifyMessageWaitFailure(2));
+}
+
+test "failed DestroyWindow retains a valid HWND until confirmed invalidation" {
+    const hwnd: native.HWND = @ptrFromInt(0x1234);
+    try std.testing.expectEqual(@as(?native.HWND, hwnd), native.windowAfterDestroy(hwnd, false, true));
+    try std.testing.expectEqual(@as(?native.HWND, null), native.windowAfterDestroy(hwnd, false, false));
+    try std.testing.expectEqual(@as(?native.HWND, null), native.windowAfterDestroy(hwnd, true, true));
+    try std.testing.expectEqual(@as(?native.HWND, null), native.windowAfterDestroy(null, false, true));
+}
+
+const DpiSetterProbe = struct {
+    calls: usize = 0,
+    window: ?native.HWND = null,
+    rect: native.RECT = undefined,
+    fail: bool = false,
+
+    fn set(context: ?*anyopaque, window: native.HWND, rect: native.RECT) callconv(.winapi) bool {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        self.calls += 1;
+        self.window = window;
+        self.rect = rect;
+        return !self.fail;
+    }
+};
+
+test "WM_DPICHANGED applies the supplied suggested rectangle and reports setter failure" {
+    const hwnd: native.HWND = @ptrFromInt(0x4321);
+    const suggested = native.RECT{ .left = -40, .top = 12, .right = 1160, .bottom = 812 };
+    const lparam: isize = @bitCast(@intFromPtr(&suggested));
+    try std.testing.expectEqual(suggested, native.dpiSuggestedRect(lparam).?);
+
+    var probe = DpiSetterProbe{};
+    try std.testing.expectEqual(
+        native.DpiRectOutcome.applied,
+        native.applySuggestedDpiRect(hwnd, native.dpiSuggestedRect(lparam), @ptrCast(&probe), DpiSetterProbe.set),
+    );
+    try std.testing.expectEqual(@as(usize, 1), probe.calls);
+    try std.testing.expectEqual(hwnd, probe.window.?);
+    try std.testing.expectEqual(suggested, probe.rect);
+
+    probe.fail = true;
+    try std.testing.expectEqual(
+        native.DpiRectOutcome.failed,
+        native.applySuggestedDpiRect(hwnd, suggested, @ptrCast(&probe), DpiSetterProbe.set),
+    );
+    try std.testing.expectEqual(@as(usize, 2), probe.calls);
+
+    const invalid = native.RECT{ .left = 0, .top = 0, .right = 0, .bottom = 100 };
+    try std.testing.expectEqual(native.DpiRectOutcome.invalid, native.applySuggestedDpiRect(hwnd, invalid, @ptrCast(&probe), DpiSetterProbe.set));
+    const overflowing = native.RECT{ .left = std.math.minInt(i32), .top = 0, .right = std.math.maxInt(i32), .bottom = 1 };
+    try std.testing.expectEqual(native.DpiRectOutcome.invalid, native.applySuggestedDpiRect(hwnd, overflowing, @ptrCast(&probe), DpiSetterProbe.set));
+    try std.testing.expectEqual(native.DpiRectOutcome.not_supplied, native.applySuggestedDpiRect(hwnd, null, @ptrCast(&probe), DpiSetterProbe.set));
+    try std.testing.expectEqual(@as(usize, 2), probe.calls);
+}
+
 const Forbidden = struct {
     calls: usize = 0,
     pub fn restrictDllSearch(self: *@This()) bool {

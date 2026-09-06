@@ -12,7 +12,7 @@ const version_resource = @import("app_version_resource");
 const icon = @import("texflow_icon");
 const windows = std.os.windows;
 const w = std.unicode.utf8ToUtf16LeStringLiteral;
-const supported = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64;
+const supported = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64 and builtin.target.abi == .msvc;
 
 test "product exists only for x64 Windows and installs as TExFlow GUI" {
     try std.testing.expectEqual(supported, contract.has_product);

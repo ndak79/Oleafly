@@ -56,7 +56,23 @@ pub fn build(b: *std.Build) void {
     presenter_options.addOption(bool, "use_discard", use_discard_swap_effect);
 
     // Product admission is deliberately narrower than the portable test graph.
-    const product_target = target.result.os.tag == .windows and target.result.cpu.arch == .x86_64;
+    // GNU Windows remains a declaration/compile-only lane; it must not be
+    // mistaken for the MSVC product image or a runnable Windows evidence lane.
+    const product_target = target.result.os.tag == .windows and
+        target.result.cpu.arch == .x86_64 and
+        target.result.abi == .msvc;
+    const can_run_windows_runtime = target.result.os.tag == .windows and
+        host_target.result.os.tag == .windows and
+        target.result.abi == .msvc and
+        target.result.cpu.arch == .x86_64 and
+        host_target.result.cpu.arch == .x86_64;
+    // The Windows loader can execute either x64 Windows ABI from an x64
+    // Windows host; Zig's own host ABI is the compiler default, not a process
+    // execution restriction. Keep the stricter ABI match for portable POSIX
+    // lanes, where the selected libc/ABI is part of the runnable contract.
+    const can_run_selected_target = target.result.os.tag == host_target.result.os.tag and
+        target.result.cpu.arch == host_target.result.cpu.arch and
+        (target.result.os.tag == .windows or target.result.abi == host_target.result.abi);
     var executable: ?*std.Build.Step.Compile = null;
 
     const abi_library = b.addLibrary(.{
@@ -177,7 +193,11 @@ pub fn build(b: *std.Build) void {
     windows_argv_tests.root_module.addOptions("argv_child_options", argv_child_options);
     const run_windows_argv_tests = b.addRunArtifact(windows_argv_tests);
     const windows_argv_step = b.step("t0-2b-argv-test", "Test Windows typed argv and narrow platform contracts");
-    windows_argv_step.dependOn(&run_windows_argv_tests.step);
+    if (can_run_selected_target) {
+        windows_argv_step.dependOn(&run_windows_argv_tests.step);
+    } else {
+        windows_argv_step.dependOn(&windows_argv_tests.step);
+    }
     const windows_argv_check = b.step("t0-2b-argv-check", "Compile Windows argv contracts for the selected target");
     windows_argv_check.dependOn(&windows_argv_tests.step);
 
@@ -196,7 +216,11 @@ pub fn build(b: *std.Build) void {
     source_boundary_tests.root_module.addImport("source_boundary", source_boundary_module);
     const run_source_boundary_tests = b.addRunArtifact(source_boundary_tests);
     const source_boundary_step = b.step("t0-2b-source-boundary-test", "Run the Zig source import boundary contract");
-    source_boundary_step.dependOn(&run_source_boundary_tests.step);
+    if (can_run_selected_target) {
+        source_boundary_step.dependOn(&run_source_boundary_tests.step);
+    } else {
+        source_boundary_step.dependOn(&source_boundary_tests.step);
+    }
     const source_boundary_check = b.step("t0-2b-source-boundary-check", "Compile the source import boundary contract");
     source_boundary_check.dependOn(&source_boundary_tests.step);
     const source_boundary_tool = b.addExecutable(.{
@@ -211,7 +235,7 @@ pub fn build(b: *std.Build) void {
     run_source_boundary_tool.addArgs(&.{ "tree", source_boundary_root });
     const source_boundary_tree = b.step("t0-2b-source-boundary", "Scan the repository Zig import boundary");
     source_boundary_tree.dependOn(&run_source_boundary_tool.step);
-    windows_argv_step.dependOn(&run_source_boundary_tests.step);
+    windows_argv_step.dependOn(source_boundary_step);
 
     const windows_api_contract_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -230,7 +254,7 @@ pub fn build(b: *std.Build) void {
     }
     const run_windows_api_contract_tests = b.addRunArtifact(windows_api_contract_tests);
     const windows_api_contract_test = b.step("t0-2b-api-contract-test", "Run the Windows SDK DXGI/DWM/WIC facade contract");
-    if (target.result.os.tag == .windows) {
+    if (can_run_selected_target) {
         windows_api_contract_test.dependOn(&run_windows_api_contract_tests.step);
     } else {
         windows_api_contract_test.dependOn(&windows_api_contract_tests.step);
@@ -335,8 +359,6 @@ pub fn build(b: *std.Build) void {
     workspace_test_step.dependOn(&run_workspace_tests.step);
     const workspace_check_step = b.step("t1-1a-workspace-check", "Compile T1.1a read-only source workspace inventory tests");
     workspace_check_step.dependOn(&workspace_tests.step);
-    t0_2c_models_test.dependOn(&run_workspace_tests.step);
-    t0_2c_models_check.dependOn(&workspace_tests.step);
     const editor_buffer_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/editor_buffer_test.zig"),
@@ -350,8 +372,6 @@ pub fn build(b: *std.Build) void {
     editor_buffer_test_step.dependOn(&run_editor_buffer_tests.step);
     const editor_buffer_check_step = b.step("t1-1b-editor-buffer-check", "Compile T1.1b revisioned editor-buffer tests");
     editor_buffer_check_step.dependOn(&editor_buffer_tests.step);
-    t0_2c_models_test.dependOn(&run_editor_buffer_tests.step);
-    t0_2c_models_check.dependOn(&editor_buffer_tests.step);
     const app_atomic_save_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/app/atomic_save.zig"),
         .target = target,
@@ -370,8 +390,6 @@ pub fn build(b: *std.Build) void {
     atomic_save_test_step.dependOn(&run_atomic_save_tests.step);
     const atomic_save_check_step = b.step("t1-1c-atomic-save-check", "Compile T1.1c atomic-save tests for the selected target");
     atomic_save_check_step.dependOn(&atomic_save_tests.step);
-    t0_2c_models_test.dependOn(&run_atomic_save_tests.step);
-    t0_2c_models_check.dependOn(&atomic_save_tests.step);
     const uia_shell_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/uia_shell_test.zig"),
@@ -689,8 +707,22 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .windows) {
         inline for (.{ "user32", "ole32", "oleaut32" }) |library| product_tests.root_module.linkSystemLibrary(library, .{});
     }
-    b.step("t0-2c-product-test", "Test native product PE and owned Windows shell runtime").dependOn(&b.addRunArtifact(product_tests).step);
-    b.step("t0-2c-product-check", "Compile product contract tests without execution").dependOn(&product_tests.step);
+    const run_product_tests = b.addRunArtifact(product_tests);
+    const product_test_step = b.step("t0-2c-product-test", "Run native product PE/runtime checks on matching Windows MSVC hosts; otherwise compile the contract");
+    if (can_run_windows_runtime) {
+        product_test_step.dependOn(&run_product_tests.step);
+    } else {
+        product_test_step.dependOn(&product_tests.step);
+    }
+    if (product_target) product_test_step.dependOn(product_build_step);
+    const product_check_step = b.step("t0-2c-product-check", "Compile product contract tests without execution");
+    product_check_step.dependOn(&product_tests.step);
+    // Keep the aggregate honest: T0.2c models include the product contract
+    // compile on every target, and execute the product only in the matching
+    // x64 Windows MSVC runtime lane. T1.1 suites have their own gates above.
+    t0_2c_models_check.dependOn(&product_tests.step);
+    if (product_target) t0_2c_models_test.dependOn(product_build_step);
+    if (can_run_windows_runtime) t0_2c_models_test.dependOn(product_test_step);
     const version_resource_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/version_resource_test.zig"),
@@ -877,7 +909,13 @@ pub fn build(b: *std.Build) void {
         pe_artifact.addOption([]const u8, "path", "");
     }
     pe_audit_tests.root_module.addOptions("pe_artifact", pe_artifact);
-    b.step("t0-2b-pe-test", "Test the offline static PE32+ auditor").dependOn(&b.addRunArtifact(pe_audit_tests).step);
+    const pe_audit_test_run = b.addRunArtifact(pe_audit_tests);
+    const pe_audit_test_step = b.step("t0-2b-pe-test", "Test the offline static PE32+ auditor");
+    if (can_run_selected_target) {
+        pe_audit_test_step.dependOn(&pe_audit_test_run.step);
+    } else {
+        pe_audit_test_step.dependOn(&pe_audit_tests.step);
+    }
     b.step("t0-2b-pe-check", "Compile the static PE auditor tests without executing the target").dependOn(&pe_audit_tests.step);
     const pe_audit_tool = b.addExecutable(.{
         .name = "texflow-pe-audit",
@@ -914,7 +952,11 @@ pub fn build(b: *std.Build) void {
     package_probe_tests.root_module.addOptions("package_probe_contract", package_probe_contract);
     const run_package_probe_tests = b.addRunArtifact(package_probe_tests);
     const package_probe_test = b.step("t0-2b-package-test", "Run the offline fixture package/compression oracle");
-    package_probe_test.dependOn(&run_package_probe_tests.step);
+    if (can_run_selected_target) {
+        package_probe_test.dependOn(&run_package_probe_tests.step);
+    } else {
+        package_probe_test.dependOn(&package_probe_tests.step);
+    }
     const package_probe_check = b.step("t0-2b-package-check", "Compile the package oracle tests for the selected target");
     package_probe_check.dependOn(&package_probe_tests.step);
 
@@ -1166,7 +1208,7 @@ pub fn build(b: *std.Build) void {
     const scintilla_winrt_include = b.option([]const u8, "scintilla-winrt-include", "Absolute Windows SDK WinRT include directory containing wrl.h; default: installed SDK discovery");
     // This local artifact belongs solely to the unshipped UI feasibility lane.
     // No install, product, worker, Lexilla, download, or dependency-fetch edge.
-    const scintilla_library: ?*std.Build.Step.Compile = if (target.result.os.tag == .windows) library: {
+    const scintilla_library: ?*std.Build.Step.Compile = if (target.result.os.tag == .windows and target.result.abi == .msvc) library: {
         const library = b.addLibrary(.{
             .name = "scintilla-ui-t0-2b-unshipped",
             .linkage = .static,
@@ -1208,7 +1250,13 @@ pub fn build(b: *std.Build) void {
     }
     scintilla_contract.addOption(bool, "library_created", scintilla_library != null);
     scintilla_tests.root_module.addOptions("scintilla_contract", scintilla_contract);
-    b.step("t0-2b-scintilla-test", "Run the unshipped Scintilla source and build contract tests").dependOn(&b.addRunArtifact(scintilla_tests).step);
+    const run_scintilla_tests = b.addRunArtifact(scintilla_tests);
+    const scintilla_test_step = b.step("t0-2b-scintilla-test", "Run the unshipped Scintilla source and build contract tests");
+    if (can_run_selected_target) {
+        scintilla_test_step.dependOn(&run_scintilla_tests.step);
+    } else {
+        scintilla_test_step.dependOn(&scintilla_tests.step);
+    }
     b.step("t0-2b-scintilla-check", "Compile Scintilla contract tests only; no Win32 C++ compilation on Linux").dependOn(&scintilla_tests.step);
 
     // Native HWND/document/style probe. The target-facing artifact is always
@@ -1332,7 +1380,7 @@ pub fn build(b: *std.Build) void {
     lexilla_snapshot.has_side_effects = true;
     const lexilla_snapshot_output = lexilla_snapshot.addOutputDirectoryArg("lexilla-5.5.3-verified");
     const lexilla_root = lexilla_snapshot_output.path(b, "payload/lexilla");
-    if (target.result.os.tag == .windows) {
+    if (target.result.os.tag == .windows and target.result.abi == .msvc) {
         lexilla_contract.addOptionPath("source_root", lexilla_root);
         lexilla_contract.addOptionPath("snapshot_receipt_path", lexilla_snapshot_output.path(b, "payload.lock.json"));
     } else {
@@ -1343,7 +1391,7 @@ pub fn build(b: *std.Build) void {
     const lexilla_flags = switch (optimize) {
         inline else => |mode| lexilla_inventory.cxxFlags(mode),
     };
-    const lexilla_library: ?*std.Build.Step.Compile = if (target.result.os.tag == .windows) library: {
+    const lexilla_library: ?*std.Build.Step.Compile = if (target.result.os.tag == .windows and target.result.abi == .msvc) library: {
         const library = b.addLibrary(.{
             .name = lexilla_inventory.artifact_name,
             .linkage = .static,
@@ -1413,7 +1461,11 @@ pub fn build(b: *std.Build) void {
     if (lexilla_library) |library| lexilla_run.step.dependOn(&library.step);
     if (lexilla_size_run) |size_run| lexilla_run.step.dependOn(&size_run.step);
     const lexilla_test_step = b.step("t0-2b-lexilla-test", "Run the unshipped Lexilla comparator contract");
-    lexilla_test_step.dependOn(&lexilla_run.step);
+    if (can_run_selected_target) {
+        lexilla_test_step.dependOn(&lexilla_run.step);
+    } else {
+        lexilla_test_step.dependOn(&lexilla_tests.step);
+    }
     const lexilla_check_step = b.step("t0-2b-lexilla-check", "Compile the Lexilla comparator contract only; no Win32 C++ compilation on Linux");
     lexilla_check_step.dependOn(&lexilla_tests.step);
     const deps_tool = b.addExecutable(.{
@@ -1910,17 +1962,13 @@ pub fn build(b: *std.Build) void {
 
     // One named, target-aware static boundary gate keeps the host source scan
     // mandatory even when a platform-specific contract is compile-only. The
-    // aggregate intentionally excludes product/UI/runtime and PDFium-worker
-    // admission; those remain owned by their later T0.2 phases.
+    // aggregate remains limited to the T0.2b static contracts; product/UI and
+    // worker admission stay on their own later-phase gates.
     const t0_2b_static = b.step("t0-2b-static", "Run the T0.2b static boundary contracts and mandatory host tree scan");
     t0_2b_static.dependOn(source_boundary_tree);
     // Runtime tests are evidence only when the selected target is Windows
     // and the current host can execute that target. Cross-compiling a
     // Windows target from Linux must stay compile-only.
-    const can_run_windows_runtime = target.result.os.tag == .windows and
-        host_target.result.os.tag == .windows and
-        target.result.cpu.arch == .x86_64 and
-        host_target.result.cpu.arch == .x86_64;
     if (can_run_windows_runtime) {
         t0_2b_static.dependOn(package_probe_test);
         t0_2b_static.dependOn(source_boundary_step);

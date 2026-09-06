@@ -2021,3 +2021,34 @@ browser-visible surface. The remaining admission statuses are
 have a clean bounded local implementation, but full external admission remains
 open until the qualified runner, receipts, SDK/toolchain, and independent
 PDFium reconstruction evidence exist.
+
+### T0.2a/T0.2b bounded repair closure — root scan and target-runner hygiene (2026-09-07)
+
+This follow-up closes the remaining locally observable gaps found after the
+previous bounded-closure entry. The source scanner now excludes the repository
+root and direct workspace-package pnpm dependency checkouts before walking them,
+while arbitrary nested `node_modules` paths remain scanned; the native frame
+lifecycle has one authoritative pending state instead of a mirrored field.
+Target-facing `*-test` steps now execute only when the selected target matches
+the host OS and architecture (with ABI equality retained for portable
+non-Windows lanes); cross-target invocations compile the same contract instead
+of attempting to execute an incompatible PE. No external network, remote CI,
+durable retention, or PDFium reconstruction claim is made.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Source-boundary unit tests | Windows x64 MSVC Debug: `28/30` passed, `2` explicit `SymlinkEvidenceUnavailable` skips. | The root and direct workspace-package generated-checkout policy, case-insensitive Windows handling, and nested project-owned `node_modules` regression are covered; symlink skips remain capability-visible rather than silently treated as proof. |
+| Repository-root static gate | Windows x64 MSVC ReleaseSafe `t0-2b-static`: `56/56` steps succeeded; `120/126` tests passed, `6` documented filesystem-capability skips; scanner reported `119` files and `1,990,759` bytes. | The real installed checkout, including pnpm's root and workspace-package `node_modules`, passes the mandatory root scan and all bounded static contracts. |
+| Cross-target runner hygiene | Windows host with `x86_64-linux-gnu` selected: `t0-2b-api-contract-test` `2/2` compile steps, `t0-2b-argv-test` `5/5` compile steps, and `t0-2b-source-boundary-test` `2/2` compile steps succeeded without target execution. | The build graph no longer claims a cross-target runtime result. |
+| Native lifecycle regression | Windows x64 MSVC ReleaseFast `t0-2c-shell-native-test`: `10/10` steps, `22/22` tests passed. | Wait failure classification, requeue/terminal semantics, DPI rectangle application, and failed-destroy HWND retention remain green after removing duplicate pending state. |
+| Final aggregate matrix | Windows x64 MSVC `t0-2c-models-test`: `66/66` steps, `211/217` tests passed with six documented capability skips in Debug, ReleaseSafe, and ReleaseFast; Linux `x86_64-linux-gnu` `t0-2c-models-check`: `34/34` compile steps in all three modes. | The repaired T0.2a/b boundary remains green across the runnable Windows lane and the portable Linux compile lane; no cross-target execution is counted as runtime evidence. |
+| Post-review correction streak | The final aggregate exposed and the repair closed six locally observable gaps: root-only generated `node_modules` handling, case-insensitive Windows skip handling, Windows x64 MSVC runtime gating on a host whose Zig compiler ABI is GNU, duplicate/reordered network-receipt records, failed-create teardown losing a still-valid HWND/child handle, and the missing direct workspace-package dependency exception. Fresh Debug source-boundary tests passed `28/30` with only the two documented capability skips; the static aggregate and shell lifecycle runs remained green. | The previous local pass was invalidated by the nested pnpm checkout; the corrected streak is now `1/1`. No new Critical/High/Medium issue was observed after the correction. |
+| Static hygiene | `zig fmt --check` and `git diff --check` passed. | No formatting or whitespace regression. |
+
+The bounded correction streak is `1/1` after the six locally observable gaps
+above were repaired and the focused/aggregate matrix was rerun; no new
+Critical/High/Medium finding was observed in that post-repair local review.
+Full T0.2a/T0.2b remains
+`NOT ADMITTED` pending `UNVERIFIED-REMOTE-CI-RUN-IDS`,
+`UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`.

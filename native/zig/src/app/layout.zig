@@ -16,6 +16,14 @@ pub const pdf_min_dip: u32 = 360;
 pub const source_share_percent: u32 = 58;
 pub const pdf_share_percent: u32 = 42;
 
+// Keyboard labels are part of the semantic contract. The native accelerator
+// table uses the same keys; UIA must never advertise a stale shortcut.
+pub const accelerator_open_folder = "Ctrl+O";
+pub const accelerator_mode = "Ctrl+M";
+pub const accelerator_compile = "Ctrl+B";
+pub const accelerator_save = "Ctrl+S";
+pub const accelerator_recovery = "Ctrl+R";
+
 comptime {
     if (source_share_percent + pdf_share_percent != 100) @compileError("source/PDF allocation must total 100%");
 }
@@ -107,16 +115,18 @@ pub const WindowLayout = struct {
 
 pub fn for_window(width_dip: u32, height_dip: u32, touch_mode: bool) WindowLayout {
     const mode = mode_for_width(width_dip);
+    const supported = is_supported(width_dip, height_dip);
+    const project_visible = supported and mode == .tri_canvas;
     return .{
         .mode = mode,
         .width_dip = width_dip,
         .height_dip = height_dip,
-        .supported = is_supported(width_dip, height_dip),
-        .project_visible = mode == .tri_canvas,
-        .project_flyout = mode != .tri_canvas,
-        .source_visible = true,
-        .pdf_visible = mode != .focus_switcher and mode != .unsupported_reflow,
-        .source_pdf_switcher = mode == .focus_switcher or mode == .unsupported_reflow,
+        .supported = supported,
+        .project_visible = project_visible,
+        .project_flyout = supported and !project_visible,
+        .source_visible = supported,
+        .pdf_visible = supported and mode != .focus_switcher and mode != .unsupported_reflow,
+        .source_pdf_switcher = supported and (mode == .focus_switcher or mode == .unsupported_reflow),
         .pointer_target_dip = if (touch_mode) touch_target_dip else minimum_target_dip,
     };
 }

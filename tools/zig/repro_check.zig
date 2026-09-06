@@ -43,9 +43,17 @@ pub const PayloadComparison = struct {
     right: PayloadSummary,
 };
 
+pub const RoleManifestEntry = struct {
+    name: []const u8,
+    path: []const u8,
+};
+
 pub const minimum_repro_disk_bytes: u64 = 100 * 1024 * 1024 * 1024;
 pub const minimum_repro_memory_bytes: u64 = 16 * 1024 * 1024 * 1024;
 const maximum_payload_bytes: u64 = 8 * 1024 * 1024 * 1024;
+const maximum_role_manifest_bytes: usize = 16 * 1024;
+const maximum_role_manifest_entries = 8;
+const role_manifest_header = "texflow-role-manifest-v1";
 
 const canonical_network_receipt =
     "network_mode=none\n" ++
@@ -140,37 +148,33 @@ pub fn validatePreflight(preflight: Preflight) !void {
 pub fn verifyNetworkReceipt(bytes: []const u8) !void {
     if (std.mem.eql(u8, bytes, canonical_network_receipt)) return;
 
-    // Surface isolation failures distinctly from ordinary formatting/content
-    // mismatches.  This prevents a proxy or route from being hidden by a
-    // generic parser error.
-    const network_mode = findLineValue(bytes, "network_mode=") orelse
-        return error.NetworkReceiptMismatch;
-    if (!std.mem.eql(u8, network_mode, "none")) {
-        return error.NetworkIsolationUnverified;
-    }
-    const proxy = findLineValue(bytes, "proxy=") orelse
-        return error.NetworkReceiptMismatch;
-    if (!std.mem.eql(u8, proxy, "unset")) return error.NetworkIsolationUnverified;
-    const route_count = findLineValue(bytes, "route_count=") orelse
-        return error.NetworkReceiptMismatch;
-    if (!std.mem.eql(u8, route_count, "0")) return error.NetworkIsolationUnverified;
-    const fetch_bytes = findLineValue(bytes, "fetch_bytes=") orelse
-        return error.NetworkReceiptMismatch;
-    if (!std.mem.eql(u8, fetch_bytes, "0")) return error.NetworkReceiptMismatch;
-    const process_policy = findLineValue(bytes, "process_policy=") orelse
-        return error.NetworkReceiptMismatch;
-    if (!std.mem.eql(u8, process_policy, "zig-owned")) {
-        return error.NetworkIsolationUnverified;
-    }
-    return error.NetworkReceiptMismatch;
-}
-
-fn findLineValue(bytes: []const u8, prefix: []const u8) ?[]const u8 {
+    // Parse exactly five ordered records. A first-match lookup would let a
+    // duplicate key hide a later conflicting value, which is unsafe for an
+    // isolation receipt. Surface policy failures distinctly from malformed
+    // structure while rejecting duplicates, reordering, and extra records.
+    const expected = [_][]const u8{
+        "network_mode=",
+        "fetch_bytes=",
+        "route_count=",
+        "proxy=",
+        "process_policy=",
+    };
     var lines = std.mem.splitScalar(u8, bytes, '\n');
-    while (lines.next()) |line| {
-        if (std.mem.startsWith(u8, line, prefix)) return line[prefix.len..];
+    for (expected, 0..) |prefix, index| {
+        const line = lines.next() orelse return error.NetworkReceiptMismatch;
+        if (!std.mem.startsWith(u8, line, prefix)) return error.NetworkReceiptMismatch;
+        const value = line[prefix.len..];
+        switch (index) {
+            0 => if (!std.mem.eql(u8, value, "none")) return error.NetworkIsolationUnverified,
+            1 => if (!std.mem.eql(u8, value, "0")) return error.NetworkReceiptMismatch,
+            2 => if (!std.mem.eql(u8, value, "0")) return error.NetworkIsolationUnverified,
+            3 => if (!std.mem.eql(u8, value, "unset")) return error.NetworkIsolationUnverified,
+            4 => if (!std.mem.eql(u8, value, "zig-owned")) return error.NetworkIsolationUnverified,
+            else => unreachable,
+        }
     }
-    return null;
+    if (lines.next() != null) return error.NetworkReceiptMismatch;
+    return error.NetworkReceiptMismatch;
 }
 
 pub fn verifyRequiredRoles(target: []const u8, paths: []const []const u8) !void {
@@ -202,6 +206,144 @@ pub fn verifyRequiredRoles(target: []const u8, paths: []const []const u8) !void 
         if (!found) return error.MissingRequiredRole;
     }
     if (paths.len != required.len) return error.MissingRequiredRole;
+}
+
+/// Hashes the target and exact role/name/path sequence carried by a role
+/// manifest. The digest binds the authenticated caller's input; it is not a
+/// signature and does not make a runtime or product-shipping claim.
+pub fn roleManifestDigest(target: []const u8, entries: []const RoleManifestEntry) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update("texflow-repro-role-manifest-v1\x00");
+    updateRoleManifestBytes(&hasher, target);
+    var count: [8]u8 = undefined;
+    std.mem.writeInt(u64, &count, @intCast(entries.len), .little);
+    hasher.update(&count);
+    for (entries) |entry| {
+        updateRoleManifestBytes(&hasher, entry.name);
+        updateRoleManifestBytes(&hasher, entry.path);
+    }
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return digest;
+}
+
+/// Validate the small, authenticated role manifest consumed by the CLI.
+///
+/// The caller that produces the manifest remains responsible for the
+/// out-of-band authentication decision. This parser requires that assertion,
+/// binds the exact target and role entries to the supplied digest, and then
+/// applies the same exact path policy as `verifyRequiredRoles`. It deliberately
+/// does not inspect PE bytes or claim worker/PDFium/runtime admission.
+pub fn verifyRoleManifest(target: []const u8, bytes: []const u8) !void {
+    try validateTarget(target);
+    if (bytes.len == 0 or bytes.len > maximum_role_manifest_bytes or
+        !std.unicode.utf8ValidateSlice(bytes) or std.mem.indexOfScalar(u8, bytes, 0) != null)
+    {
+        return error.InvalidRoleManifest;
+    }
+
+    // The generated manifest is LF-delimited and may have one final LF. A
+    // second trailing LF is a blank record and must remain invalid.
+    const content = if (bytes[bytes.len - 1] == '\n') bytes[0 .. bytes.len - 1] else bytes;
+    if (content.len == 0 or std.mem.indexOfScalar(u8, content, '\r') != null) {
+        return error.InvalidRoleManifest;
+    }
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    if (!std.mem.eql(u8, lines.next() orelse return error.InvalidRoleManifest, role_manifest_header)) {
+        return error.InvalidRoleManifest;
+    }
+    const authenticated = lines.next() orelse return error.InvalidRoleManifest;
+    if (!std.mem.eql(u8, authenticated, "authenticated=true")) {
+        if (std.mem.eql(u8, authenticated, "authenticated=false")) {
+            return error.UnauthenticatedRoleManifest;
+        }
+        return error.InvalidRoleManifest;
+    }
+    const target_line = lines.next() orelse return error.InvalidRoleManifest;
+    if (!std.mem.startsWith(u8, target_line, "target=") or
+        !std.mem.eql(u8, target_line["target=".len..], target))
+    {
+        return error.RoleManifestTargetMismatch;
+    }
+
+    var entries: [maximum_role_manifest_entries]RoleManifestEntry = undefined;
+    var entry_count: usize = 0;
+    var digest_hex: ?[]const u8 = null;
+    while (lines.next()) |line| {
+        if (line.len == 0) return error.InvalidRoleManifest;
+        if (std.mem.startsWith(u8, line, "role=")) {
+            if (digest_hex != null or entry_count == entries.len) {
+                return error.UnexpectedRequiredRole;
+            }
+            const value = line["role=".len..];
+            const separator = std.mem.indexOfScalar(u8, value, '|') orelse
+                return error.InvalidRoleManifest;
+            const name = value[0..separator];
+            const path = value[separator + 1 ..];
+            if (name.len == 0 or path.len == 0 or std.mem.indexOfScalar(u8, path, '|') != null) {
+                return error.InvalidRoleManifest;
+            }
+            try validateRolePath(path);
+            entries[entry_count] = .{ .name = name, .path = path };
+            entry_count += 1;
+        } else if (std.mem.startsWith(u8, line, "manifest_sha256=")) {
+            if (digest_hex != null) return error.InvalidRoleManifest;
+            digest_hex = line["manifest_sha256=".len..];
+        } else {
+            return error.InvalidRoleManifest;
+        }
+    }
+
+    const supplied_hex = digest_hex orelse return error.InvalidRoleManifest;
+    if (!isLowerHexDigest(supplied_hex)) return error.InvalidRoleManifest;
+    var supplied_digest: [32]u8 = undefined;
+    _ = std.fmt.hexToBytes(&supplied_digest, supplied_hex) catch return error.InvalidRoleManifest;
+    const parsed_entries = entries[0..entry_count];
+    if (!std.mem.eql(u8, &supplied_digest, &roleManifestDigest(target, parsed_entries))) {
+        return error.RoleManifestDigestMismatch;
+    }
+
+    var paths: [maximum_role_manifest_entries][]const u8 = undefined;
+    for (parsed_entries, 0..) |entry, index| {
+        const expected_path = expectedRolePath(entry.name) orelse return error.UnexpectedRequiredRole;
+        if (!std.mem.eql(u8, entry.path, expected_path)) return error.UnexpectedRequiredRole;
+        paths[index] = entry.path;
+    }
+    try verifyRequiredRoles(target, paths[0..entry_count]);
+}
+
+fn updateRoleManifestBytes(hasher: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+    var length: [8]u8 = undefined;
+    std.mem.writeInt(u64, &length, @intCast(bytes.len), .little);
+    hasher.update(&length);
+    hasher.update(bytes);
+}
+
+fn expectedRolePath(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "UI")) return "bin/TExFlow.exe";
+    if (std.mem.eql(u8, name, "PdfWorker")) return "bin/TExFlow.PdfWorker.exe";
+    if (std.mem.eql(u8, name, "ScienceWorker")) return "bin/TExFlow.ScienceWorker.exe";
+    return null;
+}
+
+fn validateRolePath(path: []const u8) !void {
+    if (path.len == 0 or path[0] == '/' or path[0] == '\\' or
+        std.mem.indexOfScalar(u8, path, '\\') != null or
+        std.mem.indexOfScalar(u8, path, ':') != null) return error.InvalidRoleManifest;
+    var components = std.mem.splitScalar(u8, path, '/');
+    while (components.next()) |component| {
+        if (component.len == 0 or std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..")) {
+            return error.InvalidRoleManifest;
+        }
+    }
+}
+
+fn isLowerHexDigest(value: []const u8) bool {
+    if (value.len != 64) return false;
+    for (value) |byte| {
+        if (!((byte >= '0' and byte <= '9') or (byte >= 'a' and byte <= 'f'))) return false;
+    }
+    return true;
 }
 
 pub fn comparePayloadRoots(
@@ -334,16 +476,54 @@ fn validatePayloadDirectory(directory: std.Io.Dir, io: std.Io) !void {
     };
 }
 
-pub fn main(init: std.process.Init) !void {
-    const args = try init.minimal.args.toSlice(init.arena.allocator());
-    if (args.len != 6 or !std.mem.eql(u8, args[1], "compare")) return error.InvalidArguments;
-    try validateTarget(args[2]);
+fn validateManifestPath(path: []const u8) !void {
+    if (path.len == 0 or path.len > 4096 or std.mem.indexOfScalar(u8, path, 0) != null or !std.unicode.utf8ValidateSlice(path)) {
+        return error.RoleManifestPathUnsafe;
+    }
+    if (std.Io.Dir.path.isAbsolute(path)) {
+        validateAbsolutePath(path, false) catch return error.RoleManifestPathUnsafe;
+        return;
+    }
+    var components = std.mem.splitAny(u8, path, "/\\");
+    while (components.next()) |component| {
+        if (component.len == 0 or std.mem.eql(u8, component, ".") or std.mem.eql(u8, component, "..") or
+            std.mem.indexOfAny(u8, component, ":\"*?<>|;&") != null) return error.RoleManifestPathUnsafe;
+    }
+}
+
+fn readRoleManifest(allocator: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
+    try validateManifestPath(path);
+    return std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(maximum_role_manifest_bytes));
+}
+
+/// Explicit command-line entry point used by `main`.  `compare` requires the
+/// role manifest; `compare-digest` is the intentionally weaker, digest-only
+/// mode for Linux/test artifacts and cannot be mistaken for product admission.
+pub fn run(allocator: std.mem.Allocator, io: std.Io, args: []const []const u8) !PayloadComparison {
+    const digest_only = args.len == 6 and std.mem.eql(u8, args[1], "compare-digest");
+    const product_compare = args.len == 7 and std.mem.eql(u8, args[1], "compare");
+    if (!digest_only and !product_compare) return error.InvalidArguments;
+
+    const target = args[2];
+    try validateTarget(target);
     try validatePayloadRootPath(args[3]);
     try validatePayloadRootPath(args[4]);
-    const receipt = try std.Io.Dir.cwd().readFileAlloc(init.io, args[5], init.gpa, .limited(1024));
-    defer init.gpa.free(receipt);
+    try validateManifestPath(args[5]);
+    const receipt = try std.Io.Dir.cwd().readFileAlloc(io, args[5], allocator, .limited(1024));
+    defer allocator.free(receipt);
     try verifyNetworkReceipt(receipt);
-    const comparison = try comparePayloadRoots(init.gpa, init.io, args[3], args[4]);
+
+    if (product_compare) {
+        const manifest = try readRoleManifest(allocator, io, args[6]);
+        defer allocator.free(manifest);
+        try verifyRoleManifest(target, manifest);
+    }
+    return comparePayloadRoots(allocator, io, args[3], args[4]);
+}
+
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    const comparison = try run(init.gpa, init.io, args);
     std.debug.print(
         "repro-check target={s} files={d} bytes={d} digest={x}\n",
         .{ args[2], comparison.left.files, comparison.left.bytes, comparison.left.digest },

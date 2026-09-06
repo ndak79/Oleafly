@@ -8,14 +8,18 @@
 #include <dwmapi.h>
 #include <wincodec.h>
 
-/* mingw-w64 keeps this interface IID as an external declaration even with
- * INITGUID; define the SDK-declared value in this probe translation unit. */
+/* The MSVC SDK exposes this IID as an external declaration in wincodec.h;
+ * keep a definition in this probe translation unit. mingw-w64 emits the
+ * definition from wincodec.h itself when INITGUID is set, so do not redefine
+ * it in that lane. */
+#if !defined(__MINGW32__)
 const IID IID_IWICImagingFactory = {
     0xec5ec8a9,
     0xc395,
     0x4314,
     { 0x9c, 0x77, 0x54, 0xd7, 0xa9, 0x35, 0xff, 0x70 },
 };
+#endif
 
 _Static_assert(sizeof(void *) == 8, "the SDK probe is x64-only");
 _Static_assert(sizeof(GUID) == 16, "GUID layout changed");

@@ -54,6 +54,8 @@ test "responsive layout uses exact boundary widths and minimums" {
     try std.testing.expect(layout.is_supported(760, 520));
     try std.testing.expect(!layout.is_supported(759, 520));
     try std.testing.expect(!layout.is_supported(760, 519));
+    try std.testing.expect(!layout.for_window(759, 520, false).source_visible);
+    try std.testing.expect(layout.for_window(760, 520, false).source_visible);
     try std.testing.expectEqual(@as(u32, 8), layout.spacing_rhythm_dip);
     try std.testing.expectEqual(@as(u32, 24), layout.minimum_target_dip);
     try std.testing.expectEqual(@as(u32, 44), layout.touch_target_dip);

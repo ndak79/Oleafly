@@ -43,6 +43,13 @@ Implement scanTree(allocator, absolute_root) !Report using a component-wise no-f
 
 - [x] Step 4: Add adversarial and tree tests.
 
+As-built clarification (2026-09-07): the repository-root `node_modules` and the
+direct `packages/<workspace>/node_modules` trees materialized by pnpm are
+treated as generated dependency checkouts (case-insensitively on Windows).
+Arbitrary nested `node_modules` paths remain scanned, including the adversarial
+`project/node_modules` fixture, so this exception is not a basename-wide bypass.
+The scanner still does not claim Git-tracked-file detection.
+
 Cover ordinary strings, escaped and multiline-looking literals, comments at CRLF boundaries, invalid UTF-8, unterminated constructs, legal relative imports, @import(\"zig\" ++ \"win32\") and @import(name), ignored generated directories, deterministic first-violation ordering, depth/file/aggregate limits, and temporary symlink/reparse fixtures. If the host cannot create a symlink, test scanText and the scanner's explicit SymlinkEvidenceUnavailable result instead of silently skipping the security case. Assert that both test-only exceptions are outside the product graph.
 
 - [x] Step 5: Wire and run all modes.

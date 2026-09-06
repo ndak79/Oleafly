@@ -89,6 +89,12 @@ test "composition geometry remains valid for tiny native clients" {
     try std.testing.expect(tiny.source_left_dip <= tiny.width_dip);
     try std.testing.expect(tiny.source_right_dip <= tiny.width_dip);
     try std.testing.expectEqual(composition.max_extent, composition.pixelsToDip(composition.max_extent, 1));
+
+    const unsupported = try composition.frameGeometry(100, 100, 96);
+    try std.testing.expect(!unsupported.project_visible);
+    try std.testing.expect(!unsupported.source_visible);
+    try std.testing.expect(!unsupported.pdf_visible);
+    try std.testing.expect(unsupported.source_right_dip <= unsupported.width_dip);
 }
 
 test "composition EndDraw mapping never presents a lost target" {

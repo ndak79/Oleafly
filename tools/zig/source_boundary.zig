@@ -14,6 +14,7 @@ pub const Error = error{
     SymlinkEntry,
     ReparseAncestor,
     DepthLimit,
+    EntryLimit,
     FileTooLarge,
     AggregateLimit,
     UnsupportedEntry,
@@ -30,6 +31,9 @@ pub const Diagnostic = struct {
 };
 
 pub const Limits = struct {
+    /// Maximum number of candidate source/violation entries retained during discovery.
+    /// The guard runs before a relative path or file handle is retained.
+    max_entries: usize = 4096,
     max_file_bytes: u64 = 16 * 1024 * 1024,
     max_tree_bytes: u64 = 256 * 1024 * 1024,
     max_depth: usize = 64,
@@ -261,6 +265,7 @@ const TreeState = struct {
     }
 
     fn appendViolation(self: *TreeState, path: []const u8, err: anyerror) !void {
+        if (self.records.items.len >= self.limits.max_entries) return error.EntryLimit;
         const owned = try self.allocator.dupe(u8, path);
         errdefer self.allocator.free(owned);
         try self.records.append(self.allocator, .{ .path = owned, .err = err });
@@ -268,6 +273,10 @@ const TreeState = struct {
 
     fn appendFile(self: *TreeState, path: []const u8, file: std.Io.File) !void {
         var handle = file;
+        if (self.records.items.len >= self.limits.max_entries) {
+            handle.close(self.io);
+            return error.EntryLimit;
+        }
         const owned = self.allocator.dupe(u8, path) catch |err| {
             handle.close(self.io);
             return err;
@@ -307,6 +316,11 @@ fn collectEntries(state: *TreeState, directory: std.Io.Dir, relative: []const u8
         };
         const entry = maybe_entry orelse break;
         if (shouldSkip(relative, entry.name)) continue;
+        // Enforce the resource bound before allocating the child path or
+        // opening a candidate file. Retained paths and handles stay bounded
+        // even when the entries are empty or otherwise cheap to scan.
+        if (entry.kind == .file and isZigSource(entry.name) and
+            state.records.items.len >= state.limits.max_entries) return error.EntryLimit;
         const child = try joinRelative(state.allocator, relative, entry.name);
         defer state.allocator.free(child);
         if (entry.kind == .sym_link) {
@@ -500,16 +514,36 @@ fn mapReparseOpenError(err: anyerror, missing_is_reparse: bool) anyerror {
 }
 
 fn shouldSkip(relative: []const u8, name: []const u8) bool {
-    if (std.mem.eql(u8, name, ".git") or
-        std.mem.eql(u8, name, ".superpowers") or
-        std.mem.eql(u8, name, ".codegraph") or
-        std.mem.eql(u8, name, ".gitnexus") or
-        std.mem.eql(u8, name, ".agents") or
-        std.mem.eql(u8, name, ".zig-cache") or
-        std.mem.eql(u8, name, "zig-cache") or
-        std.mem.eql(u8, name, "zig-out")) return true;
-    if (std.mem.eql(u8, relative, "tools/zig") and std.mem.eql(u8, name, ".cache")) return true;
+    if (skipName(name, ".git") or
+        skipName(name, ".superpowers") or
+        skipName(name, ".codegraph") or
+        skipName(name, ".gitnexus") or
+        skipName(name, ".agents") or
+        (skipName(name, "node_modules") and
+            (relative.len == 0 or isWorkspacePackage(relative))) or
+        skipName(name, ".zig-cache") or
+        skipName(name, "zig-cache") or
+        skipName(name, "zig-out")) return true;
+    if (skipName(relative, "tools/zig") and skipName(name, ".cache")) return true;
     return false;
+}
+
+/// pnpm materializes one dependency checkout beside each workspace package.
+/// Those trees are generated inputs, while an arbitrary nested node_modules
+/// directory remains product-owned and is scanned.  Restricting this exception
+/// to the repository's `packages/<name>` shape keeps the scanner useful for
+/// source fixtures and prevents a broad basename-based bypass.
+fn isWorkspacePackage(relative: []const u8) bool {
+    const prefix = "packages/";
+    if (relative.len <= prefix.len or !skipName(relative[0 .. prefix.len - 1], "packages")) return false;
+    return std.mem.indexOfScalar(u8, relative[prefix.len..], '/') == null;
+}
+
+fn skipName(actual: []const u8, expected: []const u8) bool {
+    return if (builtin.os.tag == .windows)
+        std.ascii.eqlIgnoreCase(actual, expected)
+    else
+        std.mem.eql(u8, actual, expected);
 }
 
 fn isZigSource(name: []const u8) bool {

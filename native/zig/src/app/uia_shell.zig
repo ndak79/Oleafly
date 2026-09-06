@@ -118,7 +118,7 @@ pub const Snapshot = struct {
         if (width_dip == 0 or height_dip == 0) return error.InvalidBounds;
 
         const layout_state = layout.for_window(width_dip, height_dip, touch_mode);
-        const focused: NodeId = if (layout_state.supported) .source_pane else .recovery;
+        var focused: NodeId = if (layout_state.supported) .source_pane else .recovery;
         const control_height = if (touch_mode) layout.touch_target_dip else layout.compact_control_max_dip;
         const status_y = if (height_dip > layout.status_rail_dip)
             height_dip - layout.status_rail_dip
@@ -148,7 +148,7 @@ pub const Snapshot = struct {
             .bounds = .{ .x = layout.spacing_rhythm_dip, .y = layout.spacing_rhythm_dip, .width = 120, .height = control_height },
             .patterns = @intFromEnum(Pattern.invoke),
             .state = .{},
-            .accelerator = "Ctrl+O",
+            .accelerator = layout.accelerator_open_folder,
         };
         nodes[@intFromEnum(NodeId.project_pane)] = .{
             .id = .project_pane,
@@ -202,7 +202,7 @@ pub const Snapshot = struct {
             .bounds = .{ .x = if (width_dip > 248) width_dip - 248 else 8, .y = layout.spacing_rhythm_dip, .width = 72, .height = control_height },
             .patterns = @intFromEnum(Pattern.toggle),
             .state = .{},
-            .accelerator = "Ctrl+Shift+M",
+            .accelerator = layout.accelerator_mode,
         };
         nodes[@intFromEnum(NodeId.compile)] = .{
             .id = .compile,
@@ -212,7 +212,7 @@ pub const Snapshot = struct {
             .bounds = .{ .x = if (width_dip > 168) width_dip - 168 else 8, .y = layout.spacing_rhythm_dip, .width = 80, .height = control_height },
             .patterns = @intFromEnum(Pattern.invoke),
             .state = .{ .busy = status == .rebuilding },
-            .accelerator = "F5",
+            .accelerator = layout.accelerator_compile,
         };
         nodes[@intFromEnum(NodeId.save)] = .{
             .id = .save,
@@ -222,7 +222,7 @@ pub const Snapshot = struct {
             .bounds = .{ .x = if (width_dip > 88) width_dip - 88 else 8, .y = layout.spacing_rhythm_dip, .width = 72, .height = control_height },
             .patterns = @intFromEnum(Pattern.invoke),
             .state = .{},
-            .accelerator = "Ctrl+S",
+            .accelerator = layout.accelerator_save,
         };
         nodes[@intFromEnum(NodeId.status)] = .{
             .id = .status,
@@ -241,8 +241,58 @@ pub const Snapshot = struct {
             .bounds = .{ .x = if (width_dip > 120) width_dip - 112 else 8, .y = status_y, .width = 96, .height = layout.status_rail_dip },
             .patterns = @intFromEnum(Pattern.invoke),
             .state = .{ .offscreen = layout_state.supported and status != .error_status, .error_state = status == .error_status },
-            .accelerator = "Ctrl+R",
+            .accelerator = layout.accelerator_recovery,
         };
+
+        // Below the supported minimum the regular panes and toolbar cannot be
+        // made truthful by merely shrinking their rectangles. Expose a
+        // bounded recovery surface instead, and keep every hidden node
+        // deterministic and non-actionable for UIA clients.
+        if (!layout_state.supported) {
+            const safe_bounds = Bounds{ .x = 0, .y = 0, .width = 1, .height = 1 };
+            inline for (.{
+                NodeId.open_folder,
+                NodeId.project_pane,
+                NodeId.source_pane,
+                NodeId.pdf_pane,
+                NodeId.splitter,
+                NodeId.mode,
+                NodeId.compile,
+                NodeId.save,
+            }) |id| {
+                nodes[@intFromEnum(id)].bounds = safe_bounds;
+                nodes[@intFromEnum(id)].patterns = 0;
+                nodes[@intFromEnum(id)].state = .{ .offscreen = true };
+                nodes[@intFromEnum(id)].accelerator = null;
+            }
+
+            const rail_height = @min(height_dip, layout.status_rail_dip);
+            const recovery_width = @min(width_dip, @as(u32, 96));
+            const recovery_x = if (width_dip > recovery_width) width_dip - recovery_width else 0;
+            const recovery_available = width_dip >= layout_state.pointer_target_dip and
+                height_dip >= layout_state.pointer_target_dip;
+            focused = if (recovery_available) .recovery else .root;
+            nodes[@intFromEnum(NodeId.root)].state.focused = focused == .root;
+            nodes[@intFromEnum(NodeId.status)] = .{
+                .id = .status,
+                .parent = .root,
+                .control_type = .status,
+                .name = .status,
+                .bounds = .{ .x = 0, .y = status_y, .width = @max(@as(u32, 1), width_dip -| recovery_width), .height = rail_height },
+                .patterns = @intFromEnum(Pattern.text),
+                .state = .{ .busy = status == .rebuilding, .error_state = status == .error_status or !layout_state.supported },
+            };
+            nodes[@intFromEnum(NodeId.recovery)] = .{
+                .id = .recovery,
+                .parent = .root,
+                .control_type = .recovery,
+                .name = .recovery,
+                .bounds = .{ .x = recovery_x, .y = status_y, .width = @max(@as(u32, 1), recovery_width), .height = rail_height },
+                .patterns = if (recovery_available) @intFromEnum(Pattern.invoke) else 0,
+                .state = .{ .focused = focused == .recovery, .error_state = true },
+                .accelerator = if (recovery_available) layout.accelerator_recovery else null,
+            };
+        }
 
         var snapshot = Snapshot{
             .revision = revision,
@@ -283,7 +333,7 @@ pub const Snapshot = struct {
             }
             if (item.interactive() and !item.bounds.meetsPointerTarget(self.touch_mode)) return error.TargetTooSmall;
         }
-        if (self.node(.source_pane).state.offscreen) return error.SourceUnavailable;
+        if (self.layout_state.supported and self.node(.source_pane).state.offscreen) return error.SourceUnavailable;
         if (self.focused == .recovery and !self.node(.recovery).interactive()) return error.FocusUnavailable;
         if (!theme.passes_contrast(theme.tokens(self.theme_mode))) return error.ThemeContrast;
     }

@@ -101,6 +101,8 @@ const ws_visible: u32 = 0x10000000;
 const ws_tabstop: u32 = 0x00010000;
 const ws_group: u32 = 0x00020000;
 const ws_ex_transparent: u32 = 0x00000020;
+pub const swp_nozorder: u32 = 0x0004;
+pub const swp_noactivate: u32 = 0x0010;
 const bs_pushbutton: u32 = 0x00000000;
 const ss_left: u32 = 0x00000000;
 const sw_hide: i32 = 0;
@@ -156,6 +158,129 @@ pub const DpiChange = struct {
     x: u16,
     y: u16,
 };
+
+pub const FrameFailure = enum {
+    wait_abandoned,
+    wait_failed,
+    invalid_wait_handle,
+    unexpected_wait_result,
+    unsupported_wait,
+    device_lost,
+    render_failed,
+    rebuild_failed,
+    missing_frame_resources,
+    dpi_suggested_rect_invalid,
+    dpi_suggested_rect_failed,
+};
+
+pub const wait_object_0: u32 = presenter.wait_object_0;
+pub const wait_abandoned: u32 = presenter.wait_abandoned;
+pub const wait_failed: u32 = presenter.wait_failed;
+
+/// `MsgWaitForMultipleObjectsEx` returns the same abandoned/failed sentinels
+/// as the frame-latency wait. Keep those outcomes distinct at the shell edge;
+/// the caller decides whether the complete frame graph can be rebuilt.
+pub fn classifyMessageWaitFailure(result: u32) FrameFailure {
+    return switch (result) {
+        wait_abandoned => .wait_abandoned,
+        wait_failed => .wait_failed,
+        else => .unexpected_wait_result,
+    };
+}
+
+pub const FrameLifecycleState = enum {
+    ready,
+    occluded,
+    terminal,
+};
+
+/// The native wait primitive already distinguishes these errors; keep that
+/// distinction at the shell boundary instead of turning every error into a
+/// false-y render result.
+pub fn classifyWaitFailure(failure: presenter.WaitError) FrameFailure {
+    return switch (failure) {
+        error.FrameLatencyWaitAbandoned => .wait_abandoned,
+        error.FrameLatencyWaitFailed => .wait_failed,
+        error.InvalidFrameLatencyHandle => .invalid_wait_handle,
+        error.UnexpectedFrameLatencyWaitResult => .unexpected_wait_result,
+        error.UnsupportedTarget => .unsupported_wait,
+    };
+}
+
+/// Small state holder shared by the native render paths and their deterministic
+/// fault-injection tests. A failed operation never consumes an already queued
+/// frame; recoverable callers explicitly requeue the work while the failure is
+/// exposed as terminal until a successful frame completes.
+pub const FrameLifecycle = struct {
+    state: FrameLifecycleState = .ready,
+    failure: ?FrameFailure = null,
+    pending: bool = false,
+
+    pub fn request(self: *FrameLifecycle) void {
+        self.pending = true;
+    }
+
+    pub fn cancel(self: *FrameLifecycle) void {
+        self.pending = false;
+    }
+
+    pub fn complete(self: *FrameLifecycle, occluded: bool) void {
+        self.state = if (occluded) .occluded else .ready;
+        self.failure = null;
+        self.pending = false;
+    }
+
+    pub fn fail(self: *FrameLifecycle, failure: FrameFailure, requeue: bool) void {
+        self.state = .terminal;
+        self.failure = failure;
+        self.pending = requeue;
+    }
+};
+
+pub const DpiRectOutcome = enum {
+    not_supplied,
+    invalid,
+    applied,
+    failed,
+};
+
+pub const SetWindowRectFn = *const fn (?*anyopaque, HWND, RECT) callconv(.winapi) bool;
+
+/// Decode the OS-owned WM_DPICHANGED rectangle only for the duration of the
+/// message callback. The caller must not retain the returned value's pointer;
+/// this function returns a value copy instead.
+pub fn dpiSuggestedRect(lparam: isize) ?RECT {
+    if (lparam == 0) return null;
+    const address: usize = @bitCast(lparam);
+    return @as(*const RECT, @ptrFromInt(address)).*;
+}
+
+/// Apply the suggested outer-window rectangle through an injected setter. The
+/// setter seam keeps malformed rectangles and SetWindowPos failures visible to
+/// shell tests without requiring a live desktop or mutating a real HWND.
+pub fn applySuggestedDpiRect(
+    window: ?HWND,
+    suggested: ?RECT,
+    context: ?*anyopaque,
+    set_rect: SetWindowRectFn,
+) DpiRectOutcome {
+    const window_value = window orelse return .invalid;
+    const rect = suggested orelse return .not_supplied;
+    const width: i64 = @as(i64, rect.right) - @as(i64, rect.left);
+    const height: i64 = @as(i64, rect.bottom) - @as(i64, rect.top);
+    const max_extent: i64 = std.math.maxInt(i32);
+    if (width <= 0 or height <= 0 or width > max_extent or height > max_extent) return .invalid;
+    if (!set_rect(context, window_value, rect)) return .failed;
+    return .applied;
+}
+
+/// A failed DestroyWindow is retryable while IsWindow still confirms the
+/// handle. Only success or confirmed invalidation may discard the HWND.
+pub fn windowAfterDestroy(window: ?HWND, destroy_succeeded: bool, still_valid: bool) ?HWND {
+    const value = window orelse return null;
+    if (destroy_succeeded or !still_valid) return null;
+    return value;
+}
 
 pub const Visibility = enum { visible, occluded, minimized };
 
@@ -361,6 +486,7 @@ const raw = struct {
     extern "user32" fn SetWindowTextW(HWND, [*:0]const u16) callconv(.winapi) i32;
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
     extern "user32" fn MoveWindow(HWND, i32, i32, i32, i32, i32) callconv(.winapi) i32;
+    extern "user32" fn SetWindowPos(HWND, ?HWND, i32, i32, i32, i32, u32) callconv(.winapi) i32;
     extern "user32" fn GetDpiForWindow(HWND) callconv(.winapi) u32;
     extern "user32" fn CreateAcceleratorTableW([*]const ACCEL, i32) callconv(.winapi) ?*anyopaque;
     extern "user32" fn DestroyAcceleratorTable(?*anyopaque) callconv(.winapi) i32;
@@ -378,6 +504,18 @@ const raw = struct {
     extern "user32" fn DefWindowProcW(HWND, u32, usize, isize) callconv(.winapi) isize;
     extern "user32" fn PostQuitMessage(i32) callconv(.winapi) void;
 };
+
+fn setSuggestedWindowRect(_: ?*anyopaque, window: HWND, rect: RECT) callconv(.winapi) bool {
+    return raw.SetWindowPos(
+        window,
+        null,
+        rect.left,
+        rect.top,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
+        swp_nozorder | swp_noactivate,
+    ) != 0;
+}
 
 pub fn launch(instance: HINSTANCE, show: i32) shell.Result {
     var backend: Backend = .{ .instance = instance, .show = show };
@@ -437,7 +575,7 @@ pub const Backend = struct {
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
     composition_renderer: ?composition.Renderer = null,
-    frame_pending: bool = false,
+    frame_lifecycle: FrameLifecycle = .{},
     window_state: NativeWindowState = .{},
     telemetry_state: TelemetryState = .disabled,
     telemetry_error: ?telemetry.ProviderError = null,
@@ -517,8 +655,28 @@ pub const Backend = struct {
         return self.window_state;
     }
 
+    pub fn frameState(self: *const Backend) FrameLifecycleState {
+        return self.frame_lifecycle.state;
+    }
+
+    pub fn frameFailure(self: *const Backend) ?FrameFailure {
+        return self.frame_lifecycle.failure;
+    }
+
+    pub fn framePending(self: *const Backend) bool {
+        return self.frame_lifecycle.pending;
+    }
+
+    fn failFrame(self: *Backend, failure: FrameFailure, requeue: bool) void {
+        self.frame_lifecycle.fail(failure, requeue);
+    }
+
+    fn completeFrame(self: *Backend, occluded: bool) void {
+        self.frame_lifecycle.complete(occluded);
+    }
+
     fn applyWindowStateEvent(self: *Backend, event: WindowStateEvent) void {
-        if (self.window_state.apply(event)) self.frame_pending = true;
+        if (self.window_state.apply(event)) self.requestFrame();
     }
 
     fn refreshShellLayout(self: *Backend) void {
@@ -532,16 +690,19 @@ pub const Backend = struct {
         self.requestFrame();
     }
 
-    fn handleDpiChanged(self: *Backend, wparam: usize) void {
+    fn handleDpiChanged(self: *Backend, wparam: usize, lparam: isize) void {
         const dpi = dpiFromWParam(wparam) orelse return;
         self.applyWindowStateEvent(.{ .dpi_changed = dpi });
         const window = self.window orelse return;
 
-        // The suggested WM_DPICHANGED RECT is an OS-owned pointer whose
-        // lifetime ends with this callback.  This seam deliberately does not
-        // dereference that pointer; it records the packed DPI and rebuilds
-        // against the current client rect instead.  Applying the suggested
-        // physical bounds belongs to the later display/capture campaign.
+        // PMv2 supplies an outer-window rectangle in lParam. The shell owns
+        // this HWND, so apply the value copy during this callback; the pointer
+        // is never retained past the message dispatch.
+        switch (applySuggestedDpiRect(window, dpiSuggestedRect(lparam), null, setSuggestedWindowRect)) {
+            .applied, .not_supplied => {},
+            .invalid => self.failFrame(.dpi_suggested_rect_invalid, true),
+            .failed => self.failFrame(.dpi_suggested_rect_failed, true),
+        }
         self.refreshShellLayout();
         if (self.window_state.canRender() and self.hasFrameResources()) {
             var client: RECT = undefined;
@@ -612,29 +773,51 @@ pub const Backend = struct {
     }
 
     fn destroyShellControls(self: *Backend) void {
-        const children = [_]?HWND{
-            self.open_folder_control,
-            self.mode_control,
-            self.compile_control,
-            self.save_control,
-            self.recovery_control,
-            self.project_label,
-            self.source_label,
-            self.pdf_label,
-            self.status_label,
-            self.status_value,
+        const children = [_]*?HWND{
+            &self.open_folder_control,
+            &self.mode_control,
+            &self.compile_control,
+            &self.save_control,
+            &self.recovery_control,
+            &self.project_label,
+            &self.source_label,
+            &self.pdf_label,
+            &self.status_label,
+            &self.status_value,
         };
         for (children) |child| {
-            if (child) |window| {
-                if (raw.IsWindow(window) != 0) _ = raw.DestroyWindow(window);
+            const window = child.* orelse continue;
+            if (raw.IsWindow(window) == 0 or raw.DestroyWindow(window) != 0 or raw.IsWindow(window) == 0) {
+                child.* = null;
             }
         }
-        self.forgetShellControls();
+        if (self.accelerators) |accelerators| {
+            if (raw.DestroyAcceleratorTable(accelerators) != 0) self.accelerators = null;
+        }
+        if (!self.hasAnyShellControls()) self.recovery_visible = false;
+    }
+
+    fn teardownWindowAfterFailure(self: *Backend) void {
+        self.destroyShellControls();
+        const window = self.window orelse return;
+        if (raw.IsWindow(window) == 0) {
+            self.forgetShellControls();
+            self.window = null;
+            return;
+        }
+        const destroyed = raw.DestroyWindow(window) != 0;
+        if (destroyed) {
+            self.forgetShellControls();
+            self.window = null;
+        } else {
+            self.window = windowAfterDestroy(window, false, raw.IsWindow(window) != 0);
+        }
     }
 
     fn createShellControls(self: *Backend) bool {
         if (self.window == null) return false;
         self.destroyShellControls();
+        if (self.hasAnyShellControls()) return false;
 
         const button_style = ws_child | ws_visible | ws_tabstop | bs_pushbutton;
         const first_button_style = button_style | ws_group;
@@ -736,11 +919,12 @@ pub const Backend = struct {
         const width = geometry.width_dip;
         const height = geometry.height_dip;
         const gap = layout.spacing_rhythm_dip;
-        const toolbar_y = gap;
+        const toolbar_y = @min(gap, @max(height, 1) - 1);
         const toolbar_height = layout.compact_control_max_dip;
         const content_top = geometry.toolbar_bottom_dip;
-        const label_height = layout.minimum_target_dip;
-        const status_height = layout.status_rail_dip;
+        const label_height = @min(layout.minimum_target_dip, @max(height, 1));
+        const status_height = @min(layout.status_rail_dip, @max(height, 1));
+        const content_visible = geometry.project_visible or geometry.source_visible or geometry.pdf_visible;
         const label_y = if (height > status_height + gap + label_height)
             content_top
         else if (height > label_height + gap)
@@ -748,10 +932,10 @@ pub const Backend = struct {
         else
             0;
 
-        if (!self.moveChild(self.open_folder_control, gap, toolbar_y, 120, toolbar_height, true, dpi)) return false;
-        if (!self.moveChild(self.mode_control, gap + 120 + gap, toolbar_y, 116, toolbar_height, true, dpi)) return false;
-        if (!self.moveChild(self.compile_control, gap + 120 + gap + 116 + gap, toolbar_y, 84, toolbar_height, true, dpi)) return false;
-        if (!self.moveChild(self.save_control, gap + 120 + gap + 116 + gap + 84 + gap, toolbar_y, 72, toolbar_height, true, dpi)) return false;
+        if (!self.moveChild(self.open_folder_control, gap, toolbar_y, 120, toolbar_height, content_visible, dpi)) return false;
+        if (!self.moveChild(self.mode_control, gap + 120 + gap, toolbar_y, 116, toolbar_height, content_visible, dpi)) return false;
+        if (!self.moveChild(self.compile_control, gap + 120 + gap + 116 + gap, toolbar_y, 84, toolbar_height, content_visible, dpi)) return false;
+        if (!self.moveChild(self.save_control, gap + 120 + gap + 116 + gap + 84 + gap, toolbar_y, 72, toolbar_height, content_visible, dpi)) return false;
         const source_x = geometry.source_left_dip;
         const source_width = geometry.source_right_dip -| geometry.source_left_dip;
         const pdf_x = geometry.pdf_left_dip;
@@ -766,19 +950,26 @@ pub const Backend = struct {
         if (!self.moveChild(self.pdf_label, pdf_x, label_y, @min(@as(u32, 104), @max(pdf_width, 1)), label_height, geometry.pdf_visible, dpi)) return false;
 
         const status_y = geometry.status_top_dip;
-        const recovery_width: u32 = 92;
-        const recovery_x = if (width > recovery_width + gap) width - recovery_width - gap else gap;
-        const status_value_x = gap + 56;
-        const status_value_end = if (self.recovery_visible and recovery_x > status_value_x + gap)
+        const recovery_width = @min(@as(u32, 92), @max(width, 1));
+        const recovery_x = if (width > recovery_width + gap)
+            width - recovery_width - gap
+        else if (width > recovery_width)
+            width - recovery_width
+        else
+            0;
+        const status_x = @min(gap, @max(width, 1) - 1);
+        const status_value_x = if (width > gap + 56) gap + 56 else status_x;
+        const show_recovery = self.recovery_visible or !content_visible;
+        const status_value_end = if (show_recovery and recovery_x > status_value_x + gap)
             recovery_x - gap
         else if (width > gap)
             width - gap
         else
             status_value_x + 1;
         const status_value_width = if (status_value_end > status_value_x) status_value_end - status_value_x else 1;
-        if (!self.moveChild(self.status_label, gap, status_y, 48, status_height, true, dpi)) return false;
+        if (!self.moveChild(self.status_label, status_x, status_y, @min(@as(u32, 48), @max(width, 1)), status_height, true, dpi)) return false;
         if (!self.moveChild(self.status_value, status_value_x, status_y, status_value_width, status_height, true, dpi)) return false;
-        if (!self.moveChild(self.recovery_control, recovery_x, status_y, recovery_width, status_height, self.recovery_visible, dpi)) return false;
+        if (!self.moveChild(self.recovery_control, recovery_x, status_y, recovery_width, status_height, show_recovery, dpi)) return false;
         return true;
     }
 
@@ -788,6 +979,15 @@ pub const Backend = struct {
             self.recovery_control != null and self.project_label != null and
             self.source_label != null and self.pdf_label != null and
             self.status_label != null and self.status_value != null and
+            self.accelerators != null;
+    }
+
+    fn hasAnyShellControls(self: *const Backend) bool {
+        return self.open_folder_control != null or self.mode_control != null or
+            self.compile_control != null or self.save_control != null or
+            self.recovery_control != null or self.project_label != null or
+            self.source_label != null or self.pdf_label != null or
+            self.status_label != null or self.status_value != null or
             self.accelerators != null;
     }
 
@@ -807,14 +1007,11 @@ pub const Backend = struct {
         // host-specific CreateWindowEx caption quirk while preserving the
         // system-owned title bar and standard caption buttons.
         if (raw.SetWindowTextW(self.window.?, window_title) == 0) {
-            _ = raw.DestroyWindow(self.window.?);
-            self.window = null;
+            self.teardownWindowAfterFailure();
             return false;
         }
         if (!self.createShellControls()) {
-            self.forgetShellControls();
-            _ = raw.DestroyWindow(self.window.?);
-            self.window = null;
+            self.teardownWindowAfterFailure();
             return false;
         }
         const paths = [_]graphics.DevicePath{ .hardware, .warp };
@@ -829,9 +1026,7 @@ pub const Backend = struct {
         }
         // A visible window without a complete render graph is not an admitted
         // UI state. Tear it down immediately rather than falling back to GDI.
-        _ = raw.DestroyWindow(self.window.?);
-        self.forgetShellControls();
-        self.window = null;
+        self.teardownWindowAfterFailure();
         return false;
     }
 
@@ -927,6 +1122,7 @@ pub const Backend = struct {
     }
 
     pub fn renderFrame(self: *Backend) bool {
+        self.requestFrame();
         // The DXGI frame-latency grant is part of every caller-requested
         // render. A bounded wait avoids a startup/rebind race where the grant
         // has not yet been published; the event-loop ticker remains
@@ -938,24 +1134,44 @@ pub const Backend = struct {
         return self.waitAndRender(1_000, false);
     }
 
+    fn handleWaitFailure(self: *Backend, failure: presenter.WaitError, recover: bool) bool {
+        self.failFrame(classifyWaitFailure(failure), recover);
+        if (!recover) return false;
+        return self.rebuildFrameResources();
+    }
+
     fn waitAndRender(self: *Backend, timeout_ms: u32, recover: bool) bool {
         if (!self.window_state.canRender()) return false;
         if (self.swap_chain) |*swap_chain| {
-            switch (swap_chain.waitForFrame(timeout_ms) catch return false) {
+            switch (swap_chain.waitForFrame(timeout_ms) catch |failure| return self.handleWaitFailure(failure, recover)) {
                 .signaled => {},
                 // A caller asking for a frame must not treat a timeout as a
                 // displayed frame: this path is used before first show and
                 // after resource rebuilds.
                 .timeout => return false,
             }
-        } else return false;
+        } else {
+            self.failFrame(.missing_frame_resources, recover);
+            if (recover) return self.rebuildFrameResources();
+            return false;
+        }
         return switch (self.renderFrameOnce()) {
-            .presented, .occluded => blk: {
-                self.frame_pending = false;
+            .presented => blk: {
+                self.completeFrame(false);
                 break :blk true;
             },
-            .device_lost => if (recover) self.rebuildFrameResources() else false,
-            .failed => false,
+            .occluded => blk: {
+                self.completeFrame(true);
+                break :blk true;
+            },
+            .device_lost => blk: {
+                self.failFrame(.device_lost, recover);
+                break :blk if (recover) self.rebuildFrameResources() else false;
+            },
+            .failed => blk: {
+                self.failFrame(.render_failed, recover);
+                break :blk false;
+            },
         };
     }
 
@@ -974,27 +1190,40 @@ pub const Backend = struct {
     pub fn tickFrame(self: *Backend) bool {
         if (!self.window_state.canRender()) return false;
         if (self.swap_chain) |*swap_chain| {
-            switch (swap_chain.waitForFrame(0) catch return false) {
+            switch (swap_chain.waitForFrame(0) catch |failure| return self.handleWaitFailure(failure, true)) {
                 .signaled => return self.renderFrameSignaled(),
                 // A posted/requested tick may legitimately find no grant yet;
                 // keep the message loop alive without rendering stale data.
                 .timeout => return true,
             }
         }
-        return false;
+        self.failFrame(.missing_frame_resources, true);
+        return self.rebuildFrameResources();
     }
 
     pub fn requestFrame(self: *Backend) void {
-        self.frame_pending = true;
+        self.frame_lifecycle.request();
     }
 
     fn renderFrameSignaled(self: *Backend) bool {
         if (!self.window_state.canRender()) return false;
-        self.frame_pending = false;
         return switch (self.renderFrameOnce()) {
-            .presented, .occluded => true,
-            .device_lost => self.rebuildFrameResources(),
-            .failed => false,
+            .presented => blk: {
+                self.completeFrame(false);
+                break :blk true;
+            },
+            .occluded => blk: {
+                self.completeFrame(true);
+                break :blk true;
+            },
+            .device_lost => blk: {
+                self.failFrame(.device_lost, true);
+                break :blk self.rebuildFrameResources();
+            },
+            .failed => blk: {
+                self.failFrame(.render_failed, true);
+                break :blk false;
+            },
         };
     }
 
@@ -1047,7 +1276,11 @@ pub const Backend = struct {
     /// chain, and canonical buffer. Hardware is preferred when it was the
     /// previous path; WARP is admitted as the deterministic fallback.
     pub fn rebuildFrameResources(self: *Backend) bool {
-        const window = self.window orelse return false;
+        self.requestFrame();
+        const window = self.window orelse {
+            self.failFrame(.rebuild_failed, true);
+            return false;
+        };
         const preferred_path = if (self.graphics_device) |device| device.path else .hardware;
         self.releaseFrameResources();
 
@@ -1069,6 +1302,7 @@ pub const Backend = struct {
             if (self.renderInitialFrame()) return true;
             self.releaseFrameResources();
         }
+        self.failFrame(.rebuild_failed, true);
         return false;
     }
 
@@ -1099,7 +1333,7 @@ pub const Backend = struct {
 
     pub fn destroyWindow(self: *Backend) bool {
         var ok = true;
-        self.frame_pending = false;
+        self.frame_lifecycle.cancel();
         self.destroyShellControls();
         self.releaseFrameResources();
         if (self.telemetry_provider) |*provider| {
@@ -1121,8 +1355,19 @@ pub const Backend = struct {
         }
         const window = self.window orelse return ok;
         // DefWindowProc handles WM_CLOSE and may already have destroyed it.
-        if (raw.IsWindow(window) != 0 and raw.DestroyWindow(window) == 0) ok = false;
-        self.window = null;
+        if (raw.IsWindow(window) == 0) {
+            self.forgetShellControls();
+            self.window = null;
+            return ok;
+        }
+        const destroyed = raw.DestroyWindow(window) != 0;
+        if (!destroyed) ok = false;
+        if (destroyed) {
+            self.forgetShellControls();
+            self.window = null;
+        } else {
+            self.window = windowAfterDestroy(window, false, raw.IsWindow(window) != 0);
+        }
         return ok;
     }
     pub fn showWindow(self: *Backend) void {
@@ -1133,22 +1378,27 @@ pub const Backend = struct {
         // When work is pending, wait atomically for either the DXGI grant or
         // input.  With no pending work we use the same blocking message path;
         // there is no polling/render timer.
-        if (self.frame_pending and self.window_state.canRender()) {
+        if (self.frame_lifecycle.pending and self.window_state.canRender()) {
             if (self.swap_chain) |*swap_chain| {
-                if (swap_chain.waitableHandle()) |handle| {
-                    var handles = [_]?*anyopaque{handle};
-                    const wait = raw.MsgWaitForMultipleObjectsEx(
-                        1,
-                        &handles,
-                        std.math.maxInt(u32),
-                        0x04ff, // QS_ALLINPUT
-                        0x0004, // MWMO_INPUTAVAILABLE
-                    );
-                    if (wait == 0) {
-                        self.message = .{ .hwnd = self.window, .message = frame_signal_message, .wParam = 0, .lParam = 0, .time = 0, .pt = .{ .x = 0, .y = 0 } };
-                        return 1;
-                    }
-                    if (wait != 1) return -1;
+                const handle = swap_chain.waitableHandle() orelse {
+                    self.failFrame(.invalid_wait_handle, true);
+                    return if (self.rebuildFrameResources()) raw.GetMessageW(&self.message, null, 0, 0) else -1;
+                };
+                var handles = [_]?*anyopaque{handle};
+                const wait = raw.MsgWaitForMultipleObjectsEx(
+                    1,
+                    &handles,
+                    std.math.maxInt(u32),
+                    0x04ff, // QS_ALLINPUT
+                    0x0004, // MWMO_INPUTAVAILABLE
+                );
+                if (wait == wait_object_0) {
+                    self.message = .{ .hwnd = self.window, .message = frame_signal_message, .wParam = 0, .lParam = 0, .time = 0, .pt = .{ .x = 0, .y = 0 } };
+                    return 1;
+                }
+                if (wait != 1) {
+                    self.failFrame(classifyMessageWaitFailure(wait), true);
+                    return if (self.rebuildFrameResources()) raw.GetMessageW(&self.message, null, 0, 0) else -1;
                 }
             }
         }
@@ -1204,8 +1454,8 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
                 return 0;
             },
             .dpi_changed => {
-                backend.handleDpiChanged(wparam);
-                return raw.DefWindowProcW(window, message, wparam, lparam);
+                backend.handleDpiChanged(wparam, lparam);
+                return 0;
             },
             .shown => {
                 backend.applyWindowStateEvent(.shown);

@@ -298,7 +298,14 @@ pub const Renderer = struct {
         if (geometry.project_visible) {
             fill(render_target, .{ .left = 0, .top = toolbar_bottom, .right = project_right, .bottom = status_top }, self.pane_brush.?);
         }
-        fill(render_target, .{ .left = source_left, .top = toolbar_bottom, .right = source_right, .bottom = status_top }, self.background_brush.?);
+        if (geometry.source_visible) {
+            fill(render_target, .{ .left = source_left, .top = toolbar_bottom, .right = source_right, .bottom = status_top }, self.background_brush.?);
+        } else {
+            // Unsupported dimensions use the shell's recovery-only layout.
+            // Paint the whole content band so stale source pixels cannot remain
+            // visible after a resize crosses the supported boundary.
+            fill(render_target, .{ .left = 0, .top = toolbar_bottom, .right = width_f, .bottom = status_top }, self.pane_brush.?);
+        }
         if (geometry.pdf_visible) {
             fill(render_target, .{ .left = pdf_left, .top = toolbar_bottom, .right = pdf_right, .bottom = status_top }, self.pane_brush.?);
         }
