@@ -3612,7 +3612,11 @@ fn validateArtifactRetentionWindow(
     if (expires_at <= created_at or now < created_at or now >= expires_at) return error.InvalidRetentionPolicy;
     const required_retention = std.math.mul(u64, retention_days, 24 * 60 * 60) catch
         return error.InvalidRetentionPolicy;
-    if (expires_at - created_at < required_retention) return error.InvalidRetentionPolicy;
+    // GitHub calculates `expires_at` from the workflow run start, while `created_at`
+    // is stamped when the artifact upload completes mid-job (typically 10-60 seconds later).
+    // Allow up to 1 hour of workflow execution jitter while strictly rejecting any day-level shortfall.
+    const workflow_jitter_grace_seconds: u64 = 3600;
+    if (expires_at - created_at + workflow_jitter_grace_seconds < required_retention) return error.InvalidRetentionPolicy;
     const required_age = std.math.add(u64, created_at, minimum_age_seconds) catch
         return error.InvalidRetentionPolicy;
     if (now < required_age) return error.DurableRetentionNotReady;
