@@ -356,6 +356,8 @@ jobs:
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2e-check --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2f-test --summary all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2f-check --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2g-test --summary all
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-windows-msvc --release=safe t0-2g-check --summary all
 
       - name: Prove two clean ReleaseSafe hashes
         shell: pwsh
@@ -1228,6 +1230,7 @@ jobs:
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2d-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2e-check --summary all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2f-check --summary all
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" -Dtarget=x86_64-linux-gnu --release=safe t0-2g-check --summary all
 
       - name: Prove two clean ReleaseSafe Linux install graphs are empty
         shell: bash

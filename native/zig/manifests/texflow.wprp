@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="TExFlow" Copyright="TExFlow Authors" Company="TExFlow">
+  <Profiles>
+    <SystemCollector Id="SystemCollector_TExFlow" Name="TExFlow System Collector">
+      <BufferSize Value="1024" />
+      <Buffers Value="128" />
+    </SystemCollector>
+
+    <EventCollector Id="EventCollector_TExFlow" Name="TExFlow Event Collector">
+      <BufferSize Value="1024" />
+      <Buffers Value="64" />
+    </EventCollector>
+
+    <SystemProvider Id="SystemProvider_TExFlow">
+      <Keywords>
+        <Keyword Value="ProcessThread" />
+        <Keyword Value="Loader" />
+        <Keyword Value="CPUConfig" />
+        <Keyword Value="SampledProfile" />
+        <Keyword Value="DxgKrnl" />
+      </Keywords>
+    </SystemProvider>
+
+    <EventProvider Id="EventProvider_TExFlow_Native" Name="76a3e264-b816-4d57-b088-7510255b682b" />
+    <EventProvider Id="EventProvider_DWM" Name="a42c77db-8740-4562-ab34-9f72c32e0939" />
+    <EventProvider Id="EventProvider_DXGI" Name="ca11c036-0102-4a2d-a6ad-f03cfed5d3c9" />
+    <EventProvider Id="EventProvider_D3D11" Name="db6f6ddb-ac77-4e88-8253-819df9bbf140" />
+
+    <Profile Id="TExFlowProfile.Verbose.File" Name="TExFlowProfile" Description="TExFlow Performance and Present Tracing" LoggingMode="File" DetailLevel="Verbose">
+      <Collectors>
+        <SystemCollectorId Value="SystemCollector_TExFlow">
+          <SystemProviderId Value="SystemProvider_TExFlow" />
+        </SystemCollectorId>
+        <EventCollectorId Value="EventCollector_TExFlow">
+          <EventProviders>
+            <EventProviderId Value="EventProvider_TExFlow_Native" />
+            <EventProviderId Value="EventProvider_DWM" />
+            <EventProviderId Value="EventProvider_DXGI" />
+            <EventProviderId Value="EventProvider_D3D11" />
+          </EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

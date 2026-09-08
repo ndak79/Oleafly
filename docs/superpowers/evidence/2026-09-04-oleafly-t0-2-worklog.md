@@ -2375,3 +2375,22 @@ and the dedicated headless `TExFlow.ScienceWorker.exe` binary.
 | Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
 
 Quality streak maintained at `1/1` for T0.2f. Zero Critical, High, or Medium findings remain in the local scope.
+
+### T0.2g Measurement Harness and Native Black-Box QA (2026-09-08)
+
+Task 7 (T0.2g) implements the physical performance measurement harness,
+privacy-safe machine profiling, campaign matrix preregistration (`t0_2_campaign.json`,
+`reference_machines.json`), WPR tracing profile (`texflow.wprp`), workload
+specifications (W0-W6), and the test oracle for the nearest-rank percentile rule.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| QA oracle & percentiles | `t0-2g-qa-oracle-test`: `3/3` passed. | Nearest-rank percentile rule `ceil(p*N)` (1-based index) and workload bounds verified. |
+| Machine privacy contract | `t0-2g-qa-oracle-test` (privacy case): passed. | Hostnames, MAC addresses, and device serial numbers rejected; profile captures only clean CPU/RAM/GPU metadata. |
+| Campaign preregistration | `t0_2_campaign.json` and `reference_machines.json` committed. | Preregistered cells P0-P8 (30 trials/cell) and reference strata M1-M3 locked. |
+| WPR tracing profile | `texflow.wprp` created. | Windows Performance Recorder profile with TExFlow ETW, DWM, DXGI, and D3D11 providers. |
+| Cross-target compilation | `t0-2g-check -Dtarget=x86_64-linux-gnu`: `3/3` steps succeeded. | Portable compilation graph clean across Linux and Windows. |
+| CI workflow integration | `.github/workflows/zig.yml` updated with `t0-2g-test` and `t0-2g-check`; `actionlint` passed with 0 errors. | Continuous integration pipeline wired for T0.2g. |
+| Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
+
+Quality streak maintained at `1/1` for T0.2g. Zero Critical, High, or Medium findings remain in the local scope.

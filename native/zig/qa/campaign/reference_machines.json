@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "profiles": [
+    {
+      "slot_id": "M1-low-tier",
+      "description": "Physical 4-core, 8 GiB RAM, integrated GPU, SSD",
+      "cpu_topology": "4 cores / 8 threads",
+      "ram_gib": 8,
+      "gpu_class": "iGPU",
+      "target_tier": "low_tier"
+    },
+    {
+      "slot_id": "M2-mainstream",
+      "description": "Physical 6-8 core, 16 GiB RAM, entry discrete GPU or fast iGPU, SSD",
+      "cpu_topology": "8 cores / 16 threads",
+      "ram_gib": 16,
+      "gpu_class": "entry_dGPU_or_fast_iGPU",
+      "target_tier": "mainstream"
+    },
+    {
+      "slot_id": "M3-diagnostic",
+      "description": "Primary development host, 32 GiB RAM, high-performance NVMe SSD",
+      "cpu_topology": "8+ cores",
+      "ram_gib": 32,
+      "gpu_class": "discrete_dGPU",
+      "target_tier": "diagnostic"
+    }
+  ]
+}

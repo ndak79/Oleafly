@@ -2441,6 +2441,42 @@ pub fn build(b: *std.Build) void {
     t0_2f_check_step.dependOn(search_performance_check_step);
     t0_2f_check_step.dependOn(science_worker_exe_step);
 
+    // T0.2g Measurement Harness & Black-Box QA modules
+    const bench_machine_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/bench/machine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const campaign_workloads_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/fixtures/t0_2/campaign_workloads.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // T0.2g QA Oracle Test
+    const qa_oracle_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/qa_oracle_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    qa_oracle_tests.root_module.addImport("bench_machine", bench_machine_module);
+    qa_oracle_tests.root_module.addImport("campaign_workloads", campaign_workloads_module);
+    const run_qa_oracle_tests = b.addRunArtifact(qa_oracle_tests);
+    const qa_oracle_test_step = b.step("t0-2g-qa-oracle-test", "Run T0.2g QA oracle, percentiles, and privacy tests");
+    qa_oracle_test_step.dependOn(&run_qa_oracle_tests.step);
+    const qa_oracle_check_step = b.step("t0-2g-qa-oracle-check", "Compile T0.2g QA oracle contracts");
+    qa_oracle_check_step.dependOn(&qa_oracle_tests.step);
+
+    // T0.2g Aggregate steps
+    const t0_2g_test_step = b.step("t0-2g-test", "Run all T0.2g QA oracle and harness tests");
+    t0_2g_test_step.dependOn(qa_oracle_test_step);
+
+    const t0_2g_check_step = b.step("t0-2g-check", "Compile all T0.2g QA contracts");
+    t0_2g_check_step.dependOn(qa_oracle_check_step);
+
     const unicode_archive_security_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),

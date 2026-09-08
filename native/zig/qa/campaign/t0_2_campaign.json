@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0.0",
+  "campaign_name": "T0.2 Native Feasibility Campaign",
+  "preregistration_date": "2026-09-08",
+  "repetitions_per_cell": 30,
+  "percentile_rule": "nearest_rank_ceil_pN",
+  "cells": [
+    {
+      "id": "P0-baseline",
+      "description": "1080p, 60 Hz, 100% DPI, hardware, SDR, AC balanced",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "hardware",
+      "trials": 30
+    },
+    {
+      "id": "P1-pixel-refresh",
+      "description": "4K, 144 Hz, 200% DPI, hardware, SDR",
+      "resolution": "3840x2160",
+      "refresh_hz": 144,
+      "dpi_percent": 200,
+      "renderer": "hardware",
+      "trials": 30
+    },
+    {
+      "id": "P2-software",
+      "description": "1080p, 60 Hz, 100% DPI, WARP shell + DirectWriteDC editor, SDR",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "warp",
+      "trials": 30
+    },
+    {
+      "id": "P3-balanced",
+      "description": "1440p, 120 Hz, 150% DPI, hardware, SDR",
+      "resolution": "2560x1440",
+      "refresh_hz": 120,
+      "dpi_percent": 150,
+      "renderer": "hardware",
+      "trials": 30
+    },
+    {
+      "id": "P4-rdp",
+      "description": "Controlled independent-client RDP at 1080p/60-Hz/100%",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "rdp_simulated",
+      "trials": 30
+    },
+    {
+      "id": "P5-battery",
+      "description": "Native display, recommended DPI, hardware, battery saver",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "hardware",
+      "trials": 30,
+      "conditional": "requires_battery"
+    },
+    {
+      "id": "P6-large-editor",
+      "description": "W2-large-editor, 1080p/60-Hz/100%, hardware shell, selected DirectWrite, 10 MiB document",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "hardware",
+      "trials": 30,
+      "workload": "W2-large-editor"
+    },
+    {
+      "id": "P7-search-query",
+      "description": "W6-search, 1080p/60-Hz/100%, hardware, SDR, established fixture",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "hardware",
+      "trials": 30,
+      "workload": "W6-search"
+    },
+    {
+      "id": "P8-search-rebuild",
+      "description": "Clean W6-search derived root, full FTS5 index rebuild",
+      "resolution": "1920x1080",
+      "refresh_hz": 60,
+      "dpi_percent": 100,
+      "renderer": "hardware",
+      "trials": 30,
+      "workload": "W6-search-rebuild"
+    },
+    {
+      "id": "V0-hdr",
+      "description": "Native HDR/WCG visual journey",
+      "resolution": "native",
+      "renderer": "hardware",
+      "trials": 1,
+      "conditional": "requires_hdr_display"
+    }
+  ]
+}
