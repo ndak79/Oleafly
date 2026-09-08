@@ -1094,15 +1094,46 @@ fn readStrictFileAlloc(
     path: []const u8,
     limit: usize,
 ) ![]u8 {
-    var file = try openStrictFileNoFollow(io, path);
+    const parent_path = std.fs.path.dirname(path) orelse return error.UnsafeControllerPath;
+    const basename = std.fs.path.basename(path);
+    if (basename.len == 0 or std.mem.eql(u8, basename, ".") or std.mem.eql(u8, basename, "..")) {
+        return error.UnsafeControllerPath;
+    }
+    var parent = try openStrictDirectoryNoFollow(io, parent_path, false);
+    defer parent.close(io);
+    var nofollow = try parent.openFile(io, basename, .{
+        .allow_directory = false,
+        .follow_symlinks = false,
+        .resolve_beneath = true,
+    });
+    defer nofollow.close(io);
+    const before = try nofollow.stat(io);
+    if (before.kind != .file) return error.InputIsNotRegularFile;
+    if (before.size > limit) return error.ControllerInputTooLarge;
+
+    var file = try parent.openFile(io, basename, .{
+        .allow_directory = false,
+        .follow_symlinks = true,
+        .resolve_beneath = true,
+    });
     defer file.close(io);
-    if ((try file.stat(io)).kind != .file) return error.InputIsNotRegularFile;
+    const opened = try file.stat(io);
+    if (opened.kind != .file or opened.inode != before.inode or opened.size != before.size) {
+        return error.InputChangedDuringHash;
+    }
+
     var reader_buffer: [64 * 1024]u8 = undefined;
     var reader = file.reader(io, &reader_buffer);
-    return reader.interface.allocRemaining(allocator, .limited(limit)) catch |err| switch (err) {
+    const result = reader.interface.allocRemaining(allocator, .limited(limit)) catch |err| switch (err) {
         error.ReadFailed => return reader.err orelse error.ReadFailed,
         else => return err,
     };
+    errdefer allocator.free(result);
+    const after = try file.stat(io);
+    if (after.kind != .file or after.inode != before.inode or after.size != before.size or result.len != before.size) {
+        return error.InputChangedDuringHash;
+    }
+    return result;
 }
 
 fn hashStrictFile(
