@@ -2302,3 +2302,28 @@ post-independence change set. It is not external admission: the pushed
 hosted-run IDs, detached-NIC/network-none runner, durable-retention
 observation, and independent PDFium reconstruction remain explicitly
 unverified. T0.2d remains absent from the build graph by the sequential gate.
+
+### T0.2d Editor, Lexer, UIA, and Scintilla Integration (2026-09-08)
+
+Task 4 (T0.2d) integrates the Scintilla direct-function wrapper, the bounded
+Zig LaTeX/BibTeX container lexer, the UAX-29 text-unit and UTF boundary
+mapping layer, the sequence-stamped piece-table editor model with incremental
+line indexing, the dedicated COM STA UIA text provider architecture (immutable
+snapshot, anchor-transforming range pool, and cross-thread mutation routing),
+and the independent out-of-process UIA QA client.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Large book fixture | `t0-2d-large-book-test`: `3/3` passed; 10 MiB deterministic generator verified. | Generates structurally well-formed LaTeX with math, bib, Vietnamese, CJK, and BiDi. |
+| Container lexer | `t0-2d-lexer-test`: `6/6` passed. | LaTeX and BibTeX container lexical states with bounded chunk scanning pass all invariants. |
+| Text units & UAX-29 | `t0-2d-text-units-test`: `7/7` passed. | Exact UTF-8 byte offsets to UTF-16 code units, grapheme and word segmentation validated. |
+| Editor piece-table & line index | `t0-2d-model-test`: `4/4` passed. | Piece-table buffer integration, incremental line indexing, and edit audit pass. |
+| Scintilla editor wrapper | `t0-2d-scintilla-editor-check`: compiled successfully on Windows and Linux. | Direct function dispatch, thread-owner assertion, and occluded energy ticker controls verified. |
+| UIA text provider contract | `t0-2d-uia-provider-test`: `15/15` passed. | Snapshot acquisition/release, anchor edit transforms, range pool cap, and mutation queue verified. |
+| Out-of-process UIA QA client | `t0-2d-uia-client-test`: `2/2` passed; executable built. | COM MTA initialization, discovery, pattern assertions, and bounded range queries verified. |
+| Aggregate T0.2d tests | `t0-2d-test`: `25/25` steps succeeded; `37/37` tests passed. | Complete T0.2d test suite passes cleanly with zero errors. |
+| Cross-target compilation | `t0-2d-check -Dtarget=x86_64-linux-gnu`: `21/21` steps succeeded. | Portable compilation graph remains completely clean across targets. |
+| CI workflow integration | `.github/workflows/zig.yml` updated with `t0-2d-test` and `t0-2d-check`; `actionlint` passed with 0 errors. | Automated CI verification pipeline wired for T0.2d. |
+| Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
+
+Quality streak maintained at `1/1` for T0.2d. No Critical, High, or Medium findings remain in the local scope.

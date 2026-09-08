@@ -1836,6 +1836,205 @@ pub fn build(b: *std.Build) void {
     source_set_check_step.dependOn(&source_set_tests.step);
     t0_2c_models_test.dependOn(&run_source_set_tests.step);
     t0_2c_models_check.dependOn(&source_set_tests.step);
+
+    // T0.2d Editor text units, lexer, and large-book fixture
+    const text_units_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/text_units.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    text_units_module.addImport("unicode", unicode_module);
+
+    const editor_lexer_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/lexer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const large_book_fixture_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/fixtures/t0_2/large_book.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const editor_model_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/model.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    editor_model_module.addImport("editor_buffer", app_editor_buffer_module);
+    editor_model_module.addImport("text_units", text_units_module);
+
+    const editor_model_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/editor_model_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    editor_model_tests.root_module.addImport("editor_model", editor_model_module);
+    editor_model_tests.root_module.addImport("editor_buffer", app_editor_buffer_module);
+    editor_model_tests.root_module.addImport("text_units", text_units_module);
+    const run_editor_model_tests = b.addRunArtifact(editor_model_tests);
+    const editor_model_test_step = b.step("t0-2d-model-test", "Run T0.2d editor model and line indexing tests");
+    editor_model_test_step.dependOn(&run_editor_model_tests.step);
+    const editor_model_check_step = b.step("t0-2d-model-check", "Compile T0.2d editor model contracts");
+    editor_model_check_step.dependOn(&editor_model_tests.step);
+
+    const text_units_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/text_units_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    text_units_tests.root_module.addImport("text_units", text_units_module);
+    const run_text_units_tests = b.addRunArtifact(text_units_tests);
+    const text_units_test_step = b.step("t0-2d-text-units-test", "Run T0.2d UAX-29 text unit and UTF boundary tests");
+    text_units_test_step.dependOn(&run_text_units_tests.step);
+    const text_units_check_step = b.step("t0-2d-text-units-check", "Compile T0.2d UAX-29 text unit contracts");
+    text_units_check_step.dependOn(&text_units_tests.step);
+
+    const lexer_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/lexer_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    lexer_tests.root_module.addImport("lexer", editor_lexer_module);
+    const run_lexer_tests = b.addRunArtifact(lexer_tests);
+    const lexer_test_step = b.step("t0-2d-lexer-test", "Run T0.2d LaTeX/BibTeX container lexer tests");
+    lexer_test_step.dependOn(&run_lexer_tests.step);
+    const lexer_check_step = b.step("t0-2d-lexer-check", "Compile T0.2d LaTeX/BibTeX container lexer contracts");
+    lexer_check_step.dependOn(&lexer_tests.step);
+
+    const large_book_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/large_book_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    large_book_tests.root_module.addImport("large_book", large_book_fixture_module);
+    const run_large_book_tests = b.addRunArtifact(large_book_tests);
+    const large_book_test_step = b.step("t0-2d-large-book-test", "Run T0.2d deterministic 10 MiB large-book fixture tests");
+    large_book_test_step.dependOn(&run_large_book_tests.step);
+    const large_book_check_step = b.step("t0-2d-large-book-check", "Compile T0.2d 10 MiB large-book fixture tests");
+    large_book_check_step.dependOn(&large_book_tests.step);
+
+    // T0.2d UIA modules and Scintilla editor wrapper
+    const uia_snapshot_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/uia/snapshot.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    uia_snapshot_module.addImport("text_units", text_units_module);
+
+    const uia_range_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/uia/range.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    uia_range_module.addImport("text_units", text_units_module);
+    uia_range_module.addImport("uia_snapshot", uia_snapshot_module);
+
+    const uia_thread_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/uia/thread.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    uia_thread_module.addImport("text_units", text_units_module);
+    uia_thread_module.addImport("uia_snapshot", uia_snapshot_module);
+    uia_thread_module.addImport("uia_range", uia_range_module);
+
+    const uia_provider_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/editor/uia/provider.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    uia_provider_module.addImport("text_units", text_units_module);
+    uia_provider_module.addImport("uia_snapshot", uia_snapshot_module);
+    uia_provider_module.addImport("uia_range", uia_range_module);
+    uia_provider_module.addImport("uia_thread", uia_thread_module);
+
+    // T0.2d UIA provider tests
+    const uia_provider_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/uia_provider_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    uia_provider_tests.root_module.addImport("uia_snapshot", uia_snapshot_module);
+    uia_provider_tests.root_module.addImport("uia_range", uia_range_module);
+    uia_provider_tests.root_module.addImport("uia_thread", uia_thread_module);
+    uia_provider_tests.root_module.addImport("uia_provider", uia_provider_module);
+    const run_uia_provider_tests = b.addRunArtifact(uia_provider_tests);
+    const uia_provider_test_step = b.step("t0-2d-uia-provider-test", "Run T0.2d UIA text provider contract and range tests");
+    uia_provider_test_step.dependOn(&run_uia_provider_tests.step);
+    const uia_provider_check_step = b.step("t0-2d-uia-provider-check", "Compile T0.2d UIA provider contracts");
+    uia_provider_check_step.dependOn(&uia_provider_tests.step);
+
+    // T0.2d Scintilla editor compile check (no tests yet, compile-only)
+    const scintilla_editor_check = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/src/editor/scintilla.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const scintilla_editor_check_step = b.step("t0-2d-scintilla-editor-check", "Compile T0.2d Scintilla editor wrapper");
+    scintilla_editor_check_step.dependOn(&scintilla_editor_check.step);
+
+    // T0.2d UIA QA client
+    const uia_client_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/qa/uia_client.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    if (target.result.os.tag == .windows) {
+        uia_client_module.addImport("windows_com", windows_com_module);
+        uia_client_module.addImport("windows_api", windows_api_module);
+        inline for (.{ "kernel32", "user32", "ole32", "oleaut32" }) |library| {
+            uia_client_module.linkSystemLibrary(library, .{});
+        }
+    }
+    const uia_client_tests = b.addTest(.{
+        .root_module = uia_client_module,
+    });
+    const run_uia_client_tests = b.addRunArtifact(uia_client_tests);
+    const uia_client_test_step = b.step("t0-2d-uia-client-test", "Run T0.2d UIA client MTA discovery and query tests");
+    uia_client_test_step.dependOn(&run_uia_client_tests.step);
+    const uia_client_check_step = b.step("t0-2d-uia-client-check", "Compile T0.2d UIA client contracts");
+    uia_client_check_step.dependOn(&uia_client_tests.step);
+
+    const uia_client_exe = b.addExecutable(.{
+        .name = "texflow-t0-2d-uia-client",
+        .root_module = uia_client_module,
+    });
+    const uia_client_exe_step = b.step("t0-2d-uia-client-exe", "Build the T0.2d out-of-process UIA QA client executable");
+    uia_client_exe_step.dependOn(&uia_client_exe.step);
+
+    // T0.2d aggregate steps
+    const t0_2d_test_step = b.step("t0-2d-test", "Run all T0.2d editor, lexer, UIA, and fixture tests");
+    t0_2d_test_step.dependOn(editor_model_test_step);
+    t0_2d_test_step.dependOn(text_units_test_step);
+    t0_2d_test_step.dependOn(lexer_test_step);
+    t0_2d_test_step.dependOn(large_book_test_step);
+    t0_2d_test_step.dependOn(uia_provider_test_step);
+    t0_2d_test_step.dependOn(uia_client_test_step);
+
+    const t0_2d_check_step = b.step("t0-2d-check", "Compile all T0.2d contracts and QA targets");
+    t0_2d_check_step.dependOn(editor_model_check_step);
+    t0_2d_check_step.dependOn(text_units_check_step);
+    t0_2d_check_step.dependOn(lexer_check_step);
+    t0_2d_check_step.dependOn(large_book_check_step);
+    t0_2d_check_step.dependOn(scintilla_editor_check_step);
+    t0_2d_check_step.dependOn(uia_provider_check_step);
+    t0_2d_check_step.dependOn(uia_client_check_step);
+    t0_2d_check_step.dependOn(uia_client_exe_step);
+
     const unicode_archive_security_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),
