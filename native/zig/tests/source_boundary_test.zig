@@ -168,7 +168,7 @@ test "tree scan ignores generated directories and preserves byte-order violation
         .data = "const z = @import(\"zigwin32\");",
     });
     var root_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const root = root_buffer[0..try temporary.dir.realPath(io, &root_buffer)];
+    const root = try realPathForTest(temporary.dir, &root_buffer);
     try testing.expectError(
         error.DirectZigwin32Import,
         source_boundary.scanTree(testing.allocator, io, root),
@@ -526,6 +526,23 @@ fn isSymlinkEvidenceUnavailable(err: anyerror) bool {
         => true,
         else => false,
     };
+}
+
+fn realPathForTest(dir: std.Io.Dir, buffer: []u8) ![]const u8 {
+    const io = testing.io;
+    const path_len = try dir.realPath(io, buffer);
+    if (comptime builtin.os.tag != .windows) return buffer[0..path_len];
+    if (std.fs.path.parsePathWindows(u8, buffer[0..path_len]).kind != .rooted) {
+        return buffer[0..path_len];
+    }
+    var cwd_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const cwd_len = try std.process.currentPath(io, &cwd_buffer);
+    if (cwd_len < 2 or cwd_buffer[1] != ':') return error.SkipZigTest;
+    if (path_len > buffer.len - 2) return error.NameTooLong;
+    @memmove(buffer[2 .. path_len + 2], buffer[0..path_len]);
+    buffer[0] = cwd_buffer[0];
+    buffer[1] = ':';
+    return buffer[0 .. path_len + 2];
 }
 
 test "non-literal comptime imports fail closed" {

@@ -419,11 +419,16 @@ fn openRootNoFollow(
                     if (index == absolute_root.len) break;
                     const start = index;
                     while (index < absolute_root.len and !std.fs.path.isSep(absolute_root[index])) index += 1;
-                    const next = current.openDir(io, absolute_root[start..index], .{
+                    var next = current.openDir(io, absolute_root[start..index], .{
                         .iterate = true,
                         .follow_symlinks = false,
                     }) catch |raw_err| {
                         const err = mapReparseOpenError(raw_err, true);
+                        recordDiagnostic(diagnostic, allocator, absolute_root[0..index], err);
+                        return err;
+                    };
+                    validateDirectory(next, io) catch |err| {
+                        next.close(io);
                         recordDiagnostic(diagnostic, allocator, absolute_root[0..index], err);
                         return err;
                     };
