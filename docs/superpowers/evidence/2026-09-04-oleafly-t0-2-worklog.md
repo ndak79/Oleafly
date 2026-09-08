@@ -2350,3 +2350,28 @@ PDF document tree, and the dedicated headless `TExFlow.PdfWorker.exe` binary.
 | Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
 
 Quality streak maintained at `1/1` for T0.2e. Zero Critical, High, or Medium findings remain in the local scope.
+
+### T0.2f Canonical Ledger and Disposable Search Durability (2026-09-08)
+
+Task 6 (T0.2f) implements the canonical SQLite ledger event store, cryptographic
+hash chaining, chunked immutable content references (<=256 KiB chunks, <=1 MiB fields,
+<=4 MiB entity), disposable FTS5 search index with BM25 ranking, generation staging
+and atomic promotion, the trusted UI presentation lane with candidate caps (<=100),
+and the dedicated headless `TExFlow.ScienceWorker.exe` binary.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Event ledger & hash chain | `t0-2f-ledger-test`: `4/4` passed. | Sequence starts at 1, genesis previous hash is zero, SHA-256 event chaining and chunk count math verified. |
+| SQLite VFS & contract limits | `t0-2f-vfs-test`: `2/2` passed. | Ledger 2 MiB length, search 5 MiB length, 4096-page size, defensive configuration verified. |
+| Transaction rollback resilience | `t0-2f-ledger-kill-test`: `2/2` passed. | Incomplete transaction abort rolls back cleanly, reopened ledger maintains unbroken sequence and hashes. |
+| Search worker crash isolation | `t0-2f-search-kill-test`: `1/1` passed. | Crash during rebuild discards stage, retains prior generation, search remains disposable. |
+| Staging rebuild & promotion | `t0-2f-rebuild-test`: `1/1` passed. | Generation increments, watermark tracked, idempotent replay from canonical ledger verified. |
+| Search protocol & aggregate hash | `t0-2f-protocol-test`: `1/1` passed. | Projection serialization, 4-field digest binding, and aggregate hash validation verified. |
+| Search presentation & notices | `t0-2f-ui-test`: `2/2` passed. | Strict 100 candidates cap and standard user notice strings verified. |
+| Search ranking & performance | `t0-2f-perf-test`: `1/1` passed. | BM25 descending rank ordering verified. |
+| Headless science worker executable | `t0-2f-worker-exe`: compiled successfully with embedded `TExFlow.ScienceWorker.rc` on Windows. | Standalone `TExFlow.ScienceWorker.exe` built without UI or Scintilla imports. |
+| Cross-target compilation | `t0-2f-check -Dtarget=x86_64-linux-gnu`: `19/19` steps succeeded. | Portable compilation graph clean across Linux and Windows. |
+| CI workflow integration | `.github/workflows/zig.yml` updated with `t0-2f-test` and `t0-2f-check`; `actionlint` passed with 0 errors. | Continuous integration pipeline wired for T0.2f. |
+| Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
+
+Quality streak maintained at `1/1` for T0.2f. Zero Critical, High, or Medium findings remain in the local scope.

@@ -2247,6 +2247,200 @@ pub fn build(b: *std.Build) void {
     t0_2e_check_step.dependOn(pdf_resilience_check_step);
     t0_2e_check_step.dependOn(pdf_worker_exe_step);
 
+    // T0.2f Canonical Ledger & Search modules
+    const data_sqlite_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/data/sqlite.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const data_ledger_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/data/ledger.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const data_search_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/data/search.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    data_search_module.addImport("ledger.zig", data_ledger_module);
+
+    const app_search_view_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/search_view.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const ledger_events_fixture_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/fixtures/t0_2/ledger_events.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const search_corpus_fixture_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/fixtures/t0_2/search_corpus.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // T0.2f Tests
+    const ledger_model_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/ledger_model_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ledger_model_tests.root_module.addImport("data_ledger", data_ledger_module);
+    ledger_model_tests.root_module.addImport("ledger_events", ledger_events_fixture_module);
+    const run_ledger_model_tests = b.addRunArtifact(ledger_model_tests);
+    const ledger_model_test_step = b.step("t0-2f-ledger-test", "Run T0.2f ledger model and hash chain tests");
+    ledger_model_test_step.dependOn(&run_ledger_model_tests.step);
+    const ledger_model_check_step = b.step("t0-2f-ledger-check", "Compile T0.2f ledger model contracts");
+    ledger_model_check_step.dependOn(&ledger_model_tests.step);
+
+    const sqlite_vfs_fault_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/sqlite_vfs_fault_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    sqlite_vfs_fault_tests.root_module.addImport("data_sqlite", data_sqlite_module);
+    const run_sqlite_vfs_fault_tests = b.addRunArtifact(sqlite_vfs_fault_tests);
+    const sqlite_vfs_fault_test_step = b.step("t0-2f-vfs-test", "Run T0.2f SQLite VFS and limits contract tests");
+    sqlite_vfs_fault_test_step.dependOn(&run_sqlite_vfs_fault_tests.step);
+    const sqlite_vfs_fault_check_step = b.step("t0-2f-vfs-check", "Compile T0.2f SQLite VFS contracts");
+    sqlite_vfs_fault_check_step.dependOn(&sqlite_vfs_fault_tests.step);
+
+    const ledger_process_kill_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/ledger_process_kill_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ledger_process_kill_tests.root_module.addImport("data_sqlite", data_sqlite_module);
+    ledger_process_kill_tests.root_module.addImport("data_ledger", data_ledger_module);
+    const run_ledger_process_kill_tests = b.addRunArtifact(ledger_process_kill_tests);
+    const ledger_process_kill_test_step = b.step("t0-2f-ledger-kill-test", "Run T0.2f ledger transaction rollback resilience tests");
+    ledger_process_kill_test_step.dependOn(&run_ledger_process_kill_tests.step);
+    const ledger_process_kill_check_step = b.step("t0-2f-ledger-kill-check", "Compile T0.2f ledger resilience contracts");
+    ledger_process_kill_check_step.dependOn(&ledger_process_kill_tests.step);
+
+    const search_worker_kill_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/search_worker_kill_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    search_worker_kill_tests.root_module.addImport("data_search", data_search_module);
+    const run_search_worker_kill_tests = b.addRunArtifact(search_worker_kill_tests);
+    const search_worker_kill_test_step = b.step("t0-2f-search-kill-test", "Run T0.2f search worker crash isolation tests");
+    search_worker_kill_test_step.dependOn(&run_search_worker_kill_tests.step);
+    const search_worker_kill_check_step = b.step("t0-2f-search-kill-check", "Compile T0.2f search worker isolation contracts");
+    search_worker_kill_check_step.dependOn(&search_worker_kill_tests.step);
+
+    const search_rebuild_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/search_rebuild_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    search_rebuild_tests.root_module.addImport("data_search", data_search_module);
+    const run_search_rebuild_tests = b.addRunArtifact(search_rebuild_tests);
+    const search_rebuild_test_step = b.step("t0-2f-rebuild-test", "Run T0.2f search generation staging and rebuild tests");
+    search_rebuild_test_step.dependOn(&run_search_rebuild_tests.step);
+    const search_rebuild_check_step = b.step("t0-2f-rebuild-check", "Compile T0.2f search rebuild contracts");
+    search_rebuild_check_step.dependOn(&search_rebuild_tests.step);
+
+    const search_protocol_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/search_protocol_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    search_protocol_tests.root_module.addImport("data_search", data_search_module);
+    const run_search_protocol_tests = b.addRunArtifact(search_protocol_tests);
+    const search_protocol_test_step = b.step("t0-2f-protocol-test", "Run T0.2f search projection and aggregate hash tests");
+    search_protocol_test_step.dependOn(&run_search_protocol_tests.step);
+    const search_protocol_check_step = b.step("t0-2f-protocol-check", "Compile T0.2f search protocol contracts");
+    search_protocol_check_step.dependOn(&search_protocol_tests.step);
+
+    const search_ui_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/search_ui_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    search_ui_tests.root_module.addImport("app_search_view", app_search_view_module);
+    const run_search_ui_tests = b.addRunArtifact(search_ui_tests);
+    const search_ui_test_step = b.step("t0-2f-ui-test", "Run T0.2f search presentation and notice tests");
+    search_ui_test_step.dependOn(&run_search_ui_tests.step);
+    const search_ui_check_step = b.step("t0-2f-ui-check", "Compile T0.2f search presentation contracts");
+    search_ui_check_step.dependOn(&search_ui_tests.step);
+
+    const search_performance_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/search_performance_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    search_performance_tests.root_module.addImport("data_search", data_search_module);
+    search_performance_tests.root_module.addImport("search_corpus", search_corpus_fixture_module);
+    const run_search_performance_tests = b.addRunArtifact(search_performance_tests);
+    const search_performance_test_step = b.step("t0-2f-perf-test", "Run T0.2f search candidate cap and ranking tests");
+    search_performance_test_step.dependOn(&run_search_performance_tests.step);
+    const search_performance_check_step = b.step("t0-2f-perf-check", "Compile T0.2f search performance contracts");
+    search_performance_check_step.dependOn(&search_performance_tests.step);
+
+    // Science Worker Executable
+    const science_worker_exe_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/science_main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const science_worker_exe = b.addExecutable(.{
+        .name = "TExFlow.ScienceWorker",
+        .root_module = science_worker_exe_module,
+    });
+    if (target.result.os.tag == .windows) {
+        science_worker_exe.root_module.addWin32ResourceFile(.{
+            .file = b.path("native/zig/manifests/TExFlow.ScienceWorker.rc"),
+        });
+    }
+    const science_worker_exe_step = b.step("t0-2f-worker-exe", "Build the headless TExFlow.ScienceWorker.exe");
+    science_worker_exe_step.dependOn(&science_worker_exe.step);
+
+    // T0.2f Aggregate steps
+    const t0_2f_test_step = b.step("t0-2f-test", "Run all T0.2f ledger, SQLite, and search tests");
+    t0_2f_test_step.dependOn(ledger_model_test_step);
+    t0_2f_test_step.dependOn(sqlite_vfs_fault_test_step);
+    t0_2f_test_step.dependOn(ledger_process_kill_test_step);
+    t0_2f_test_step.dependOn(search_worker_kill_test_step);
+    t0_2f_test_step.dependOn(search_rebuild_test_step);
+    t0_2f_test_step.dependOn(search_protocol_test_step);
+    t0_2f_test_step.dependOn(search_ui_test_step);
+    t0_2f_test_step.dependOn(search_performance_test_step);
+
+    const t0_2f_check_step = b.step("t0-2f-check", "Compile all T0.2f contracts and science worker executable");
+    t0_2f_check_step.dependOn(ledger_model_check_step);
+    t0_2f_check_step.dependOn(sqlite_vfs_fault_check_step);
+    t0_2f_check_step.dependOn(ledger_process_kill_check_step);
+    t0_2f_check_step.dependOn(search_worker_kill_check_step);
+    t0_2f_check_step.dependOn(search_rebuild_check_step);
+    t0_2f_check_step.dependOn(search_protocol_check_step);
+    t0_2f_check_step.dependOn(search_ui_check_step);
+    t0_2f_check_step.dependOn(search_performance_check_step);
+    t0_2f_check_step.dependOn(science_worker_exe_step);
+
     const unicode_archive_security_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),
