@@ -722,3 +722,28 @@ that are fetched and smoke-tested in CI. A tag produces a complete draft.
 Publishing is a separate manual workflow run and is blocked until the live
 Anthropic and Google real-app contracts pass. See [Auto-updates](updates.md)
 for required secrets, optional model variables, signing, and publication.
+
+
+### Native authoring integration commands (T1.1)
+
+To run the complete native authoring integration test suite on Windows:
+
+```powershell
+zig build t1-1-authoring-test -Dtarget=x86_64-windows-msvc -Doptimize=Debug --summary all
+zig build t1-1-authoring-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe --summary all
+zig build t1-1-authoring-test -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseFast --summary all
+```
+
+To run cross-platform compile-only checks (e.g. on Linux):
+
+```bash
+zig build t1-1-authoring-check -Dtarget=x86_64-linux-gnu --summary all
+```
+
+Individual sub-slice test steps:
+- `t1-1a-workspace-test`: Identity-safe folder inventory, BOM/CRLF preservation, issue tracking, root decision
+- `t1-1b-editor-buffer-test`: Revisioned piece-table buffer and dirty state tracking
+- `t1-1c-atomic-save-test`: Atomic save and external change precondition verification
+- `t1-1-authoring-session-test`: Typed authoring session transitions and external change handling
+- `t1-1-outline-test`: Deterministic multi-file lexical outline parser and cycle detector
+- `t1-1-authoring-bridge-test`: Win32 command ID mapping, picker/watcher adapters, and bridge dispatch

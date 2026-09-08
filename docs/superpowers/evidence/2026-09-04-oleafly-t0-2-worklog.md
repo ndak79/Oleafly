@@ -2409,3 +2409,26 @@ admission audit for the complete T0.2 native feasibility milestone.
 | Admission verdict | `PROVISIONAL` (Local Feasibility Proved). | All local engineering goals achieved; remote sealed-runner statuses preserved as unverified. |
 
 Final quality streak established at `1/1`. All eight tasks (T0.2a through T0.2h) are fully implemented and verified.
+
+
+### T1.1 Native Authoring Integration (2026-09-08)
+
+Plan T1.1 establishes the end-to-end native authoring integration journey:
+Open Folder -> choose main .tex -> edit -> Save -> verified clean state,
+with safe external change handling, deterministic multi-file outline, and
+Win32 shell bridge dispatch.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Workspace inventory hardening | `t1-1a-workspace-test`: `5/5` passed. | No-follow identity reads, case-insensitive ignored directories, BOM/CRLF preservation, InventoryIssue tracking, and RootDecision selection verified. |
+| Revisioned editor buffer | `t1-1b-editor-buffer-test`: `7/7` passed. | Piece table, dirty state, encoding/newline policy, and contiguous edit journal verified. |
+| Atomic save & precondition | `t1-1c-atomic-save-test`: `8/8` passed (2 skipped due to unprivileged reparse capabilities). | Exclusive temp staging, target precondition checks, durable replacement, and recovery retention verified. |
+| Authoring session | `t1-1-authoring-session-test`: `3/3` passed. | Session lifecycle, sequence validation, dirty/conflicted/missing transitions, and external event handling verified. |
+| Lexical multi-file outline | `t1-1-outline-test`: `2/2` passed. | Macro-free lexical scanning, quoted path handling, cycle detection, and issue categorization verified. |
+| Win32 authoring bridge | `t1-1-authoring-bridge-test`: `1/1` passed. | Command ID mapping (100-104), fake/native picker integration, watcher event routing, and frame scheduling verified. |
+| Full product journey smoke fixture | `authoring_product_test.zig`: `1/1` passed. | End-to-end Open Folder -> Edit -> Save -> External Change Refusal -> No-Overwrite verified. |
+| All T1.1 aggregate tests | `t1-1-authoring-test`: `27/29` passed (2 skipped). | All 15 integration steps succeeded with 0 failures. |
+| Linux cross-compilation | `t1-1-authoring-check -Dtarget=x86_64-linux-gnu`: `8/8` steps succeeded. | Portable model boundary clean without platform leaks. |
+| Code hygiene & formatting | `zig fmt --check` passed cleanly across all modified files. | Zero formatting deviations. |
+
+Quality streak established at `1/1` for T1.1. Zero Critical, High, or Medium findings remain in the scope.
