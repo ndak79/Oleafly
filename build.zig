@@ -2103,7 +2103,9 @@ pub fn build(b: *std.Build) void {
     deps_audit_step.dependOn(&audit_ucd.step);
     deps_audit_step.dependOn(&audit_pdfium_evidence.step);
     deps_audit_step.dependOn(&run_deps_cache_audit.step);
-    deps_audit_step.dependOn(&run_attestation_audit.step);
+    if (host_target.result.os.tag == .windows) {
+        deps_audit_step.dependOn(&run_attestation_audit.step);
+    }
     deps_audit_step.dependOn(&run_zigwin32_cache_tests.step);
     deps_audit_step.dependOn(unicode_audit_step);
     scintilla_contract.addOption(bool, "install_reaches_library", if (scintilla_library) |library| buildReachesLibrary(b, b.getInstallStep(), library) else false);
