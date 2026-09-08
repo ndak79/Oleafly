@@ -2327,3 +2327,26 @@ and the independent out-of-process UIA QA client.
 | Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
 
 Quality streak maintained at `1/1` for T0.2d. No Critical, High, or Medium findings remain in the local scope.
+
+### T0.2e Authenticated IPC and Isolated PDF Rendering (2026-09-08)
+
+Task 5 (T0.2e) implements the authenticated IPC control plane, the isolated
+LPAC worker process lifecycle, the typed PDF rendering protocol, the monotonic
+tile-section handoff state machine, the bounded LRU tile cache, the accessible
+PDF document tree, and the dedicated headless `TExFlow.PdfWorker.exe` binary.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Wire framing & HMAC | `t0-2e-ipc-test`: `6/6` passed. | Fixed header layout (104 bytes), directional HKDF keys, HMAC-SHA-256 verification, and sequence tracking verified. |
+| LPAC process & token boundary | `t0-2e-lpac-test`: `3/3` passed. | Moniker mapping, token audit predicate, and AAP opt-out contract verified. |
+| PDF tile geometry & budgets | `t0-2e-geometry-test`: `3/3` passed. | 512x512 BGRx tile dimensions, 1 MiB tile size, 2048 stride, and max bounds verified. |
+| Tile handoff state machine | `t0-2e-handoff-test`: `3/3` passed. | Monotonic `created -> writing -> ready -> consuming -> retired` lifecycle, slot bounds (max 4), and invalid transition rejection verified. |
+| Accessible PDF document tree | `t0-2e-uia-test`: `2/2` passed. | Pure Zig accessible document structure, page retrieval, and text/link runs verified. |
+| Worker process isolation | `t0-2e-isolation-test`: `2/2` passed. | Dedicated headless worker role, moniker differentiation from science worker verified. |
+| PDF resilience & digest validation | `t0-2e-resilience-test`: `3/3` passed. | Valid minimal PDF parsing, digest mismatch rejection, and tile rendering dispatch verified. |
+| Headless worker executable | `t0-2e-worker-exe`: compiled successfully with embedded `TExFlow.PdfWorker.rc` on Windows. | Standalone `TExFlow.PdfWorker.exe` built without UI or Scintilla imports. |
+| Cross-target compilation | `t0-2e-check -Dtarget=x86_64-linux-gnu`: `17/17` steps succeeded. | Portable compilation graph clean across Linux and Windows. |
+| CI workflow integration | `.github/workflows/zig.yml` updated with `t0-2e-test` and `t0-2e-check`; `actionlint` passed with 0 errors. | Continuous integration pipeline wired for T0.2e. |
+| Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
+
+Quality streak maintained at `1/1` for T0.2e. Zero Critical, High, or Medium findings remain in the local scope.

@@ -2035,6 +2035,218 @@ pub fn build(b: *std.Build) void {
     t0_2d_check_step.dependOn(uia_client_check_step);
     t0_2d_check_step.dependOn(uia_client_exe_step);
 
+    // T0.2e IPC & PDF Worker modules
+    const ipc_frame_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/ipc/frame.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const ipc_peer_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/ipc/peer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ipc_peer_module.addImport("frame.zig", ipc_frame_module);
+
+    const ipc_pipe_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/ipc/pipe.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const platform_process_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/process.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const pdf_protocol_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf/protocol.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const pdf_tile_handoff_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf/tile_handoff.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pdf_tile_handoff_module.addImport("protocol.zig", pdf_protocol_module);
+
+    const pdf_tile_cache_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf/tile_cache.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pdf_tile_cache_module.addImport("protocol.zig", pdf_protocol_module);
+
+    const pdf_uia_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf/uia.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const pdf_worker_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf/worker.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pdf_worker_module.addImport("../ipc/frame.zig", ipc_frame_module);
+    pdf_worker_module.addImport("../ipc/peer.zig", ipc_peer_module);
+    pdf_worker_module.addImport("../ipc/pipe.zig", ipc_pipe_module);
+    pdf_worker_module.addImport("protocol.zig", pdf_protocol_module);
+    pdf_worker_module.addImport("pdfium.zig", pdfium_module);
+
+    const pdf_corpus_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/fixtures/t0_2/pdf_corpus.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // T0.2e Tests
+    const ipc_property_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/ipc_property_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ipc_property_tests.root_module.addImport("ipc_frame", ipc_frame_module);
+    ipc_property_tests.root_module.addImport("ipc_peer", ipc_peer_module);
+    const run_ipc_property_tests = b.addRunArtifact(ipc_property_tests);
+    const ipc_property_test_step = b.step("t0-2e-ipc-test", "Run T0.2e IPC property and HMAC tests");
+    ipc_property_test_step.dependOn(&run_ipc_property_tests.step);
+    const ipc_property_check_step = b.step("t0-2e-ipc-check", "Compile T0.2e IPC property contracts");
+    ipc_property_check_step.dependOn(&ipc_property_tests.step);
+
+    const lpac_boundary_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/lpac_boundary_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    lpac_boundary_tests.root_module.addImport("platform_process", platform_process_module);
+    const run_lpac_boundary_tests = b.addRunArtifact(lpac_boundary_tests);
+    const lpac_boundary_test_step = b.step("t0-2e-lpac-test", "Run T0.2e LPAC process and token boundary tests");
+    lpac_boundary_test_step.dependOn(&run_lpac_boundary_tests.step);
+    const lpac_boundary_check_step = b.step("t0-2e-lpac-check", "Compile T0.2e LPAC process contracts");
+    lpac_boundary_check_step.dependOn(&lpac_boundary_tests.step);
+
+    const pdf_geometry_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdf_geometry_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pdf_geometry_tests.root_module.addImport("pdf_protocol", pdf_protocol_module);
+    const run_pdf_geometry_tests = b.addRunArtifact(pdf_geometry_tests);
+    const pdf_geometry_test_step = b.step("t0-2e-geometry-test", "Run T0.2e PDF tile geometry and budget tests");
+    pdf_geometry_test_step.dependOn(&run_pdf_geometry_tests.step);
+    const pdf_geometry_check_step = b.step("t0-2e-geometry-check", "Compile T0.2e PDF geometry contracts");
+    pdf_geometry_check_step.dependOn(&pdf_geometry_tests.step);
+
+    const pdf_tile_handoff_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdf_tile_handoff_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pdf_tile_handoff_tests.root_module.addImport("pdf_tile_handoff", pdf_tile_handoff_module);
+    pdf_tile_handoff_tests.root_module.addImport("pdf_protocol", pdf_protocol_module);
+    const run_pdf_tile_handoff_tests = b.addRunArtifact(pdf_tile_handoff_tests);
+    const pdf_tile_handoff_test_step = b.step("t0-2e-handoff-test", "Run T0.2e tile handoff state machine tests");
+    pdf_tile_handoff_test_step.dependOn(&run_pdf_tile_handoff_tests.step);
+    const pdf_tile_handoff_check_step = b.step("t0-2e-handoff-check", "Compile T0.2e tile handoff contracts");
+    pdf_tile_handoff_check_step.dependOn(&pdf_tile_handoff_tests.step);
+
+    const pdf_uia_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdf_uia_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pdf_uia_tests.root_module.addImport("pdf_uia", pdf_uia_module);
+    const run_pdf_uia_tests = b.addRunArtifact(pdf_uia_tests);
+    const pdf_uia_test_step = b.step("t0-2e-uia-test", "Run T0.2e accessible PDF tree tests");
+    pdf_uia_test_step.dependOn(&run_pdf_uia_tests.step);
+    const pdf_uia_check_step = b.step("t0-2e-uia-check", "Compile T0.2e accessible PDF contracts");
+    pdf_uia_check_step.dependOn(&pdf_uia_tests.step);
+
+    const pdf_isolation_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdf_isolation_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pdf_isolation_tests.root_module.addImport("platform_process", platform_process_module);
+    pdf_isolation_tests.root_module.addImport("ipc_frame", ipc_frame_module);
+    const run_pdf_isolation_tests = b.addRunArtifact(pdf_isolation_tests);
+    const pdf_isolation_test_step = b.step("t0-2e-isolation-test", "Run T0.2e PDF worker isolation tests");
+    pdf_isolation_test_step.dependOn(&run_pdf_isolation_tests.step);
+    const pdf_isolation_check_step = b.step("t0-2e-isolation-check", "Compile T0.2e PDF isolation contracts");
+    pdf_isolation_check_step.dependOn(&pdf_isolation_tests.step);
+
+    const pdf_resilience_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/pdf_resilience_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pdf_resilience_tests.root_module.addImport("pdf_worker", pdf_worker_module);
+    pdf_resilience_tests.root_module.addImport("pdf_protocol", pdf_protocol_module);
+    pdf_resilience_tests.root_module.addImport("pdf_corpus", pdf_corpus_module);
+    const run_pdf_resilience_tests = b.addRunArtifact(pdf_resilience_tests);
+    const pdf_resilience_test_step = b.step("t0-2e-resilience-test", "Run T0.2e PDF open error and digest validation tests");
+    pdf_resilience_test_step.dependOn(&run_pdf_resilience_tests.step);
+    const pdf_resilience_check_step = b.step("t0-2e-resilience-check", "Compile T0.2e PDF resilience contracts");
+    pdf_resilience_check_step.dependOn(&pdf_resilience_tests.step);
+
+    // PDF Worker Executable
+    const pdf_worker_exe_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/pdf_main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    pdf_worker_exe_module.addImport("pdf/worker.zig", pdf_worker_module);
+    const pdf_worker_exe = b.addExecutable(.{
+        .name = "TExFlow.PdfWorker",
+        .root_module = pdf_worker_exe_module,
+    });
+    if (target.result.os.tag == .windows) {
+        pdf_worker_exe.root_module.addWin32ResourceFile(.{
+            .file = b.path("native/zig/manifests/TExFlow.PdfWorker.rc"),
+        });
+    }
+    const pdf_worker_exe_step = b.step("t0-2e-worker-exe", "Build the headless TExFlow.PdfWorker.exe");
+    pdf_worker_exe_step.dependOn(&pdf_worker_exe.step);
+
+    // T0.2e Aggregate steps
+    const t0_2e_test_step = b.step("t0-2e-test", "Run all T0.2e IPC, LPAC, and PDF tests");
+    t0_2e_test_step.dependOn(ipc_property_test_step);
+    t0_2e_test_step.dependOn(lpac_boundary_test_step);
+    t0_2e_test_step.dependOn(pdf_geometry_test_step);
+    t0_2e_test_step.dependOn(pdf_tile_handoff_test_step);
+    t0_2e_test_step.dependOn(pdf_uia_test_step);
+    t0_2e_test_step.dependOn(pdf_isolation_test_step);
+    t0_2e_test_step.dependOn(pdf_resilience_test_step);
+
+    const t0_2e_check_step = b.step("t0-2e-check", "Compile all T0.2e contracts and worker executable");
+    t0_2e_check_step.dependOn(ipc_property_check_step);
+    t0_2e_check_step.dependOn(lpac_boundary_check_step);
+    t0_2e_check_step.dependOn(pdf_geometry_check_step);
+    t0_2e_check_step.dependOn(pdf_tile_handoff_check_step);
+    t0_2e_check_step.dependOn(pdf_uia_check_step);
+    t0_2e_check_step.dependOn(pdf_isolation_check_step);
+    t0_2e_check_step.dependOn(pdf_resilience_check_step);
+    t0_2e_check_step.dependOn(pdf_worker_exe_step);
+
     const unicode_archive_security_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/archive_security_test.zig"),
