@@ -20,6 +20,7 @@ const composition = @import("composition_native");
 const presenter = @import("presenter_native");
 const qos = @import("windows_qos");
 const presenter_config = @import("presenter_config");
+const authoring_bridge = @import("authoring_bridge");
 
 pub const HINSTANCE = *opaque {};
 pub const HWND = *opaque {};
@@ -629,6 +630,8 @@ pub const Backend = struct {
     qos_state: qos.State = .{},
     semantic_revision: u64 = 0,
     semantic_snapshot: ?uia_shell.Snapshot = null,
+    threaded_io: ?std.Io.Threaded = null,
+    bridge: ?authoring_bridge.AuthoringBridge = null,
     message: MSG = undefined,
 
     pub const initial_clear_color: [4]f32 = .{ 0.035, 0.055, 0.09, 1.0 };
@@ -881,6 +884,14 @@ pub const Backend = struct {
 
     fn teardownWindowAfterFailure(self: *Backend) void {
         self.destroyShellControls();
+        if (self.bridge) |*b| {
+            b.deinit();
+            self.bridge = null;
+        }
+        if (self.threaded_io) |*t| {
+            t.deinit();
+            self.threaded_io = null;
+        }
         const window = self.window orelse return;
         if (raw.IsWindow(window) == 0) {
             self.forgetShellControls();
@@ -899,6 +910,14 @@ pub const Backend = struct {
     fn createShellControls(self: *Backend) bool {
         if (self.window == null) return false;
         self.destroyShellControls();
+        if (self.bridge) |*b| {
+            b.deinit();
+            self.bridge = null;
+        }
+        if (self.threaded_io) |*t| {
+            t.deinit();
+            self.threaded_io = null;
+        }
         if (self.hasAnyShellControls()) return false;
 
         const button_style = ws_child | ws_visible | ws_tabstop | bs_pushbutton;
@@ -910,38 +929,110 @@ pub const Backend = struct {
         const mode_style = ws_child | ws_visible | ws_tabstop | bs_autocheckbox;
         self.mode_control = self.createChild(button_class, mode_title, 0, mode_style, control_id_mode) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.compile_control = self.createChild(button_class, compile_title, 0, button_style, control_id_compile) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.save_control = self.createChild(button_class, save_title, 0, button_style, control_id_save) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.recovery_control = self.createChild(button_class, recovery_title, 0, hidden_button_style, control_id_recovery) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.project_label = self.createChild(static_class, project_title, ws_ex_transparent, label_style, 105) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.source_label = self.createChild(static_class, source_title, ws_ex_transparent, label_style, 106) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.pdf_label = self.createChild(static_class, pdf_title, ws_ex_transparent, label_style, 107) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.status_label = self.createChild(static_class, status_title, ws_ex_transparent, label_style, 108) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.status_value = self.createChild(static_class, ready_title, ws_ex_transparent, label_style, 109) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.splitter_control = self.createChild(
@@ -952,6 +1043,14 @@ pub const Backend = struct {
             110,
         ) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
 
@@ -965,16 +1064,40 @@ pub const Backend = struct {
         };
         self.accelerators = raw.CreateAcceleratorTableW(&accelerators, @intCast(accelerators.len)) orelse {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         };
         self.recovery_visible = false;
         var client: RECT = undefined;
         if (raw.GetClientRect(self.window.?, &client) == 0 or client.right <= client.left or client.bottom <= client.top) {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         }
         if (!self.relayoutControls(@intCast(client.right - client.left), @intCast(client.bottom - client.top))) {
             self.destroyShellControls();
+            if (self.bridge) |*b| {
+                b.deinit();
+                self.bridge = null;
+            }
+            if (self.threaded_io) |*t| {
+                t.deinit();
+                self.threaded_io = null;
+            }
             return false;
         }
         return true;
@@ -1160,6 +1283,11 @@ pub const Backend = struct {
         if (raw.SetWindowTextW(self.window.?, window_title) == 0) {
             self.teardownWindowAfterFailure();
             return false;
+        }
+        if (self.bridge == null) {
+            const threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+            self.threaded_io = threaded;
+            self.bridge = authoring_bridge.AuthoringBridge.init(std.heap.page_allocator, self.threaded_io.?.io());
         }
         if (!self.createShellControls()) {
             self.teardownWindowAfterFailure();
@@ -1524,6 +1652,14 @@ pub const Backend = struct {
         self.frame_lifecycle.cancel();
         self.qos_state.deinit();
         self.destroyShellControls();
+        if (self.bridge) |*b| {
+            b.deinit();
+            self.bridge = null;
+        }
+        if (self.threaded_io) |*t| {
+            t.deinit();
+            self.threaded_io = null;
+        }
         self.releaseFrameResources();
         if (self.telemetry_provider) |*provider| {
             provider.tryDeinit() catch |err| {
@@ -1705,8 +1841,9 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
                 return 0;
             }
             if (command_id >= control_id_open_folder and command_id <= control_id_recovery) {
-                // The command bridge deliberately stays side-effect free in
-                // this slice; future workspace actions consume the stable IDs.
+                if (backend.bridge) |*b| {
+                    _ = b.dispatchCommandId(command_id) catch {};
+                }
                 backend.requestFrame();
                 return 0;
             }

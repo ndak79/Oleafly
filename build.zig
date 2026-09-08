@@ -560,6 +560,117 @@ pub fn build(b: *std.Build) void {
     atomic_save_test_step.dependOn(&run_atomic_save_tests.step);
     const atomic_save_check_step = b.step("t1-1c-atomic-save-check", "Compile T1.1c atomic-save tests for the selected target");
     atomic_save_check_step.dependOn(&atomic_save_tests.step);
+    const app_authoring_session_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/authoring_session.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_authoring_session_module.addImport("workspace", app_workspace_module);
+    app_authoring_session_module.addImport("editor_buffer", app_editor_buffer_module);
+    app_authoring_session_module.addImport("atomic_save", app_atomic_save_module);
+
+    const authoring_session_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/authoring_session_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    authoring_session_tests.root_module.addImport("authoring_session", app_authoring_session_module);
+    authoring_session_tests.root_module.addImport("workspace", app_workspace_module);
+    authoring_session_tests.root_module.addImport("editor_buffer", app_editor_buffer_module);
+    authoring_session_tests.root_module.addImport("atomic_save", app_atomic_save_module);
+    const run_authoring_session_tests = b.addRunArtifact(authoring_session_tests);
+    b.step("t1-1-authoring-session-test", "Run T1.1 authoring session tests").dependOn(&run_authoring_session_tests.step);
+    b.step("t1-1-authoring-session-check", "Compile T1.1 authoring session tests").dependOn(&authoring_session_tests.step);
+
+    const app_outline_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/app/outline.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_outline_module.addImport("workspace", app_workspace_module);
+
+    const outline_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/outline_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    outline_tests.root_module.addImport("outline", app_outline_module);
+    outline_tests.root_module.addImport("workspace", app_workspace_module);
+    const run_outline_tests = b.addRunArtifact(outline_tests);
+    b.step("t1-1-outline-test", "Run T1.1 outline tests").dependOn(&run_outline_tests.step);
+    b.step("t1-1-outline-check", "Compile T1.1 outline tests").dependOn(&outline_tests.step);
+
+    const workspace_picker_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/workspace_picker.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const workspace_watcher_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/workspace_watcher.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const authoring_bridge_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/authoring_bridge.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    authoring_bridge_module.addImport("workspace", app_workspace_module);
+    authoring_bridge_module.addImport("editor_buffer", app_editor_buffer_module);
+    authoring_bridge_module.addImport("atomic_save", app_atomic_save_module);
+    authoring_bridge_module.addImport("authoring_session", app_authoring_session_module);
+    authoring_bridge_module.addImport("workspace_picker", workspace_picker_module);
+    authoring_bridge_module.addImport("workspace_watcher", workspace_watcher_module);
+
+    const authoring_bridge_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/authoring_bridge_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    authoring_bridge_tests.root_module.addImport("authoring_bridge", authoring_bridge_module);
+    authoring_bridge_tests.root_module.addImport("workspace_picker", workspace_picker_module);
+    authoring_bridge_tests.root_module.addImport("workspace_watcher", workspace_watcher_module);
+    const run_authoring_bridge_tests = b.addRunArtifact(authoring_bridge_tests);
+    b.step("t1-1-authoring-bridge-test", "Run T1.1 authoring bridge tests").dependOn(&run_authoring_bridge_tests.step);
+    b.step("t1-1-authoring-bridge-check", "Compile T1.1 authoring bridge tests").dependOn(&authoring_bridge_tests.step);
+
+    const t1_authoring_test_step = b.step("t1-1-authoring-test", "Run all T1.1 authoring integration tests");
+    t1_authoring_test_step.dependOn(&run_workspace_tests.step);
+    t1_authoring_test_step.dependOn(&run_editor_buffer_tests.step);
+    t1_authoring_test_step.dependOn(&run_atomic_save_tests.step);
+    t1_authoring_test_step.dependOn(&run_authoring_session_tests.step);
+    t1_authoring_test_step.dependOn(&run_outline_tests.step);
+    t1_authoring_test_step.dependOn(&run_authoring_bridge_tests.step);
+    const authoring_product_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("native/zig/tests/authoring_product_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    authoring_product_tests.root_module.addImport("authoring_bridge", authoring_bridge_module);
+    authoring_product_tests.root_module.addImport("workspace_picker", workspace_picker_module);
+    authoring_product_tests.root_module.addImport("workspace", app_workspace_module);
+    authoring_product_tests.root_module.addImport("editor_buffer", app_editor_buffer_module);
+    const run_authoring_product_tests = b.addRunArtifact(authoring_product_tests);
+    t1_authoring_test_step.dependOn(&run_authoring_product_tests.step);
+
+    const t1_authoring_check_step = b.step("t1-1-authoring-check", "Compile all T1.1 authoring integration tests");
+    t1_authoring_check_step.dependOn(&workspace_tests.step);
+    t1_authoring_check_step.dependOn(&editor_buffer_tests.step);
+    t1_authoring_check_step.dependOn(&atomic_save_tests.step);
+    t1_authoring_check_step.dependOn(&authoring_session_tests.step);
+    t1_authoring_check_step.dependOn(&outline_tests.step);
+    t1_authoring_check_step.dependOn(&authoring_bridge_tests.step);
+    t1_authoring_check_step.dependOn(&authoring_product_tests.step);
+    t0_2c_models_test.dependOn(t1_authoring_test_step);
+    t0_2c_models_check.dependOn(t1_authoring_check_step);
     const uia_shell_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("native/zig/tests/uia_shell_test.zig"),
@@ -788,6 +899,7 @@ pub fn build(b: *std.Build) void {
     shell_native_module.addOptions("build_identity_config", build_identity_options);
     shell_native_module.addImport("windows_shell", windows_shell_module);
     shell_native_module.addImport("windows_com", windows_com_module);
+    shell_native_module.addImport("authoring_bridge", authoring_bridge_module);
     shell_native_module.addImport("ui_entry", ui_entry_module);
     shell_native_module.addImport("app_role", app_role_module);
     shell_native_module.addImport("app_build_identity", app_build_identity_module);
