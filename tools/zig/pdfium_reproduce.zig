@@ -1001,7 +1001,7 @@ fn strictPathsOverlap(left: []const u8, right: []const u8) bool {
 }
 
 fn requireDistinctEvidenceFiles(io: std.Io, paths: []const []const u8) !void {
-    var identities: [3]i64 = undefined;
+    var identities: [3]std.Io.File.INode = undefined;
     if (paths.len > identities.len) return error.TooManyEvidenceFiles;
     for (paths, 0..) |path, index| {
         for (paths[0..index]) |previous| {
@@ -1011,7 +1011,7 @@ fn requireDistinctEvidenceFiles(io: std.Io, paths: []const []const u8) !void {
         defer file.close(io);
         const stat = try file.stat(io);
         if (stat.kind != .file) return error.InputIsNotRegularFile;
-        if (stat.inode <= 0) return error.ArtifactRestoreIdentityUnavailable;
+        if (stat.inode == 0) return error.ArtifactRestoreIdentityUnavailable;
         for (identities[0..index]) |identity| {
             if (identity == stat.inode) return error.ArtifactRestoreAlias;
         }
@@ -1079,7 +1079,6 @@ fn createStrictDirectoryPath(
         .open_options = .{
             .iterate = true,
             .follow_symlinks = false,
-            .resolve_beneath = true,
         },
     });
 }
@@ -3199,7 +3198,7 @@ fn runResolve(
     );
     defer allocator.free(prepared_source.root_path);
     defer allocator.free(prepared_source.source_path);
-    try validateStrictArchiveIdentity(io, recipe_archive);
+    _ = try validateStrictArchiveIdentity(io, recipe_archive);
     const recipe_summary = try hashStrictTree(allocator, io, recipe_root);
     if (recipe_summary.files == 0 or recipe_summary.bytes == 0) return error.RecipeIdentityMismatch;
 
@@ -3930,7 +3929,7 @@ fn runVerifyRestored(
         artifact_url,
         parsed.value.run_identity,
     );
-    const now_timestamp = std.time.timestamp();
+    const now_timestamp = @divTrunc(std.Io.Clock.real.now(io).nanoseconds, std.time.ns_per_s);
     if (now_timestamp < 0) return error.InvalidRetentionPolicy;
     try validateArtifactRetentionWindow(metadata, @intCast(now_timestamp), minimum_age_seconds, retention_days);
     const restored_bytes = try sameRestoredBytes(allocator, io, receipt_path, restored_a, restored_b);
