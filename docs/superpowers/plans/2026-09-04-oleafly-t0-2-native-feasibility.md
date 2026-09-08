@@ -1267,12 +1267,13 @@ non-Zig owned fetch/extract/generation behavior blocks all later T0.2 tasks.
 - Create `native/zig/tests/native_abi_test.zig`
 - Create `native/zig/tests/windows_argv_test.zig`
 - Create `native/zig/tests/pdf_engine_boundary_test.zig`
-- Create `native/zig/tests/pdfium_equivalence_test.zig`
 - Create `native/zig/tests/pdfium_repro_toolchain_test.zig`
 - Create `native/zig/tests/package_probe_test.zig`
 - Create `native/zig/tests/repro_check_test.zig`
 - Create `native/zig/tests/lexilla_comparator_test.zig`
-- Create `native/zig/tests/binary_import_test.zig`
+- Create `native/zig/tests/pe_audit_test.zig`
+- Create `native/zig/tests/pe_closure_test.zig`
+- Create `native/zig/tests/shipped_pe_inventory_test.zig`
 - Create `native/zig/tests/source_inventory_test.zig`
 - Create `native/zig/THIRD_PARTY_NOTICES.txt`
 - Modify `docs/superpowers/evidence/2026-09-04-oleafly-t0-2-worklog.md`
@@ -1386,7 +1387,13 @@ non-Zig owned fetch/extract/generation behavior blocks all later T0.2 tasks.
   downloader or give the lane repository-write credentials. Apply only the hash-locked
   build/public-header patches needed for the shared library and the exact
   non-V8/non-XFA GN arguments; a patch fuzz/offset or dirty unexpected source
-  tree is failure.
+  tree is failure. The controller takes the exact source-only PDFium checkout
+  separately from the complete gclient closure, requires the closure's
+  `pdfium/` checkout to match the locked commit/tree, copies that closure into
+  the fresh root, and binds the post-patch prepared-workspace digest before
+  compilation. The exact resource compiler used by the Windows patch is also
+  a required hashed tool input; the controller adds only its directory to the
+  child PATH so the patched `rc.exe` invocation cannot resolve ambient tools.
 - [ ] Launch every source-rebuild tool by canonical absolute path and typed argv,
   after fingerprinting its file identity/hash/version; use bounded captured
   stdout/stderr and wall/output limits. Any upstream child interpreter/tool is
@@ -1529,7 +1536,7 @@ path.
 
 - Modify `native/zig/src/main.zig`
 - Modify `native/zig/src/abi.zig`
-- Rename `native/zig/include/oleafly_abi.h` to `native/zig/include/texflow_abi.h`
+- Use the already-renamed `native/zig/include/texflow_abi.h` ABI boundary
 - Modify `native/zig/tests/abi_probe.zig`
 - Create `native/zig/tests/t0_1_smoke.zig`
 - Modify `native/zig/fixtures/abi_layout.c`
@@ -1559,14 +1566,17 @@ path.
 - Create `native/zig/tests/theme_layout_test.zig`
 - Create `native/zig/tests/strings_test.zig`
 - Create `native/zig/tests/presenter_state_test.zig`
-- Create `native/zig/tests/shell_runtime_test.zig`
-- Create `native/zig/tests/shell_uia_test.zig`
-- Create `native/zig/tests/capture_test.zig`
+- Create `native/zig/tests/windows_shell_test.zig`
+- Create `native/zig/tests/uia_shell_test.zig`
+- Create `native/zig/tests/capture_contract_test.zig`
+- Create `native/zig/tests/windows_shell_native_test.zig`
 - Create `native/zig/tests/icon_gen_test.zig`
 - Create `native/zig/qa/journey.zig`
 - Create `native/zig/qa/capture.zig`
 - Create `native/zig/qa/capture_dxgi.zig`
 - Create `native/zig/qa/capture_wic.zig`
+- Create `native/zig/qa/live_journey_portable.zig`
+- Create `native/zig/src/platform/windows/qos.zig`
 - Modify `tools/zig/repro_check.zig`
 - Modify `docs/superpowers/evidence/2026-09-04-oleafly-t0-2-worklog.md`
 - Modify `build.zig`, `.github/workflows/zig.yml`
@@ -1814,6 +1824,52 @@ and low-tier gates. `FLIP_DISCARD` cannot receive partial-present metadata, and
 `FLIP_SEQUENTIAL` cannot present from unproved buffer history. If a custom title
 bar or acrylic is needed to make the design work, the design has failed this
 slice.
+
+### Execution status after the T0.2c prerequisite pass (2026-09-07)
+
+The locally implementable T0.2a, T0.2b, and T0.2c contracts are present and
+green in the pinned Zig matrix: dependency/Unicode/audit `198/198`, and the
+combined Windows x64 ReleaseSafe T0.2b/T0.2c aggregate `124/124` steps with
+`334/346` tests passed and twelve explicit capability skips. The portable Linux
+aggregate is `71/71` steps in each of Debug, ReleaseSafe, and ReleaseFast.
+The standalone `t0-2-repro` gate now requires both the authenticated role
+manifest and a complete canonical payload manifest; it checks every regular
+  file path, size, and SHA-256 in both roots through the Unicode-17, no-reparse
+  walker and rejects shared extra/missing members. The current T0.2c role and
+  payload policies admit only `TExFlow.exe`/`UI`; the worker names remain
+  reserved for Tasks 5/6. The combined receipt binds source/run identity, raw
+  manifest hashes, all four tree summaries, network fields, and its own digest.
+  The gate checks both normalized path aliases and opened filesystem identity.
+  The PDFium controller also
+copies the raw source into the empty disposable reconstruction root, rehashes
+the copy, applies the four hash-locked Windows shared-library/public-header
+patches with `git apply --check --whitespace=error-all`, emits a fixed
+`154.0.8035.0` resource, and binds the patched-tree digest/counts before GN or
+Ninja. These are bounded local/compile evidence, not admission evidence.
+
+The workflow also contains an explicit `t0-2-repro-qualified` job, restricted
+to trusted `main` push/manual runs and disabled unless
+`TEXFLOW_T0_2_REPRO_ENABLED=true`, so pull-request code never runs on the
+self-hosted runner. When enabled, it passes the seven preprovisioned
+product/test root and receipt/manifest paths directly to `zig build
+t0-2-repro`; the source commit and remote run ID/attempt are injected by the
+workflow and must match the bound receipt. The main-only
+`t0-2-admission-verdict` fails closed if any hosted, qualified PDFium, immediate
+retention, or delayed-retention gate is skipped or fails. Durable retention has
+an explicit manual workflow-dispatch path: after the source artifact is at
+least 24 hours old, it binds the source run/job/artifact through the GitHub API,
+restores the exact artifact into three fresh roots on a different qualified
+Windows runner, and invokes the strict delayed `verify-restored` mode. The
+source metadata's created/expiry window and the resulting observation are
+retained as evidence.
+
+Admission remains intentionally fail-closed until the following external facts
+are produced and reviewed: `UNVERIFIED-REMOTE-CI-RUN-IDS`,
+`UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`. The tracked PDFium receipt is
+still `status=unverified`; no local DLL, ordinary hosted runner, proxy-poisoning
+result, or cache copy may promote it. T0.2d is not started and has no build-graph
+edge; it begins only after T0.2c's external prerequisite is admitted.
 
 ## Task 4 (T0.2d): Integrate Scintilla, Unicode mapping, UIA, and IME
 

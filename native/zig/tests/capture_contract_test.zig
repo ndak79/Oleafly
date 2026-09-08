@@ -151,6 +151,11 @@ test "stale QPC, accumulated frames, protected content, and missing frames are t
         else => return error.ExpectedAccumulatedFrames,
     }
 
+    var single_update = validMetadata();
+    single_update.accumulated_frames = 1;
+    outcome = try capture.classify(.{ .status = .acquired, .frame = single_update, .observed_qpc = 100, .deadline_qpc = 500, .duplication_generation = 1 }, 100, 1);
+    try std.testing.expectEqual(capture.CaptureOutcome.accepted, outcome);
+
     var protected = validMetadata();
     protected.protected_content = true;
     outcome = try capture.classify(.{ .status = .acquired, .frame = protected, .observed_qpc = 100, .deadline_qpc = 500, .duplication_generation = 1 }, 100, 1);

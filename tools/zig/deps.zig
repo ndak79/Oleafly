@@ -1992,6 +1992,25 @@ const CanonicalFileRecord = struct {
     digest: [32]u8,
 };
 
+pub const MaterializedDirectorySummary = struct {
+    files: u32,
+    bytes: u64,
+    digest: [32]u8,
+};
+
+pub const MaterializedFileRecord = struct {
+    path: []const u8,
+    size: u64,
+    digest: [32]u8,
+};
+
+/// Receives each regular-file record while the directory is being hashed.
+/// The record path is borrowed until the callback returns.
+pub const MaterializedFileVisitor = *const fn (
+    context: *anyopaque,
+    record: MaterializedFileRecord,
+) anyerror!void;
+
 pub fn canonicalTreeDigestTarGzip(
     allocator: std.mem.Allocator,
     compressed: []const u8,
@@ -3081,84 +3100,167 @@ fn privateFilePermissions() std.Io.Dir.Permissions {
         .fromMode(0o600);
 }
 
+const MaterializedTreeFrame = struct {
+    directory: std.Io.Dir,
+    iterator: std.Io.Dir.Iterator,
+    path: []u8,
+    close_on_pop: bool,
+    saw_entry: bool,
+};
+
+const MaterializedFileSummary = struct {
+    bytes: u64,
+    digest: [32]u8,
+};
+
 pub fn hashMaterializedDirectory(
     allocator: std.mem.Allocator,
     io: std.Io,
     root: std.Io.Dir,
     max_total_bytes: u64,
-) !struct { files: u32, bytes: u64, digest: [32]u8 } {
+) !MaterializedDirectorySummary {
+    return hashMaterializedDirectoryWithFold(allocator, io, root, max_total_bytes, null);
+}
+
+/// Hashes a directory without walking through reparse points or trusting a
+/// path after it has been resolved.  `collision_fold` is used by strict
+/// cross-machine callers that need the same Unicode path identity as archive
+/// extraction; the legacy entry point intentionally keeps its prior
+/// case-sensitive collision behavior.
+pub fn hashMaterializedDirectoryWithFold(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    root: std.Io.Dir,
+    max_total_bytes: u64,
+    collision_fold: ?CollisionFoldFn,
+) !MaterializedDirectorySummary {
+    return hashMaterializedDirectoryWithFoldAndVisitor(
+        allocator,
+        io,
+        root,
+        max_total_bytes,
+        collision_fold,
+        null,
+        null,
+    );
+}
+
+pub fn hashMaterializedDirectoryWithFoldAndVisitor(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    root: std.Io.Dir,
+    max_total_bytes: u64,
+    collision_fold: ?CollisionFoldFn,
+    visitor: ?MaterializedFileVisitor,
+    context: ?*anyopaque,
+) !MaterializedDirectorySummary {
+    if ((visitor == null) != (context == null)) return error.InvalidMaterializedVisitor;
+
     var records: std.ArrayList(CanonicalFileRecord) = .empty;
     defer {
         for (records.items) |record| allocator.free(record.path);
         records.deinit(allocator);
     }
-    var walker = try root.walk(allocator);
-    defer walker.deinit();
+    var path_registry: ?PathRegistry = if (collision_fold) |fold|
+        PathRegistry.initWithFold(allocator, fold)
+    else
+        null;
+    defer if (path_registry) |*registry| registry.deinit();
+
+    var frames: std.ArrayList(MaterializedTreeFrame) = .empty;
+    defer {
+        for (frames.items) |frame| {
+            if (frame.close_on_pop) frame.directory.close(io);
+            allocator.free(frame.path);
+        }
+        frames.deinit(allocator);
+    }
+    const root_path = try allocator.dupe(u8, "");
+    var root_path_transferred = false;
+    errdefer if (!root_path_transferred) allocator.free(root_path);
+    try frames.append(allocator, .{
+        .directory = root,
+        .iterator = root.iterate(),
+        .path = root_path,
+        .close_on_pop = false,
+        .saw_entry = false,
+    });
+    root_path_transferred = true;
+
     var total: u64 = 0;
-    while (try walker.next(io)) |entry| {
+    while (frames.items.len != 0) {
+        const frame = &frames.items[frames.items.len - 1];
+        const entry = try frame.iterator.next(io) orelse {
+            if (frame.close_on_pop and !frame.saw_entry) return error.UnexpectedEmptyDirectory;
+            const finished = frames.pop().?;
+            if (finished.close_on_pop) finished.directory.close(io);
+            allocator.free(finished.path);
+            continue;
+        };
+        frame.saw_entry = true;
+        if (std.mem.indexOfScalar(u8, entry.name, '\\') != null) {
+            return error.ExtractionReparsePoint;
+        }
+        const separator = @intFromBool(frame.path.len != 0);
+        const path_size = std.math.add(usize, frame.path.len, separator) catch
+            return error.UnsafeArchivePath;
+        const path_len = std.math.add(usize, path_size, entry.name.len) catch
+            return error.UnsafeArchivePath;
+        const normalized_path = try allocator.alloc(u8, path_len);
+        var owned_path: ?[]u8 = normalized_path;
+        defer if (owned_path) |path| allocator.free(path);
+        if (frame.path.len != 0) {
+            @memcpy(normalized_path[0..frame.path.len], frame.path);
+            normalized_path[frame.path.len] = '/';
+        }
+        @memcpy(normalized_path[frame.path.len + separator ..], entry.name);
+        try validateArchivePath(normalized_path);
+        if (path_registry) |*registry| try registry.add(normalized_path);
         switch (entry.kind) {
             .directory => {
-                var child = try entry.dir.openDir(io, entry.basename, .{
+                var child = try frame.directory.openDir(io, entry.name, .{
                     .iterate = true,
                     .follow_symlinks = false,
                 });
-                defer child.close(io);
+                errdefer child.close(io);
                 if ((try child.stat(io)).kind != .directory) {
                     return error.ExtractionReparsePoint;
                 }
-                var iterator = child.iterate();
-                if (try iterator.next(io) == null) return error.UnexpectedEmptyDirectory;
-                continue;
+                try frames.append(allocator, .{
+                    .directory = child,
+                    .iterator = child.iterate(),
+                    .path = normalized_path,
+                    .close_on_pop = true,
+                    .saw_entry = false,
+                });
+                owned_path = null;
             },
-            .file => {},
+            .file => {
+                const remaining = max_total_bytes -| total;
+                const file_summary = try hashMaterializedFile(
+                    io,
+                    frame.directory,
+                    entry.name,
+                    remaining,
+                );
+                total = std.math.add(u64, total, file_summary.bytes) catch
+                    return error.ArchiveExpandedTooLarge;
+                if (total > max_total_bytes) return error.ArchiveExpandedTooLarge;
+                const record = MaterializedFileRecord{
+                    .path = normalized_path,
+                    .size = file_summary.bytes,
+                    .digest = file_summary.digest,
+                };
+                if (visitor) |visit| try visit(context.?, record);
+                try records.append(allocator, .{
+                    .path = normalized_path,
+                    .size = file_summary.bytes,
+                    .digest = file_summary.digest,
+                });
+                owned_path = null;
+            },
             else => return error.ExtractionReparsePoint,
         }
-        var verification_file = try entry.dir.openFile(io, entry.basename, .{
-            .follow_symlinks = false,
-            .resolve_beneath = true,
-        });
-        defer verification_file.close(io);
-        const stat = try verification_file.stat(io);
-        if (stat.kind != .file) return error.ExtractionEntryTypeMismatch;
-        var file = try entry.dir.openFile(io, entry.basename, .{
-            .follow_symlinks = true,
-            .resolve_beneath = true,
-        });
-        defer file.close(io);
-        const readable_stat = try file.stat(io);
-        if (readable_stat.kind != .file or readable_stat.inode != stat.inode or
-            readable_stat.size != stat.size)
-        {
-            return error.ExtractionIdentityChanged;
-        }
-        total = std.math.add(u64, total, stat.size) catch
-            return error.ArchiveExpandedTooLarge;
-        if (total > max_total_bytes) return error.ArchiveExpandedTooLarge;
-        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-        var reader_buffer: [64 * 1024]u8 = undefined;
-        var reader = file.reader(io, &reader_buffer);
-        var chunk: [64 * 1024]u8 = undefined;
-        var read_total: u64 = 0;
-        while (true) {
-            const count = reader.interface.readSliceShort(&chunk) catch
-                return reader.err orelse error.ReadFailed;
-            if (count == 0) break;
-            hasher.update(chunk[0..count]);
-            read_total += count;
-        }
-        if (read_total != stat.size) return error.ExtractionSizeMismatch;
-        var digest: [32]u8 = undefined;
-        hasher.final(&digest);
-        const normalized_path = try allocator.dupe(u8, entry.path);
-        errdefer allocator.free(normalized_path);
-        for (normalized_path) |*byte| if (byte.* == '\\') {
-            byte.* = '/';
-        };
-        try records.append(allocator, .{
-            .path = normalized_path,
-            .size = stat.size,
-            .digest = digest,
-        });
     }
     return .{
         .files = std.math.cast(u32, records.items.len) orelse
@@ -3166,6 +3268,74 @@ pub fn hashMaterializedDirectory(
         .bytes = total,
         .digest = hashCanonicalRecords(records.items),
     };
+}
+
+fn hashMaterializedFile(
+    io: std.Io,
+    directory: std.Io.Dir,
+    basename: []const u8,
+    maximum_bytes: u64,
+) !MaterializedFileSummary {
+    var verification_file = try directory.openFile(io, basename, .{
+        .allow_directory = false,
+        .follow_symlinks = false,
+        .resolve_beneath = true,
+    });
+    defer verification_file.close(io);
+    const stat = try verification_file.stat(io);
+    if (stat.kind != .file) return error.ExtractionEntryTypeMismatch;
+    if (stat.size > maximum_bytes) return error.ArchiveExpandedTooLarge;
+
+    // The no-follow handle establishes the object identity.  A readable
+    // handle is used separately because Windows reparse-point handles are not
+    // readable on every supported NTFS configuration.
+    var file = try directory.openFile(io, basename, .{
+        .allow_directory = false,
+        .follow_symlinks = true,
+        .resolve_beneath = true,
+    });
+    defer file.close(io);
+    const opened = try file.stat(io);
+    if (opened.kind != .file or opened.inode != stat.inode or opened.size != stat.size) {
+        return error.ExtractionIdentityChanged;
+    }
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    var reader_buffer: [64 * 1024]u8 = undefined;
+    var reader = file.reader(io, &reader_buffer);
+    var chunk: [64 * 1024]u8 = undefined;
+    var read_total: u64 = 0;
+    while (true) {
+        const count = reader.interface.readSliceShort(&chunk) catch
+            return reader.err orelse error.ReadFailed;
+        if (count == 0) break;
+        read_total = std.math.add(u64, read_total, count) catch
+            return error.ArchiveExpandedTooLarge;
+        if (read_total > maximum_bytes) return error.ArchiveExpandedTooLarge;
+        hasher.update(chunk[0..count]);
+    }
+    const after = try file.stat(io);
+    if (after.kind != .file or after.inode != stat.inode or after.size != stat.size) {
+        return error.ExtractionIdentityChanged;
+    }
+    if (read_total != stat.size) return error.ExtractionSizeMismatch;
+
+    var final_verification_file = try directory.openFile(io, basename, .{
+        .allow_directory = false,
+        .follow_symlinks = false,
+        .resolve_beneath = true,
+    });
+    defer final_verification_file.close(io);
+    const final_stat = try final_verification_file.stat(io);
+    if (final_stat.kind != .file or final_stat.inode != stat.inode or
+        final_stat.size != stat.size)
+    {
+        return error.ExtractionIdentityChanged;
+    }
+
+    var digest: [32]u8 = undefined;
+    hasher.final(&digest);
+    return .{ .bytes = read_total, .digest = digest };
 }
 
 pub fn verifySha256(bytes: []const u8, expected_hex: []const u8) !void {

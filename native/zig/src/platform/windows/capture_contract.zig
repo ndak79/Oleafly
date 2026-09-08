@@ -314,7 +314,9 @@ pub fn classify(attempt: CaptureAttempt, marker_qpc: u64, expected_generation: u
             if (generation != expected_generation) return error.StaleGeneration;
             try validate_metadata(frame);
             if (frame.last_present_qpc <= marker_qpc) break :blk .{ .stale_qpc = .{ .frame_qpc = frame.last_present_qpc, .marker_qpc = marker_qpc } };
-            if (frame.accumulated_frames != 0) break :blk .{ .accumulated_frames = frame.accumulated_frames };
+            // DXGI reports one accumulated frame for a normal desktop update. Only
+            // a backlog greater than one means the capture missed intermediate frames.
+            if (frame.accumulated_frames > 1) break :blk .{ .accumulated_frames = frame.accumulated_frames };
             if (frame.protected_content) break :blk .protected_content;
             break :blk .accepted;
         },

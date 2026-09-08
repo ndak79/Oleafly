@@ -9,12 +9,16 @@ const shell = @import("windows_shell");
 const com = @import("windows_com");
 const entry = @import("ui_entry");
 const role = @import("app_role");
+const build_identity = @import("app_build_identity");
+const build_identity_config = @import("build_identity_config");
 const layout = @import("app_layout");
+const uia_shell = @import("app_uia_shell");
 const strings = @import("app_strings");
 const telemetry = @import("windows_telemetry");
 const graphics = @import("graphics");
 const composition = @import("composition_native");
 const presenter = @import("presenter_native");
+const qos = @import("windows_qos");
 const presenter_config = @import("presenter_config");
 
 pub const HINSTANCE = *opaque {};
@@ -67,16 +71,41 @@ pub const ACCEL = extern struct {
     key: u16,
     cmd: u16,
 };
+const SCROLLINFO = extern struct {
+    cbSize: u32,
+    fMask: u32,
+    nMin: i32,
+    nMax: i32,
+    nPage: u32,
+    nPos: i32,
+    nTrackPos: i32,
+};
 
 pub const dll_search_flags: u32 = 0x800; // LOAD_LIBRARY_SEARCH_SYSTEM32
 pub const window_style: u32 = 0xcf0000; // WS_OVERLAPPEDWINDOW, system caption
 pub const dpi_pmv2: *anyopaque = @ptrFromInt(@as(usize, @bitCast(@as(isize, -4))));
 pub const frame_signal_message: u32 = 0x8001; // WM_APP + 1, private frame grant
+pub const icon_resource_id: usize = 1;
 
 /// The build selects the admitted baseline explicitly.  A discard build is a
 /// reproducible challenger and is never chosen from adapter/runtime state.
 pub fn configuredSwapEffect() graphics.SwapEffect {
     return if (presenter_config.use_discard) .flip_discard else .flip_sequential;
+}
+
+/// Build the only Present1 metadata the native shell is allowed to emit.  A
+/// full redraw or an unproven back-buffer history intentionally carries zero
+/// dirty rectangles; once both the tracked scene and target buffer are
+/// coherent, the complete client region is the exact updated region.
+pub fn presentRequestForState(
+    effect: graphics.SwapEffect,
+    full_redraw: bool,
+    history_valid: bool,
+    width: u32,
+    height: u32,
+) presenter.PresentRequest {
+    if (effect == .flip_discard or full_redraw or !history_valid or width == 0 or height == 0) return .{};
+    return .{ .dirty_rect = .{ .left = 0, .top = 0, .right = @intCast(width), .bottom = @intCast(height) } };
 }
 const wm_nccreate: u32 = 0x0081;
 const wm_ncdestroy: u32 = 0x0082;
@@ -91,6 +120,7 @@ pub const wm_displaychange: u32 = 0x007e;
 pub const wm_powerbroadcast: u32 = 0x0218;
 pub const wm_dpi_changed: u32 = 0x02e0;
 const wm_command: u32 = 0x0111;
+const wm_vscroll: u32 = 0x0115;
 pub const size_minimized: usize = 1;
 pub const pbt_apmresumecritical: usize = 0x0006;
 pub const pbt_apmresumesuspend: usize = 0x0007;
@@ -104,6 +134,11 @@ const ws_ex_transparent: u32 = 0x00000020;
 pub const swp_nozorder: u32 = 0x0004;
 pub const swp_noactivate: u32 = 0x0010;
 const bs_pushbutton: u32 = 0x00000000;
+const bs_autocheckbox: u32 = 0x00000003;
+const bm_setcheck: u32 = 0x00f1;
+const sbs_vert: u32 = 0x00000001;
+const sb_ctl: i32 = 2;
+const sif_all: u32 = 0x000f;
 const ss_left: u32 = 0x00000000;
 const sw_hide: i32 = 0;
 const sw_show: i32 = 5;
@@ -122,6 +157,7 @@ const control_id_save: u16 = 103;
 const control_id_recovery: u16 = 104;
 const button_class = std.unicode.utf8ToUtf16LeStringLiteral("BUTTON");
 const static_class = std.unicode.utf8ToUtf16LeStringLiteral("STATIC");
+const scrollbar_class = std.unicode.utf8ToUtf16LeStringLiteral("SCROLLBAR");
 const open_folder_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.open_folder));
 const mode_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.mode));
 const compile_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.compile));
@@ -132,6 +168,7 @@ const source_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.sou
 const pdf_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.pdf));
 const status_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.status));
 const ready_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.ready));
+const splitter_title = std.unicode.utf8ToUtf16LeStringLiteral(strings.literal(.splitter));
 const class_name = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.machine_class);
 const window_title = std.unicode.utf8ToUtf16LeStringLiteral(role.ui_identity.product_name);
 
@@ -480,12 +517,18 @@ const raw = struct {
     extern "user32" fn GetThreadDpiAwarenessContext() callconv(.winapi) ?*anyopaque;
     extern "user32" fn AreDpiAwarenessContextsEqual(?*anyopaque, ?*anyopaque) callconv(.winapi) i32;
     extern "user32" fn LoadCursorW(?HINSTANCE, [*:0]const u16) callconv(.winapi) ?*anyopaque;
+    // The second argument is either a string resource or an integer resource
+    // identifier.  Keep it opaque so the ID-1 resource does not acquire a
+    // bogus UTF-16 alignment requirement.
+    extern "user32" fn LoadIconW(?HINSTANCE, ?*anyopaque) callconv(.winapi) ?*anyopaque;
     extern "user32" fn RegisterClassExW(*const WNDCLASSEXW) callconv(.winapi) u16;
     extern "user32" fn UnregisterClassW([*:0]const u16, HINSTANCE) callconv(.winapi) i32;
     extern "user32" fn CreateWindowExW(u32, [*:0]const u16, [*:0]const u16, u32, i32, i32, i32, i32, ?HWND, ?*anyopaque, HINSTANCE, ?*anyopaque) callconv(.winapi) ?HWND;
     extern "user32" fn SetWindowTextW(HWND, [*:0]const u16) callconv(.winapi) i32;
+    extern "user32" fn SendMessageW(HWND, u32, usize, isize) callconv(.winapi) isize;
     extern "user32" fn ShowWindow(HWND, i32) callconv(.winapi) i32;
     extern "user32" fn MoveWindow(HWND, i32, i32, i32, i32, i32) callconv(.winapi) i32;
+    extern "user32" fn SetScrollInfo(HWND, i32, *const SCROLLINFO, i32) callconv(.winapi) i32;
     extern "user32" fn SetWindowPos(HWND, ?HWND, i32, i32, i32, i32, u32) callconv(.winapi) i32;
     extern "user32" fn GetDpiForWindow(HWND) callconv(.winapi) u32;
     extern "user32" fn CreateAcceleratorTableW([*]const ACCEL, i32) callconv(.winapi) ?*anyopaque;
@@ -559,6 +602,7 @@ pub const Backend = struct {
     window: ?HWND = null,
     open_folder_control: ?HWND = null,
     mode_control: ?HWND = null,
+    mode_checked: bool = false,
     compile_control: ?HWND = null,
     save_control: ?HWND = null,
     recovery_control: ?HWND = null,
@@ -567,6 +611,7 @@ pub const Backend = struct {
     pdf_label: ?HWND = null,
     status_label: ?HWND = null,
     status_value: ?HWND = null,
+    splitter_control: ?HWND = null,
     accelerators: ?*anyopaque = null,
     recovery_visible: bool = false,
     trace_trial: [16]u8 = [_]u8{0} ** 16,
@@ -575,11 +620,15 @@ pub const Backend = struct {
     swap_chain: ?presenter.SwapChain = null,
     back_buffer: ?presenter.BackBuffer = null,
     composition_renderer: ?composition.Renderer = null,
+    buffer_history_valid: [2]bool = .{ false, false },
     frame_lifecycle: FrameLifecycle = .{},
     window_state: NativeWindowState = .{},
     telemetry_state: TelemetryState = .disabled,
     telemetry_error: ?telemetry.ProviderError = null,
     telemetry_event_count: u32 = 0,
+    qos_state: qos.State = .{},
+    semantic_revision: u64 = 0,
+    semantic_snapshot: ?uia_shell.Snapshot = null,
     message: MSG = undefined,
 
     pub const initial_clear_color: [4]f32 = .{ 0.035, 0.055, 0.09, 1.0 };
@@ -587,6 +636,17 @@ pub const Backend = struct {
     pub fn restrictDllSearch(_: *Backend) bool {
         // No application/CWD/PATH/user-added directory is admitted in this slice.
         return raw.SetDefaultDllDirectories(dll_search_flags) != 0;
+    }
+    pub fn verifyBuildIdentity(_: *Backend) bool {
+        if (!build_identity_config.authoritative) return false;
+        return build_identity.isValid(
+            build_identity_config.source_set_sha256,
+            build_identity_config.dependency_lock_sha256,
+            build_identity_config.build_identity,
+        );
+    }
+    pub fn buildIdentityAuthoritative(_: *Backend) bool {
+        return build_identity_config.authoritative;
     }
     pub fn setDpiAwareness(_: *Backend) bool {
         // A PMv2 manifest establishes the process context before entry.  In
@@ -630,10 +690,8 @@ pub const Backend = struct {
         };
         self.telemetry_provider = provider;
         self.telemetry_state = .registered;
-        // Registration happens after the hidden bootstrap frame has been
-        // presented, so emit one dimension/QPC snapshot to bind that first
-        // displayed frame to the trial without tracing any source content.
-        if (self.telemetry_provider != null) self.emitTelemetrySnapshot();
+        // Registration happens before window creation. The first actual
+        // displayed frame is emitted by presentFrame after its QPC is known.
     }
     pub fn telemetryState(self: *const Backend) TelemetryState {
         return self.telemetry_state;
@@ -649,6 +707,10 @@ pub const Backend = struct {
     }
     pub fn telemetryTrialId(self: *const Backend) [16]u8 {
         return self.trace_trial;
+    }
+
+    pub fn modeChecked(self: *const Backend) bool {
+        return self.mode_checked;
     }
 
     pub fn windowState(self: *const Backend) NativeWindowState {
@@ -676,7 +738,18 @@ pub const Backend = struct {
     }
 
     fn applyWindowStateEvent(self: *Backend, event: WindowStateEvent) void {
-        if (self.window_state.apply(event)) self.requestFrame();
+        const request_frame = self.window_state.apply(event);
+        self.buffer_history_valid = .{ false, false };
+        self.updateQosScope();
+        if (request_frame) self.requestFrame();
+    }
+
+    fn updateQosScope(self: *Backend) void {
+        if (self.window_state.canRender() and self.window_state.active) {
+            self.qos_state.leaveBackground();
+        } else {
+            self.qos_state.enterBackground();
+        }
     }
 
     fn refreshShellLayout(self: *Backend) void {
@@ -716,6 +789,11 @@ pub const Backend = struct {
 
     pub fn registerClass(self: *Backend) bool {
         const cursor = raw.LoadCursorW(null, @ptrFromInt(32512)) orelse return false; // IDC_ARROW, shared
+        // The product resource generator emits the group/icon pair at ID 1.
+        // Loading it from this module instance makes the same identity visible
+        // in the title bar, task switcher, and shell chrome; no ambient/default
+        // icon is substituted for a product build.
+        const icon = raw.LoadIconW(self.instance, @ptrFromInt(icon_resource_id)) orelse return false;
         const window_class: WNDCLASSEXW = .{
             .cbSize = @sizeOf(WNDCLASSEXW),
             .style = 3, // CS_HREDRAW | CS_VREDRAW
@@ -723,12 +801,12 @@ pub const Backend = struct {
             .cbClsExtra = 0,
             .cbWndExtra = 0,
             .hInstance = self.instance,
-            .hIcon = null,
+            .hIcon = icon,
             .hCursor = cursor,
             .hbrBackground = @ptrFromInt(6), // COLOR_WINDOW + 1; system-owned
             .lpszMenuName = null,
             .lpszClassName = class_name,
-            .hIconSm = null,
+            .hIconSm = icon,
         };
         return raw.RegisterClassExW(&window_class) != 0;
     }
@@ -761,6 +839,7 @@ pub const Backend = struct {
         }
         self.open_folder_control = null;
         self.mode_control = null;
+        self.mode_checked = false;
         self.compile_control = null;
         self.save_control = null;
         self.recovery_control = null;
@@ -769,7 +848,9 @@ pub const Backend = struct {
         self.pdf_label = null;
         self.status_label = null;
         self.status_value = null;
+        self.splitter_control = null;
         self.recovery_visible = false;
+        self.semantic_snapshot = null;
     }
 
     fn destroyShellControls(self: *Backend) void {
@@ -784,6 +865,7 @@ pub const Backend = struct {
             &self.pdf_label,
             &self.status_label,
             &self.status_value,
+            &self.splitter_control,
         };
         for (children) |child| {
             const window = child.* orelse continue;
@@ -825,7 +907,8 @@ pub const Backend = struct {
         const label_style = ws_child | ws_visible | ss_left;
 
         self.open_folder_control = self.createChild(button_class, open_folder_title, 0, first_button_style, control_id_open_folder) orelse return false;
-        self.mode_control = self.createChild(button_class, mode_title, 0, button_style, control_id_mode) orelse {
+        const mode_style = ws_child | ws_visible | ws_tabstop | bs_autocheckbox;
+        self.mode_control = self.createChild(button_class, mode_title, 0, mode_style, control_id_mode) orelse {
             self.destroyShellControls();
             return false;
         };
@@ -858,6 +941,16 @@ pub const Backend = struct {
             return false;
         };
         self.status_value = self.createChild(static_class, ready_title, ws_ex_transparent, label_style, 109) orelse {
+            self.destroyShellControls();
+            return false;
+        };
+        self.splitter_control = self.createChild(
+            scrollbar_class,
+            splitter_title,
+            0,
+            ws_child | ws_visible | ws_tabstop | sbs_vert,
+            110,
+        ) orelse {
             self.destroyShellControls();
             return false;
         };
@@ -950,6 +1043,36 @@ pub const Backend = struct {
         if (!self.moveChild(self.pdf_label, pdf_x, label_y, @min(@as(u32, 104), @max(pdf_width, 1)), label_height, geometry.pdf_visible, dpi)) return false;
 
         const status_y = geometry.status_top_dip;
+        const splitter_target = layout.minimum_target_dip;
+        const splitter_x = if (geometry.source_right_dip > splitter_target / 2)
+            geometry.source_right_dip - splitter_target / 2
+        else
+            0;
+        const splitter_height = if (status_y > content_top + gap)
+            status_y - content_top - gap
+        else
+            1;
+        if (!self.moveChild(
+            self.splitter_control,
+            splitter_x,
+            content_top,
+            splitter_target,
+            splitter_height,
+            geometry.source_visible and geometry.pdf_visible,
+            dpi,
+        )) return false;
+        if (self.splitter_control) |splitter| {
+            const info: SCROLLINFO = .{
+                .cbSize = @intCast(@sizeOf(SCROLLINFO)),
+                .fMask = sif_all,
+                .nMin = 0,
+                .nMax = 100,
+                .nPage = 1,
+                .nPos = 50,
+                .nTrackPos = 50,
+            };
+            if (raw.SetScrollInfo(splitter, sb_ctl, &info, 1) == 0) return false;
+        }
         const recovery_width = @min(@as(u32, 92), @max(width, 1));
         const recovery_x = if (width > recovery_width + gap)
             width - recovery_width - gap
@@ -970,7 +1093,33 @@ pub const Backend = struct {
         if (!self.moveChild(self.status_label, status_x, status_y, @min(@as(u32, 48), @max(width, 1)), status_height, true, dpi)) return false;
         if (!self.moveChild(self.status_value, status_value_x, status_y, status_value_width, status_height, true, dpi)) return false;
         if (!self.moveChild(self.recovery_control, recovery_x, status_y, recovery_width, status_height, show_recovery, dpi)) return false;
+        const revision = if (self.semantic_revision == std.math.maxInt(u64)) 1 else self.semantic_revision + 1;
+        var snapshot = uia_shell.Snapshot.init(
+            revision,
+            width,
+            height,
+            false,
+            .system,
+            if (self.recovery_visible) .error_status else .ready,
+        ) catch return false;
+        snapshot.nodes[@intFromEnum(uia_shell.NodeId.mode)].state.checked = self.mode_checked;
+        self.semantic_snapshot = snapshot;
+        self.semantic_revision = revision;
         return true;
+    }
+
+    pub fn semanticSnapshot(self: *const Backend) ?uia_shell.Snapshot {
+        return self.semantic_snapshot;
+    }
+
+    fn updateSemanticMode(self: *Backend) void {
+        const current = self.semantic_snapshot orelse return;
+        const revision = if (self.semantic_revision == std.math.maxInt(u64)) 1 else self.semantic_revision + 1;
+        var snapshot = current;
+        snapshot.revision = revision;
+        snapshot.nodes[@intFromEnum(uia_shell.NodeId.mode)].state.checked = self.mode_checked;
+        self.semantic_snapshot = snapshot;
+        self.semantic_revision = revision;
     }
 
     pub fn hasShellControls(self: *const Backend) bool {
@@ -979,6 +1128,7 @@ pub const Backend = struct {
             self.recovery_control != null and self.project_label != null and
             self.source_label != null and self.pdf_label != null and
             self.status_label != null and self.status_value != null and
+            self.splitter_control != null and
             self.accelerators != null;
     }
 
@@ -988,6 +1138,7 @@ pub const Backend = struct {
             self.recovery_control != null or self.project_label != null or
             self.source_label != null or self.pdf_label != null or
             self.status_label != null or self.status_value != null or
+            self.splitter_control != null or
             self.accelerators != null;
     }
 
@@ -1034,6 +1185,8 @@ pub const Backend = struct {
     /// complete clear + Present before it becomes visible, so the shell never
     /// exposes an uninitialized back buffer.
     fn renderFrameOnce(self: *Backend) FrameAttempt {
+        self.qos_state.enterForeground();
+        defer self.qos_state.leaveForeground();
         if (!self.window_state.canRender()) return .occluded;
         const window = self.window orelse return .failed;
         var client: RECT = undefined;
@@ -1046,29 +1199,49 @@ pub const Backend = struct {
         if (self.graphics_device) |*device| {
             if (self.swap_chain) |*swap_chain| {
                 if (self.back_buffer) |*buffer| {
+                    const presented_index = buffer.buffer_index;
                     _ = swap_chain.renderClear(device, buffer, .{
                         .width = width,
                         .height = height,
                         .clear_color = Backend.initial_clear_color,
-                    }) catch return .failed;
-                    const renderer = if (self.composition_renderer) |*value| value else return .failed;
-                    const resource = buffer.resource orelse return .failed;
+                    }) catch {
+                        return .failed;
+                    };
+                    const renderer = if (self.composition_renderer) |*value| value else {
+                        return .failed;
+                    };
+                    const resource = buffer.resource orelse {
+                        return .failed;
+                    };
                     renderer.draw(@ptrCast(resource), width, height, raw.GetDpiForWindow(window)) catch |err| return switch (err) {
                         error.DeviceLost => .device_lost,
                         else => .failed,
                     };
-                    const outcome = swap_chain.presentAndRebind(device, buffer, .{}) catch |err| return switch (err) {
+                    const present_request = presentRequestForState(
+                        configuredSwapEffect(),
+                        self.window_state.needs_full_redraw,
+                        self.buffer_history_valid[presented_index],
+                        width,
+                        height,
+                    );
+                    const outcome = swap_chain.presentAndRebind(device, buffer, present_request) catch |err| return switch (err) {
                         // A successful Present1 followed by a failed buffer
                         // reacquisition leaves the owner empty.  Treat that
                         // same as device loss so the caller rebuilds the
                         // complete device-dependent graph instead of
                         // repeatedly attempting to render without a target.
-                        error.RebindFailed => .device_lost,
+                        error.RebindFailed,
+                        error.NextBackBufferIndexUnavailable,
+                        error.InvalidBackBufferIndex,
+                        => .device_lost,
                         else => .failed,
                     };
                     if (outcome == .presented or outcome == .occluded) self.emitRenderTelemetry(width, height);
                     switch (outcome) {
-                        .presented => self.window_state.framePresented(),
+                        .presented => {
+                            self.buffer_history_valid[presented_index] = true;
+                            self.window_state.framePresented();
+                        },
                         .occluded => _ = self.window_state.apply(.occluded),
                         .device_removed, .device_reset, .device_hung => self.window_state.invalidate(),
                     }
@@ -1143,7 +1316,9 @@ pub const Backend = struct {
     fn waitAndRender(self: *Backend, timeout_ms: u32, recover: bool) bool {
         if (!self.window_state.canRender()) return false;
         if (self.swap_chain) |*swap_chain| {
-            switch (swap_chain.waitForFrame(timeout_ms) catch |failure| return self.handleWaitFailure(failure, recover)) {
+            switch (swap_chain.waitForFrame(timeout_ms) catch |failure| {
+                return self.handleWaitFailure(failure, recover);
+            }) {
                 .signaled => {},
                 // A caller asking for a frame must not treat a timeout as a
                 // displayed frame: this path is used before first show and
@@ -1185,6 +1360,11 @@ pub const Backend = struct {
 
     pub fn compositionFrameCount(self: *const Backend) u64 {
         return if (self.composition_renderer) |renderer| renderer.frameCount() else 0;
+    }
+
+    pub fn actualSwapChainDescriptor(self: *const Backend) !presenter.NativeDescriptor {
+        const swap_chain = self.swap_chain orelse return error.InvalidSwapChain;
+        return swap_chain.actualDescriptor();
     }
 
     pub fn tickFrame(self: *Backend) bool {
@@ -1254,7 +1434,14 @@ pub const Backend = struct {
                     };
                     return switch (outcome) {
                         .resized => blk: {
-                            const renderer = composition.Renderer.init(device) catch break :blk self.rebuildFrameResources();
+                            // ResizeBuffers creates new contents for both
+                            // sequential targets.  The old history is not a
+                            // valid dirty-rect baseline for either target.
+                            self.buffer_history_valid = .{ false, false };
+                            self.window_state.invalidate();
+                            const renderer = composition.Renderer.init(device) catch {
+                                break :blk self.rebuildFrameResources();
+                            };
                             self.composition_renderer = renderer;
                             break :blk self.renderFrame();
                         },
@@ -1329,11 +1516,13 @@ pub const Backend = struct {
             device.deinit();
             self.graphics_device = null;
         }
+        self.buffer_history_valid = .{ false, false };
     }
 
     pub fn destroyWindow(self: *Backend) bool {
         var ok = true;
         self.frame_lifecycle.cancel();
+        self.qos_state.deinit();
         self.destroyShellControls();
         self.releaseFrameResources();
         if (self.telemetry_provider) |*provider| {
@@ -1407,6 +1596,10 @@ pub const Backend = struct {
         return raw.GetMessageW(&self.message, null, 0, 0);
     }
     pub fn dispatchMessage(self: *Backend) void {
+        const latency_sensitive = isFrameSignalMessage(self.message.message) or
+            isLatencySensitiveMessage(self.message.message);
+        if (latency_sensitive) self.qos_state.enterForeground();
+        defer if (latency_sensitive) self.qos_state.leaveForeground();
         if (isFrameSignalMessage(self.message.message)) {
             _ = self.renderFrameSignaled();
             return;
@@ -1416,6 +1609,18 @@ pub const Backend = struct {
         _ = raw.DispatchMessageW(&self.message);
     }
 };
+
+fn isLatencySensitiveMessage(message: u32) bool {
+    return switch (message) {
+        0x0100...0x0109, // keyboard and character input
+        0x0200...0x020e, // pointer input
+        wm_size,
+        wm_dpi_changed,
+        wm_vscroll,
+        => true,
+        else => false,
+    };
+}
 
 fn backendForWindow(window: HWND) ?*Backend {
     const stored = raw.GetWindowLongPtrW(window, gwlp_userdata);
@@ -1490,11 +1695,29 @@ fn windowProc(window: HWND, message: u32, wparam: usize, lparam: isize) callconv
     if (message == wm_command) {
         if (backendForWindow(window)) |backend| {
             const command_id: u16 = @intCast(wparam & 0xffff);
+            if (command_id == control_id_mode) {
+                backend.mode_checked = !backend.mode_checked;
+                if (backend.mode_control) |mode| {
+                    _ = raw.SendMessageW(mode, bm_setcheck, if (backend.mode_checked) 1 else 0, 0);
+                }
+                backend.updateSemanticMode();
+                backend.requestFrame();
+                return 0;
+            }
             if (command_id >= control_id_open_folder and command_id <= control_id_recovery) {
                 // The command bridge deliberately stays side-effect free in
                 // this slice; future workspace actions consume the stable IDs.
                 backend.requestFrame();
                 return 0;
+            }
+        }
+    }
+    if (message == wm_vscroll) {
+        if (backendForWindow(window)) |backend| {
+            if (backend.splitter_control) |splitter| {
+                if (lparam != 0 and @as(usize, @bitCast(lparam)) == @intFromPtr(splitter)) {
+                    backend.requestFrame();
+                }
             }
         }
     }

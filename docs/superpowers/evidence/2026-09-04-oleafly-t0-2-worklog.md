@@ -2052,3 +2052,253 @@ Full T0.2a/T0.2b remains
 `NOT ADMITTED` pending `UNVERIFIED-REMOTE-CI-RUN-IDS`,
 `UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
 `UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`.
+
+### T0.2a/T0.2b/T0.2c post-repair verification (2026-09-07)
+
+The local verification found and repaired one additional build-graph defect:
+the Scintilla, Lexilla, and SQLite paths used stale hard-coded cache-generation
+names. `build.zig` now reads each artifact's validated `current` selector and
+uses an empty-generation sentinel only when a cache has not been fetched yet;
+it never silently falls back after a malformed selector. Hosted builds also
+pass the exact checked-out commit into the source-identity collector. Commit
+mode now requires that the commit is `HEAD` and that the worktree is clean, so
+an authoritative identity cannot be attached to modified checkout bytes.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| T0.2b static rerun | `t0-2b-static -Dtarget=x86_64-windows-msvc -Doptimize=ReleaseSafe`: `56/56` steps, `120/126` tests passed; six explicit filesystem-capability skips. Scintilla and Lexilla source probes and the native Scintilla probe executed successfully after selector resolution. | The stale-generation defect is closed in the local graph. |
+| T0.2a dependency rerun | `deps-test`, `unicode-audit`, and `deps-audit`: `43/43` steps, `198/198` tests passed. Locked UCD audit reported 74 entries/71 files/41,500,790 bytes; attestation audit reported 45 subjects/1 matching subject and 10 negatives. | Local acquisition, Unicode, cache, and offline provenance contracts remain green. This is not detached-NIC/network-none proof. |
+| T0.2c aggregate rerun | Windows x64 MSVC Debug aggregate: `74/74` steps, `213/219` tests passed; six documented capability skips. | The cache-selector and commit-identity changes did not regress the native shell/presenter contract. |
+| Identity fail-closed check | With `TEXFLOW_SOURCE_COMMIT` set to the current commit while the checkout was modified, the build exited `WorktreeDirty`; commit mode also requires the supplied commit to equal `HEAD`. | Commit-bound identity cannot mask local modifications. A clean post-commit CI run is still required for authoritative evidence. |
+| Static hygiene | `zig fmt --check` and `git diff --check` passed. | No formatting or whitespace regression. |
+
+The workflow now runs `unicode-audit` and `deps-audit` in both standard jobs,
+retains receipts for 90 days, restores each receipt immediately, and binds the
+rehash to the upload identity. These workflow changes still require a real
+post-push hosted run before any run ID or retention claim is admitted.
+
+The latest local pass does not close the external gates. Full T0.2a/T0.2b and
+therefore the T0.2c-to-T0.2d sequence remain `NOT ADMITTED` pending
+`UNVERIFIED-REMOTE-CI-RUN-IDS`, `UNVERIFIED-NETWORK-ISOLATION`,
+`UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`.
+
+### T0.2a/T0.2b/T0.2c final local hardening pass (2026-09-07)
+
+This pass closes two locally observable filesystem gaps found during the
+verification loop. `repro_check` now requires absolute evidence paths and
+walks every receipt/role-manifest ancestor without following reparse points.
+It reads each evidence leaf through a readable handle bound to a separate
+no-follow identity handle, checking file identity and size before and after the
+read. The source-identity collector uses the same two-handle rule for the
+absolute Git executable because Zig 0.16's Windows no-follow handle is not
+portable for reads. Windows device aliases and trailing-space/dot components
+are rejected in all controller paths. The workflow's old `--fetch=all` build
+edge was removed; `deps-fetch` is the only ordinary acquisition step, while
+the new `deps-reproduce-pdfium` graph has explicit `resolve`/`reproduce` modes,
+an explicit network authorization bit, and no implicit static-build edge.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| T0.2a dependency/audit matrix | Windows x64 ReleaseSafe `deps-test unicode-audit deps-audit`: `43/43` steps succeeded; `198/198` tests passed. UCD audit reported 74 entries/71 files/41,500,790 bytes; attestation audit reported 45 subjects/1 matching subject and 10 negative cases. | Locked acquisition, Unicode regeneration, cache, and offline provenance contracts remain green. This is not detached-NIC evidence. |
+| T0.2b ReleaseSafe | `t0-2b-static`: `56/56` steps; `120/126` tests passed with 6 explicit filesystem-capability skips. `t0-2b-repro-test`: 7 pass/1 symlink-capability skip; PDFium receipt oracle: 10/10. | Static ABI/PE/source/package/reproducibility/Scintilla-Lexilla contracts pass; skipped symlink cases remain unverified on this host. |
+| T0.2b Debug | Combined T0.2b/T0.2c matrix: `124/124` steps; `333/345` tests passed with 12 documented capability skips. | Debug catches the same controller and native contract surface without optimizer-specific masking. |
+| T0.2b ReleaseFast | `t0-2b-static`: `56/56` steps; `120/126` tests passed with the same 6 documented skips. | Diagnostic optimizer mode preserves the static contracts. |
+| T0.2c ReleaseSafe | Model/shell-native/capture-QA/journey/live-QA compile aggregate: `74/74` steps; `213/219` tests passed with 6 documented capability skips. | GUI product, shell, presenter, UIA/input and independent QA adapters compile and their runnable contracts pass. |
+| T0.2c ReleaseFast | `t0-2c-models-test`: `67/67` steps; `213/219` tests passed with 6 documented capability skips. | Native model/product/resource contracts remain stable under the diagnostic optimizer. |
+| Fail-closed gates | Missing `deps-reproduce-pdfium` inputs, explicit `-Dallow-network=false`, and missing `t0-2-repro` sealed-runner inputs all exited nonzero with the exact `UNVERIFIED-NETWORK-ISOLATION` marker. | No local command can silently convert absent isolation or reconstruction inputs into an admission pass. |
+| Static hygiene | Pinned Zig 0.16.0 `zig fmt --check` passed for all changed hand-written Zig; `git diff --check` exited 0 (only configured LF-to-CRLF warnings). | No source whitespace/format regression; generated Unicode data remains generator-owned. |
+
+The two-handle repair initially exposed a real Windows runtime incompatibility
+when a no-follow handle was read directly; that implementation was corrected
+and the complete matrix above was rerun. The post-repair local streak is
+therefore `1/1` with no new Critical/High/Medium finding observed. No hosted
+run has yet been executed from the pushed final commit, so the external statuses
+remain `UNVERIFIED-REMOTE-CI-RUN-IDS`, `UNVERIFIED-NETWORK-ISOLATION`,
+`UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`. The tracked PDFium lock stays
+`status=unverified`; no community DLL or ordinary hosted runner is promoted.
+
+### T0.2c cross-target compile correction and final streak (2026-09-07)
+
+The first post-hardening Linux compile matrix exposed one genuine medium gap:
+the Windows-only `live_journey.zig` was still selected for a Linux target, so
+the linker saw `kernel32` even though physical desktop QA is not applicable.
+The build graph now selects a seven-line compile-only portable stub on
+non-Windows targets and imports/links the real journey client only for a
+Windows target. The Windows implementation and physical QA claim boundary are
+unchanged.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Linux Debug | Combined `t0-2b-static t0-2c-models-check`: `71/71` steps succeeded. | Static T0.2b and all portable/native compile contracts build without Windows linker dependencies. |
+| Linux ReleaseSafe | Same combined command: `71/71` steps succeeded. | Safe cross-target graph is clean. |
+| Linux ReleaseFast | Same combined command: `71/71` steps succeeded. | Diagnostic cross-target graph is clean. |
+| Windows final rerun | Combined T0.2b/T0.2c ReleaseSafe matrix: `124/124` steps; `333/345` tests passed with 12 explicit capability skips. | Real Windows journey/capture imports remain intact and the stub change caused no Windows regression. |
+| Static hygiene | Hand-written changed Zig `zig fmt --check` and `git diff --check` passed; generated Unicode data remains generator-owned. | No formatting or whitespace regression. |
+
+The Linux linker finding reset the local streak; after the stub repair and the
+three-mode Linux plus final Windows reruns, the current local quality streak is
+`1/1` with no new Critical/High/Medium finding observed. External admission
+remains unchanged: `UNVERIFIED-REMOTE-CI-RUN-IDS`,
+`UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`.
+
+### T0.2c retention and route-isolation adversarial closure (2026-09-07)
+
+The final adversarial pass closed two evidence-integrity gaps found while
+reviewing the retention and network oracles. Restored evidence is now required
+to be three distinct regular files with distinct nonzero filesystem identities;
+the expected receipt, first restore, and second restore cannot be the same path
+or aliases such as hard links. Windows route evidence now rejects every
+non-loopback IPv4 route and every IPv6 route except `::1/128`, including the
+actual `route PRINT` IPv6 form with interface and metric columns before the
+destination. The strict controller also keeps the zero-default-route and
+zero-negative-fetch invariants.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Controller Debug oracle | `zig test tools/zig/pdfium_reproduce.zig -O Debug`: `16/16` tests passed. | Distinct-file retention and non-loopback route rejection are covered, including duplicate-path and actual IPv6 route adversarial cases. |
+| Controller ReleaseSafe oracle | `zig test tools/zig/pdfium_reproduce.zig -O ReleaseSafe`: `16/16` tests passed. | The hardened evidence checks survive the shipping optimizer. |
+| T0.2b/T0.2c graph | The alias and route checks are on the existing `verify-restored`/`bind-artifact` controller path; T0.2d remains absent from the build graph. | No unsupported retention claim or premature editor dependency was introduced. |
+
+These are local oracle results only. They do not manufacture
+`UNVERIFIED-DURABLE-RETENTION` or `UNVERIFIED-NETWORK-ISOLATION` evidence: the
+qualified independent runner, detached NIC/network-none receipt, and durable
+artifact-storage observation remain external admission requirements.
+
+### T0.2a/T0.2b/T0.2c final post-adversarial streak (2026-09-07)
+
+The complete local matrix was rerun after the route parser and restore-alias
+invariants landed. No new Critical/High/Medium finding appeared, and T0.2d is
+still absent from the build graph.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows x64 MSVC ReleaseSafe aggregate | `t0-2b-static t0-2c-models-test t0-2c-shell-native-check t0-2c-capture-qa-check t0-2c-journey-check t0-2c-live-qa-check`: `124/124` steps; `333/345` tests passed with 12 explicit capability skips. | Final T0.2b/T0.2c Windows graph is green after the last oracle changes. |
+| Linux x64 cross-target matrix | `t0-2b-static t0-2c-models-check`: `71/71` steps in each of Debug, ReleaseSafe, and ReleaseFast. | Portable graph remains free of Windows linker dependencies in all supported local modes. |
+| Dependency/audit matrix | Windows x64 MSVC ReleaseSafe `deps-test unicode-audit deps-audit`: `43/43` steps; `198/198` tests passed. | Final locked dependency, Unicode, and provenance lanes remain green. Negative transport fixtures are expected test cases, not unhandled failures. |
+| Formatting/hygiene | Pinned Zig 0.16.0 `zig fmt --check` for changed hand-written Zig and `git diff --check` passed. | Final source remains formatted; generated Unicode data is excluded from handwritten formatting. |
+
+This establishes local quality streak `1/1` for the final post-adversarial
+change set. It does not close the four external admission statuses recorded
+above.
+
+### T0.2c qualified-retention oracle restore correction (2026-09-07)
+
+The qualified retention workflow had one medium evidence-integrity gap: its
+verification step passed the first restored receipt as both the expected
+receipt and the first restored receipt. The workflow now performs a third,
+independent artifact download into `retention-oracle` and passes the three
+distinct restore paths to `verify-restored`. This preserves the no-alias
+invariant without using a local copy as a substitute for an independent
+artifact retrieval. The workflow digest and current documentation were
+updated together; local source and workflow hygiene checks remain clean.
+
+### T0.2a/T0.2b/T0.2c complete-manifest and host-boundary streak (2026-09-07)
+
+The reproducibility controller had one remaining local evidence gap: the
+previous role manifest authenticated only role names/paths while the product
+comparison accepted a shared extra/missing file set when both roots had the
+same aggregate digest. The gate now requires a separate complete payload
+manifest with sorted Unicode-17-safe members, per-file size/SHA-256, canonical
+tree summary, and manifest digest. Each root is walked through the no-reparse
+materialized-tree visitor; every expected member must appear exactly once and
+every extra, missing, changed, or aliased member fails. The CLI also refuses
+cross-target host execution, and `t0-2-repro` no longer pulls in the unrelated
+T0.2b static aggregate.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Complete-manifest oracle | `t0-2b-repro-test`: `7` pass, `1` explicit symlink-capability skip; includes shared-extra, missing-member, and changed-member cases. | Product admission no longer relies on a role list or aggregate digest alone. |
+| Windows x64 MSVC ReleaseSafe aggregate | T0.2b/T0.2c combined command: `124/124` steps; `333/345` tests passed with 12 explicit capability skips. | Final native graph remains green after the manifest and host-boundary changes. |
+| Linux x64 matrix | Debug, ReleaseSafe, ReleaseFast: `71/71` steps each. | Cross-target compile graph remains free of Windows linker leakage. |
+| Dependency/audit matrix | `43/43` steps; `198/198` tests passed; `pdfium-evidence subjects=45 matching=1`; `ucd-audit entries=74 files=71 bytes=41500790`; `attestation-audit ... network-isolation=unverified`. | Locked dependency, Unicode, and provenance checks remain green; expected negative transport fixtures are bounded. |
+| PDFium controller | Debug and ReleaseSafe direct oracle: `16/16` tests each. | Route, retention-alias, strict path, and unverified-lock fail-closed checks remain green. |
+| Source identity | Collector exited `0`; Git 2.52.0 hash/version recorded; dirty worktree correctly reported `authoritative=false`. | The collector does not promote a dirty local tree to authoritative evidence. |
+| Fail-closed gates | Missing T0.2 repro inputs and cross-target repro both exited nonzero with their exact markers. | No local invocation silently manufactures network isolation or wrong-host admission. |
+
+This is the fresh local quality streak `1/1` with no new Critical/High/Medium
+finding. The four external statuses remain explicitly open until a pushed
+commit has real hosted run IDs and a qualified detached-NIC/network-none
+runner, durable artifact-retention observation, and independently measured
+PDFium reconstruction. T0.2d remains intentionally absent from the graph.
+
+### T0.2a/T0.2b/T0.2c final qualified-gate hardening (2026-09-07)
+
+The final review found and repaired one test-only correctness defect: the new
+cache-only ABI comparison test formatted its receipt path into the same buffer
+used as the source slice, which Zig 0.16 correctly rejected as an aliased
+`@memcpy`. Separate path buffers now keep the test deterministic. The gate also
+now honors the workflow's absolute Git executable, verifies Git tree-declared
+blob sizes against `cat-file`, pins the resource-compiler directory first in
+the scrubbed PDFium PATH, requires the resource compiler basename to be
+`rc.exe`, and rejects linked-worktree `.git` redirections for strict PDFium
+identity.
+
+The optional qualified workflow wiring is complete and fail-closed: the
+`t0-2-repro-qualified` job passes two complete product roots, two exact
+cache-only ABI roots, a network-none receipt, an authenticated role manifest,
+and a complete payload manifest directly to `zig build t0-2-repro`. Its
+current workflow SHA-256 is
+`d9c42b79a76f8d752cd187c2334dac568c24c999301717be20961369ce897095`.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Exact test-artifact oracle | `t0-2b-repro-test`: `8` pass, `1` explicit symlink-capability skip. | The separate lane admits exactly `texflow_abi.lib` on Windows and rejects any extra/product member; the artifact never enters the install manifest. |
+| Windows x64 MSVC ReleaseSafe aggregate | `124/124` steps; `334/346` tests passed with 12 explicit capability skips. | Final local T0.2b/T0.2c graph remains green after the last test and identity hardening. |
+| Linux x64 cross-target matrix | Debug, ReleaseSafe, ReleaseFast: `71/71` steps each. | Portable compile graph remains clean in every supported local mode. |
+| Dependency/audit matrix | `43/43` steps; `198/198` tests passed; `pdfium-evidence subjects=45 matching=1`; `ucd-audit entries=74 files=71 bytes=41500790`; `attestation-audit ... network-isolation=unverified`. | Locked acquisition, Unicode, and provenance checks remain green; the external network boundary is not misreported as verified. |
+| PDFium controller | Debug and ReleaseSafe direct oracle: `17/17` tests each. | Independent reconstruction, retention, route, strict-path, compiler/resource identity, and unverified-lock boundaries remain covered locally. |
+| Source identity | Collector exited `0`; source-set `9d360a3c725ba740869096022e7b5f1919d22b6f06e4e8c99a777d19aab1a33a`; dependency lock `58ecebe7665c1624edec379778bda99e25e033ef7ce368a473b442f119ad6e5e`; dirty tree `authoritative=false`. | The collector binds the exact Git index/commit inputs and cannot promote this dirty development checkout. |
+| Fail-closed graph | Missing-input `t0-2-repro` exited with `UNVERIFIED-NETWORK-ISOLATION`; all-option smoke compiled both `compare` and `compare-test` then rejected the invalid receipt. | No local invocation silently creates sealed-runner evidence. |
+
+This is the current local quality streak `1/1`; no new Critical/High/Medium
+finding remains in the locally observable scope. The four external statuses
+are still explicitly open: `UNVERIFIED-REMOTE-CI-RUN-IDS`,
+`UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
+`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`. No package installation can
+create those facts: they require a real post-push hosted run, a qualified
+detached-NIC/network-none runner, durable storage observation, and an
+independently measured PDFium reconstruction. T0.2d remains intentionally
+absent from the graph.
+
+### T0.2a/T0.2b reproducibility-root independence repair (2026-09-07)
+
+The final audit found one Medium evidence-integrity gap: the public
+reproducibility entry points accepted the same payload root twice, and the
+product/test lanes could not prove that all four supplied roots were pairwise
+disjoint. The comparator now creates a conservative Unicode-17 NFD/full-casefold
+root key with normalized separators, rejects equal or component-nested keys,
+and runs product plus cache-only comparisons through one `compare-both` command
+that checks all four roots before reading either result. The existing no-reparse
+walk and per-file manifest checks remain the authoritative byte oracle.
+
+The targeted pinned-Zig ReleaseSafe oracle passed `8` tests with `1` explicit
+symlink-capability skip, including the combined command and same-root negative
+case. The earlier streak is reset by this finding; a fresh full matrix is
+required before any new streak claim.
+
+### T0.2a/T0.2b/T0.2c post-independence fresh streak (2026-09-07)
+
+The fresh verification pass after the root-independence repair completed with
+no new Critical/High/Medium finding. `compare-both` is now the build-graph
+entry point for the product and cache-only lanes: it checks all four supplied
+roots for equal or component-nested aliases before reading the receipt,
+manifests, or payloads.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Windows x64 MSVC ReleaseSafe aggregate | `t0-2b-static t0-2c-models-test t0-2c-shell-native-check t0-2c-capture-qa-check t0-2c-journey-check t0-2c-live-qa-check`: `124/124` steps; `334/346` tests passed with 12 explicit capability skips. | Final local T0.2b/T0.2c Windows graph remains green after the pairwise-root repair. |
+| Linux x64 cross-target matrix | `t0-2b-static t0-2c-models-check`: `71/71` steps in each of Debug, ReleaseSafe, and ReleaseFast. | Portable graph remains clean in all supported local modes. |
+| Dependency/audit matrix | Windows x64 MSVC ReleaseSafe `deps-test unicode-audit deps-audit`: `43/43` steps; `198/198` tests passed. | Locked dependency, Unicode, and provenance lanes remain green; negative transport fixtures are expected cases. |
+| PDFium controller | `zig test tools/zig/pdfium_reproduce.zig -O Debug` and `-O ReleaseSafe`: `17/17` tests each. | Local strict path, route, retention, tool identity, and unverified-lock oracles remain green. |
+| Source identity | `zig test tools/zig/source_identity.zig -O Debug`: `1/1`; dirty development checkout reports `authoritative=false`. | The collector refuses to promote a dirty checkout to authoritative evidence. |
+| Build-graph compile/fail-closed smoke | All seven `t0-2-repro` inputs compile `texflow-t0-2-repro`; a deliberately invalid receipt exits nonzero with `StreamTooLong`. | The combined qualified path is wired and does not silently accept malformed evidence. |
+| Hygiene | Pinned Zig `zig fmt --check` and `git diff --check` passed; only configured LF-to-CRLF warnings were emitted. | No formatting or whitespace regression. |
+
+This establishes the fresh local quality streak `1/1` for the final
+post-independence change set. It is not external admission: the pushed
+hosted-run IDs, detached-NIC/network-none runner, durable-retention
+observation, and independent PDFium reconstruction remain explicitly
+unverified. T0.2d remains absent from the build graph by the sequential gate.

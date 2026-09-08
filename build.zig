@@ -1,6 +1,153 @@
 const std = @import("std");
 
+comptime {
+    // The source-set identity hashes embedded product inputs while compiling
+    // this build script. Keep the quota local to this compile-time operation;
+    // it does not affect runtime binaries.
+    @setEvalBranchQuota(1_000_000);
+}
+
+const SourceIdentity = struct {
+    source_set_sha256: [32]u8,
+    dependency_lock_sha256: [32]u8,
+    build_identity: [32]u8,
+    git_executable_sha256: [32]u8,
+    authoritative: bool,
+};
+
+const cache_selector_prefix = "texflow-native-cache-v2\n";
+const cache_generation_name_len = 26;
+const empty_cache_generation = "g-000000000000000000000000";
+
+fn cacheGenerationName(b: *std.Build, native_deps_root: []const u8, artifact_id: []const u8) []const u8 {
+    const selector_path = b.pathJoin(&.{
+        native_deps_root,
+        ".v2",
+        artifact_id,
+        "current",
+    });
+    const selector = std.Io.Dir.cwd().readFileAlloc(
+        b.graph.io,
+        selector_path,
+        b.allocator,
+        .limited(cache_selector_prefix.len + cache_generation_name_len + 2),
+    ) catch |err| switch (err) {
+        error.FileNotFound => return empty_cache_generation,
+        else => @panic("unable to read the native dependency cache selector"),
+    };
+    defer b.allocator.free(selector);
+    if (selector.len != cache_selector_prefix.len + cache_generation_name_len + 1 or
+        !std.mem.startsWith(u8, selector, cache_selector_prefix) or
+        selector[selector.len - 1] != '\n')
+    {
+        @panic("invalid native dependency cache selector");
+    }
+    const generation = selector[cache_selector_prefix.len .. selector.len - 1];
+    if (!std.mem.startsWith(u8, generation, "g-") or generation.len != cache_generation_name_len) {
+        @panic("invalid native dependency cache generation");
+    }
+    for (generation[2..]) |byte| {
+        if (!std.ascii.isDigit(byte) and !(byte >= 'a' and byte <= 'f')) {
+            @panic("invalid native dependency cache generation");
+        }
+    }
+    return b.dupe(generation);
+}
+
+fn cacheArchivePath(b: *std.Build, native_deps_root: []const u8, artifact_id: []const u8) []const u8 {
+    return b.pathJoin(&.{
+        native_deps_root,
+        ".v2",
+        artifact_id,
+        "generations",
+        cacheGenerationName(b, native_deps_root, artifact_id),
+        "archive.bin",
+    });
+}
+
+fn cachePayloadPath(
+    b: *std.Build,
+    native_deps_root: []const u8,
+    artifact_id: []const u8,
+    payload_root: []const u8,
+) []const u8 {
+    return b.pathJoin(&.{
+        native_deps_root,
+        ".v2",
+        artifact_id,
+        "generations",
+        cacheGenerationName(b, native_deps_root, artifact_id),
+        "payload",
+        payload_root,
+    });
+}
+
+fn collectSourceIdentity(b: *std.Build, source_commit: ?[]const u8) SourceIdentity {
+    const git = if (b.graph.environ_map.get("TEXFLOW_GIT_PATH")) |configured| blk: {
+        if (configured.len == 0 or !std.fs.path.isAbsolute(configured)) {
+            @panic("T0.2 source identity requires an absolute TEXFLOW_GIT_PATH");
+        }
+        break :blk configured;
+    } else b.findProgram(&.{ "git.exe", "git" }, &.{}) catch @panic("T0.2 source identity requires an absolute Git executable");
+    if (!std.fs.path.isAbsolute(git)) @panic("T0.2 source identity requires an absolute Git executable");
+    var identity_args: [12][]const u8 = undefined;
+    var identity_arg_count: usize = 0;
+    for ([_][]const u8{
+        b.graph.zig_exe,
+        "run",
+        b.pathFromRoot("tools/zig/source_identity.zig"),
+        "--",
+        "--repo",
+        b.pathFromRoot("."),
+        "--git",
+        git,
+    }) |arg| {
+        identity_args[identity_arg_count] = arg;
+        identity_arg_count += 1;
+    }
+    if (source_commit) |commit| {
+        identity_args[identity_arg_count] = "--commit";
+        identity_arg_count += 1;
+        identity_args[identity_arg_count] = commit;
+        identity_arg_count += 1;
+    }
+    const output = b.run(identity_args[0..identity_arg_count]);
+    var result: SourceIdentity = undefined;
+    var found = [_]bool{ false, false, false, false, false, false };
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    while (lines.next()) |line| {
+        const separator = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        const key = line[0..separator];
+        const value = line[separator + 1 ..];
+        if (std.mem.eql(u8, key, "source_set_sha256")) {
+            _ = std.fmt.hexToBytes(&result.source_set_sha256, value) catch @panic("invalid source-set digest from Zig identity collector");
+            found[0] = true;
+        } else if (std.mem.eql(u8, key, "dependency_lock_sha256")) {
+            _ = std.fmt.hexToBytes(&result.dependency_lock_sha256, value) catch @panic("invalid dependency-lock digest from Zig identity collector");
+            found[1] = true;
+        } else if (std.mem.eql(u8, key, "build_identity")) {
+            _ = std.fmt.hexToBytes(&result.build_identity, value) catch @panic("invalid build identity from Zig identity collector");
+            found[2] = true;
+        } else if (std.mem.eql(u8, key, "git_executable_sha256")) {
+            _ = std.fmt.hexToBytes(&result.git_executable_sha256, value) catch @panic("invalid Git executable digest from Zig identity collector");
+            found[4] = true;
+        } else if (std.mem.eql(u8, key, "git_version")) {
+            if (!std.mem.startsWith(u8, value, "git version ") or value.len <= "git version ".len) @panic("invalid Git version from Zig identity collector");
+            found[5] = true;
+        } else if (std.mem.eql(u8, key, "authoritative")) {
+            result.authoritative = if (std.mem.eql(u8, value, "true")) true else if (std.mem.eql(u8, value, "false")) false else @panic("invalid source identity authority");
+            found[3] = true;
+        }
+    }
+    for (found) |present| if (!present) @panic("incomplete source identity output");
+    return result;
+}
+
 pub fn build(b: *std.Build) void {
+    const source_commit = b.graph.environ_map.get("TEXFLOW_SOURCE_COMMIT");
+    const remote_run_id = b.graph.environ_map.get("TEXFLOW_REMOTE_RUN_ID");
+    const remote_run_attempt = b.graph.environ_map.get("TEXFLOW_REMOTE_RUN_ATTEMPT");
+    const source_identity = collectSourceIdentity(b, source_commit);
     const target = b.standardTargetOptions(.{});
     const host_target = b.graph.host;
     // Keep the dependency cache outside a CI checkout when requested. This
@@ -275,6 +422,29 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const build_identity_options = b.addOptions();
+    build_identity_options.addOption([32]u8, "source_set_sha256", source_identity.source_set_sha256);
+    build_identity_options.addOption([32]u8, "dependency_lock_sha256", source_identity.dependency_lock_sha256);
+    build_identity_options.addOption([32]u8, "build_identity", source_identity.build_identity);
+    // The source/index digest is useful for every developer build, but it is
+    // evidence-grade only for the locked product profile.  In particular,
+    // Debug, ReleaseFast, FLIP_DISCARD, non-MSVC, and non-baseline CPU builds
+    // must never inherit the admitted identity merely because the checkout is
+    // clean.
+    var baseline_query = target.query;
+    baseline_query.cpu_model = .baseline;
+    baseline_query.cpu_features_add = .empty;
+    baseline_query.cpu_features_sub = .empty;
+    const baseline_target = b.resolveTargetQuery(baseline_query);
+    const exact_baseline_cpu = target.result.cpu.arch == baseline_target.result.cpu.arch and
+        std.meta.eql(target.result.cpu.features, baseline_target.result.cpu.features);
+    const authoritative_product_identity = source_identity.authoritative and
+        product_target and
+        optimize == .ReleaseSafe and
+        !use_discard_swap_effect and
+        std.mem.eql(u8, target.result.cpu.model.name, "baseline") and
+        exact_baseline_cpu;
+    build_identity_options.addOption(bool, "authoritative", authoritative_product_identity);
     const app_version_resource_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/app/version_resource.zig"),
         .target = target,
@@ -615,34 +785,45 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     shell_native_module.addOptions("presenter_config", presenter_options);
+    shell_native_module.addOptions("build_identity_config", build_identity_options);
     shell_native_module.addImport("windows_shell", windows_shell_module);
     shell_native_module.addImport("windows_com", windows_com_module);
     shell_native_module.addImport("ui_entry", ui_entry_module);
     shell_native_module.addImport("app_role", app_role_module);
+    shell_native_module.addImport("app_build_identity", app_build_identity_module);
     shell_native_module.addImport("app_layout", app_layout_module);
+    shell_native_module.addImport("app_uia_shell", app_uia_shell_module);
     shell_native_module.addImport("app_strings", app_strings_module);
     shell_native_module.addImport("windows_telemetry", windows_telemetry_module);
     shell_native_module.addImport("graphics", graphics_module);
     shell_native_module.addImport("composition_native", composition_native_module);
     shell_native_module.addImport("presenter_native", presenter_native_module);
+    shell_native_module.addImport("windows_qos", b.createModule(.{
+        .root_source_file = b.path("native/zig/src/platform/windows/qos.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
     if (target.result.os.tag == .windows) {
         inline for (.{ "kernel32", "user32", "shell32", "ole32", "bcrypt", "advapi32", "d3d11", "dxgi", "d2d1", "dwrite" }) |library| shell_native_module.linkSystemLibrary(library, .{});
     }
+    // Generate the exact ICO once per build graph.  Both the product and the
+    // native runtime test consume this same resource, so the test exercises
+    // the real class-icon lookup instead of silently relying on a default.
+    const icon_generator = b.addExecutable(.{
+        .name = "texflow-icon-gen",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zig/icon_gen.zig"),
+            .target = host_target,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+    icon_generator.root_module.addImport("texflow_icon", texflow_icon_host_module);
+    const run_icon_generator = b.addRunArtifact(icon_generator);
+    run_icon_generator.addArg("emit");
+    const icon_outputs = run_icon_generator.addOutputDirectoryArg("TExFlow-resources");
+    const icon_rc = icon_outputs.path(b, "TExFlow-icon.rc");
     const product_build_step = b.step("t0-2c-product-build", "Build the x64 Windows GUI product without installing");
     if (product_target) {
-        const icon_generator = b.addExecutable(.{
-            .name = "texflow-icon-gen",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("tools/zig/icon_gen.zig"),
-                .target = host_target,
-                .optimize = .ReleaseSafe,
-            }),
-        });
-        icon_generator.root_module.addImport("texflow_icon", texflow_icon_host_module);
-        const run_icon_generator = b.addRunArtifact(icon_generator);
-        run_icon_generator.addArg("emit");
-        const icon_outputs = run_icon_generator.addOutputDirectoryArg("TExFlow-resources");
-        const icon_rc = icon_outputs.path(b, "TExFlow-icon.rc");
         const product = b.addExecutable(.{
             .name = "TExFlow",
             .root_module = b.createModule(.{
@@ -681,6 +862,14 @@ pub fn build(b: *std.Build) void {
     shell_native_tests.root_module.addImport("windows_com", windows_com_module);
     shell_native_tests.root_module.addImport("graphics", graphics_module);
     shell_native_tests.root_module.addImport("composition_native", composition_native_module);
+    shell_native_tests.root_module.addImport("presenter_native", presenter_native_module);
+    if (target.result.os.tag == .windows) {
+        shell_native_tests.root_module.addWin32ResourceFile(.{
+            .file = icon_rc,
+            .flags = &.{"/x"},
+            .include_paths = &.{},
+        });
+    }
     const run_shell_native_tests = b.addRunArtifact(shell_native_tests);
     const shell_native_test_step = b.step("t0-2c-shell-native-test", "Test narrow Win32 ABI command line and COM contracts");
     shell_native_test_step.dependOn(&run_shell_native_tests.step);
@@ -962,7 +1151,7 @@ pub fn build(b: *std.Build) void {
 
     // Isolated T0.2b SQLite contract; no install or product/runtime edge.
     const sqlite_source = b.option([]const u8, "sqlite-source", "Absolute directory containing the exact locked SQLite 3.53.4 sqlite3.c and sqlite3.h (offline only)") orelse
-        b.pathJoin(&.{ native_deps_root, ".v2", "sqlite", "generations", "g-14ea30ba6b8a3c158e833613", "payload", "sqlite-autoconf-3530400" });
+        cachePayloadPath(b, native_deps_root, "sqlite", "sqlite-autoconf-3530400");
     const sqlite_probe = b.addExecutable(.{
         .name = "texflow-sqlite-contract-probe",
         .root_module = b.createModule(.{
@@ -1185,7 +1374,7 @@ pub fn build(b: *std.Build) void {
     scintilla_tests.root_module.addImport("scintilla_probe", scintilla_probe_module);
     const scintilla_contract = b.addOptions();
     const scintilla_archive = b.option([]const u8, "scintilla-archive", "Absolute path to the exact Scintilla 5.6.6 archive (offline only)") orelse
-        b.pathJoin(&.{ native_deps_root, ".v2", "scintilla", "generations", "g-0c7dc920040326b993b39ff6", "archive.bin" });
+        cacheArchivePath(b, native_deps_root, "scintilla");
     scintilla_contract.addOption([]const u8, "archive_path", scintilla_archive);
     const scintilla_probe = b.addExecutable(.{
         .name = "texflow-scintilla-source-probe",
@@ -1364,7 +1553,7 @@ pub fn build(b: *std.Build) void {
     lexilla_tests.root_module.addImport("deps", deps_module);
     const lexilla_contract = b.addOptions();
     const lexilla_archive = b.option([]const u8, "lexilla-archive", "Absolute path to the exact Lexilla 5.5.3 archive (offline only)") orelse
-        b.pathJoin(&.{ native_deps_root, ".v2", "lexilla", "generations", "g-9d49ea5b28ff9bb26d32ce64", "archive.bin" });
+        cacheArchivePath(b, native_deps_root, "lexilla");
     lexilla_contract.addOption([]const u8, "archive_path", lexilla_archive);
     const lexilla_probe = b.addExecutable(.{
         .name = "texflow-lexilla-source-probe",
@@ -1624,6 +1813,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     unicode_module.addImport("unicode_data", unicode_data_module);
+
     const source_set_module = b.createModule(.{
         .root_source_file = b.path("native/zig/src/app/source_set.zig"),
         .target = target,
@@ -2131,6 +2321,280 @@ pub fn build(b: *std.Build) void {
     const capture_contract_step = b.step("t0-2c-capture-contract", "Validate capture boundary contracts without making physical capture claims");
     capture_contract_step.dependOn(capture_contract_check_step);
     if (capture_runs_on_host) capture_contract_step.dependOn(capture_contract_test_step);
+
+    // The physical QA adapters are a separate executable/test surface.  They
+    // are compiled for every selected target, but only the explicit Windows
+    // runtime step may make a display-capture claim.  Keeping this edge out of
+    // the portable model aggregate prevents a fixture pass from masquerading
+    // as DXGI/WIC evidence.
+    const capture_qa_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/qa/capture.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    capture_qa_module.addImport("capture_contract", capture_contract_module);
+    capture_qa_module.addImport("windows_com", windows_com_module);
+    capture_qa_module.addImport("windows_api", windows_api_module);
+    if (target.result.os.tag == .windows) {
+        inline for (.{ "kernel32", "ole32", "d3d11", "dxgi", "windowscodecs" }) |library| {
+            capture_qa_module.linkSystemLibrary(library, .{});
+        }
+    }
+    const capture_qa_tests = b.addTest(.{ .root_module = capture_qa_module });
+    const capture_qa_check_step = b.step("t0-2c-capture-qa-check", "Compile independent DXGI/WIC capture QA");
+    capture_qa_check_step.dependOn(&capture_qa_tests.step);
+    const capture_qa_test_step = b.step("t0-2c-capture-qa-test", "Run independent capture adapter contract tests");
+    if (capture_runs_on_host)
+        capture_qa_test_step.dependOn(&b.addRunArtifact(capture_qa_tests).step)
+    else
+        capture_qa_test_step.dependOn(capture_qa_check_step);
+    t0_2c_models_check.dependOn(capture_qa_check_step);
+
+    const journey_module = b.createModule(.{
+        .root_source_file = b.path("native/zig/qa/journey.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    journey_module.addImport("capture_contract", capture_contract_module);
+    journey_module.addImport("windows_com", windows_com_module);
+    journey_module.addImport("windows_api", windows_api_module);
+    if (target.result.os.tag == .windows) {
+        inline for (.{ "kernel32", "user32", "ole32", "dwmapi" }) |library| {
+            journey_module.linkSystemLibrary(library, .{});
+        }
+    }
+    const journey_check = b.addTest(.{ .root_module = journey_module });
+    const journey_check_step = b.step("t0-2c-journey-check", "Compile the independent UIA/input journey client");
+    journey_check_step.dependOn(&journey_check.step);
+    const journey_test_step = b.step("t0-2c-journey-test", "Run the independent UIA/input journey contract tests");
+    if (can_run_selected_target)
+        journey_test_step.dependOn(&b.addRunArtifact(journey_check).step)
+    else
+        journey_test_step.dependOn(journey_check_step);
+    t0_2c_models_check.dependOn(journey_check_step);
+
+    // The live lane is an independently launched QA process. It is never a
+    // product dependency and stays out of the portable model aggregate because
+    // hosted CI has no authoritative interactive desktop. On a native x64
+    // Windows host it launches the product, walks its real UIA tree, injects a
+    // key event, and writes only bounded DXGI/WIC PNG+JSON evidence.
+    const live_journey_module = b.createModule(.{
+        .root_source_file = if (target.result.os.tag == .windows)
+            b.path("native/zig/qa/live_journey.zig")
+        else
+            b.path("native/zig/qa/live_journey_portable.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    if (target.result.os.tag == .windows) {
+        live_journey_module.addImport("journey", journey_module);
+        live_journey_module.addImport("capture_qa", capture_qa_module);
+        live_journey_module.addImport("windows_argv", windows_argv_module);
+        live_journey_module.linkSystemLibrary("user32", .{});
+    }
+    const live_journey_exe = b.addExecutable(.{
+        .name = "texflow-t0-2c-live-qa",
+        .root_module = live_journey_module,
+    });
+    const live_journey_check = b.step("t0-2c-live-qa-check", "Compile the independent T0.2c UIA/input/DXGI QA process");
+    live_journey_check.dependOn(&live_journey_exe.step);
+    const live_journey_step = b.step("t0-2c-live-qa", "Run the independent T0.2c UIA/input/DXGI QA process");
+    if (can_run_windows_runtime and executable != null) {
+        const live_run = b.addRunArtifact(live_journey_exe);
+        live_run.addArgs(&.{ "run", "--product" });
+        live_run.addFileArg(executable.?.getEmittedBin());
+        live_run.addArgs(&.{ "--output", b.pathFromRoot("zig-out/t0-2c-live-qa") });
+        live_run.step.dependOn(product_build_step);
+        live_journey_step.dependOn(&live_run.step);
+    } else {
+        live_journey_step.dependOn(live_journey_check);
+    }
+    t0_2c_models_check.dependOn(live_journey_check);
+
+    // Public T0.2 reproducibility cutover. The command is intentionally
+    // fail-closed when the sealed runner has not supplied two independent
+    // payload roots, a network-none receipt, an authenticated role manifest,
+    // and a complete payload manifest. It never mutates host networking and
+    // never substitutes the ordinary build cache for those inputs.
+    const t0_2_repro = b.step(
+        "t0-2-repro",
+        "Run the Zig-owned two-root reproducibility gate from a sealed runner",
+    );
+    const repro_left = b.option(
+        []const u8,
+        "repro-left",
+        "Absolute first clean-build payload root from the sealed runner",
+    );
+    const repro_right = b.option(
+        []const u8,
+        "repro-right",
+        "Absolute second clean-build payload root from the sealed runner",
+    );
+    const repro_test_left = b.option(
+        []const u8,
+        "repro-test-left",
+        "Absolute first cache-only texflow_abi artifact root from the sealed runner",
+    );
+    const repro_test_right = b.option(
+        []const u8,
+        "repro-test-right",
+        "Absolute second cache-only texflow_abi artifact root from the sealed runner",
+    );
+    const repro_network_receipt = b.option(
+        []const u8,
+        "repro-network-receipt",
+        "Absolute network-none receipt produced by the sealed runner",
+    );
+    const repro_role_manifest = b.option(
+        []const u8,
+        "repro-role-manifest",
+        "Absolute authenticated installed-payload role manifest",
+    );
+    const repro_payload_manifest = b.option(
+        []const u8,
+        "repro-payload-manifest",
+        "Absolute authenticated complete installed-payload manifest",
+    );
+    const repro_target_name: ?[]const u8 = if (product_target)
+        "x86_64-windows-msvc"
+    else if (target.result.os.tag == .linux and target.result.cpu.arch == .x86_64 and target.result.abi == .gnu)
+        "x86_64-linux-gnu"
+    else
+        null;
+    const repro_inputs_ready = repro_left != null and repro_left.?.len != 0 and
+        repro_right != null and repro_right.?.len != 0 and
+        repro_test_left != null and repro_test_left.?.len != 0 and
+        repro_test_right != null and repro_test_right.?.len != 0 and
+        repro_network_receipt != null and repro_network_receipt.?.len != 0 and
+        repro_role_manifest != null and repro_role_manifest.?.len != 0 and
+        repro_payload_manifest != null and repro_payload_manifest.?.len != 0;
+    if (repro_target_name) |selected_target| {
+        const repro_host_compatible =
+            (std.mem.eql(u8, selected_target, "x86_64-windows-msvc") and host_target.result.os.tag == .windows) or
+            (std.mem.eql(u8, selected_target, "x86_64-linux-gnu") and host_target.result.os.tag == .linux);
+        if (!repro_host_compatible) {
+            t0_2_repro.dependOn(&b.addFail(
+                "UNVERIFIED-REPRO-HOST-TARGET: t0-2-repro must execute on the selected x86_64 Windows/Linux host; cross-target execution is not admission evidence",
+            ).step);
+        } else if (!source_identity.authoritative) {
+            t0_2_repro.dependOn(&b.addFail(
+                "UNVERIFIED-SOURCE-IDENTITY: t0-2-repro requires a clean authoritative Git source identity from the exact checked-out commit",
+            ).step);
+        } else if (source_commit == null or remote_run_id == null or remote_run_attempt == null or
+            source_commit.?.len == 0 or remote_run_id.?.len == 0 or remote_run_attempt.?.len == 0)
+        {
+            t0_2_repro.dependOn(&b.addFail(
+                "UNVERIFIED-REMOTE-CI-RUN-IDS: t0-2-repro requires TEXFLOW_SOURCE_COMMIT, TEXFLOW_REMOTE_RUN_ID, and TEXFLOW_REMOTE_RUN_ATTEMPT from the producing CI run",
+            ).step);
+        } else if (repro_inputs_ready) {
+            const repro_cli_module = b.createModule(.{
+                .root_source_file = b.path("tools/zig/repro_check.zig"),
+                .target = host_target,
+                .optimize = .ReleaseSafe,
+            });
+            repro_cli_module.addImport("deps", deps_host_module);
+            const repro_cli = b.addExecutable(.{
+                .name = "texflow-t0-2-repro",
+                .root_module = repro_cli_module,
+            });
+            const run_repro_cli = b.addRunArtifact(repro_cli);
+            var source_set_hex_array = std.fmt.bytesToHex(source_identity.source_set_sha256, .lower);
+            var dependency_lock_hex_array = std.fmt.bytesToHex(source_identity.dependency_lock_sha256, .lower);
+            var build_identity_hex_array = std.fmt.bytesToHex(source_identity.build_identity, .lower);
+            const source_set_hex = b.dupe(&source_set_hex_array);
+            const dependency_lock_hex = b.dupe(&dependency_lock_hex_array);
+            const build_identity_hex = b.dupe(&build_identity_hex_array);
+            run_repro_cli.addArgs(&.{
+                "compare-both",
+                selected_target,
+                repro_left.?,
+                repro_right.?,
+                repro_test_left.?,
+                repro_test_right.?,
+                repro_network_receipt.?,
+                repro_role_manifest.?,
+                repro_payload_manifest.?,
+                source_commit.?,
+                source_set_hex,
+                dependency_lock_hex,
+                build_identity_hex,
+                remote_run_id.?,
+                remote_run_attempt.?,
+            });
+            t0_2_repro.dependOn(&run_repro_cli.step);
+        } else {
+            t0_2_repro.dependOn(&b.addFail(
+                "UNVERIFIED-NETWORK-ISOLATION: t0-2-repro requires two product roots, two cache-only ABI roots, a network-none receipt, an authenticated role manifest, and a complete payload manifest from a sealed detached-NIC/network-none runner; it never changes host networking",
+            ).step);
+        }
+    } else {
+        t0_2_repro.dependOn(&b.addFail(
+            "T0.2 reproducibility requires target x86_64-windows-msvc or x86_64-linux-gnu",
+        ).step);
+    }
+
+    // Exceptional PDFium source-resolution/reconstruction lane.  The build
+    // option is only a typed driver for the Zig controller; all source roots,
+    // tool paths, and sealed-runner evidence remain explicit environment
+    // inputs owned by the operator/CI job.
+    const pdfium_phase = b.option(
+        []const u8,
+        "phase",
+        "PDFium lane phase: resolve or reproduce",
+    );
+    const pdfium_allow_network = b.option(
+        bool,
+        "allow-network",
+        "Explicitly authorize the exceptional PDFium lane (the controller still requires its own receipt)",
+    ) orelse false;
+    const pdfium_repro_root = b.option(
+        []const u8,
+        "repro-root",
+        "Absolute disposable PDFium reconstruction root",
+    );
+    const pdfium_repro_output = b.option(
+        []const u8,
+        "repro-output",
+        "Absolute candidate/verified PDFium receipt output path",
+    );
+    const pdfium_reproduce_step = b.step(
+        "deps-reproduce-pdfium",
+        "Run the explicitly authorized, fail-closed PDFium resolve/reproduce controller",
+    );
+    if (pdfium_phase == null or pdfium_repro_root == null or pdfium_repro_output == null) {
+        pdfium_reproduce_step.dependOn(&b.addFail(
+            "deps-reproduce-pdfium requires -Dphase=resolve|reproduce, -Dallow-network=true, -Drepro-root=<absolute>, and -Drepro-output=<absolute>",
+        ).step);
+    } else if (!pdfium_allow_network) {
+        pdfium_reproduce_step.dependOn(&b.addFail(
+            "UNVERIFIED-NETWORK-ISOLATION: deps-reproduce-pdfium requires explicit -Dallow-network=true; it never changes host networking",
+        ).step);
+    } else if (!std.mem.eql(u8, pdfium_phase.?, "resolve") and
+        !std.mem.eql(u8, pdfium_phase.?, "reproduce"))
+    {
+        pdfium_reproduce_step.dependOn(&b.addFail(
+            "deps-reproduce-pdfium phase must be exactly resolve or reproduce",
+        ).step);
+    } else if (!std.fs.path.isAbsolute(pdfium_repro_root.?) or
+        !std.fs.path.isAbsolute(pdfium_repro_output.?))
+    {
+        pdfium_reproduce_step.dependOn(&b.addFail(
+            "deps-reproduce-pdfium root and output must be absolute paths",
+        ).step);
+    } else {
+        const pdfium_reproduce_exe = b.addExecutable(.{
+            .name = "texflow-pdfium-reproduce",
+            .root_module = pdfium_repro_host_module,
+        });
+        const run_pdfium_reproduce = b.addRunArtifact(pdfium_reproduce_exe);
+        if (std.mem.eql(u8, pdfium_phase.?, "resolve")) {
+            run_pdfium_reproduce.addArgs(&.{ "resolve", "--candidate", pdfium_repro_output.? });
+        } else {
+            run_pdfium_reproduce.addArgs(&.{ "reproduce", "--receipt", pdfium_repro_output.? });
+        }
+        run_pdfium_reproduce.setEnvironmentVariable("TEXFLOW_PDFIUM_REPRO_ROOT", pdfium_repro_root.?);
+        pdfium_reproduce_step.dependOn(&run_pdfium_reproduce.step);
+    }
 }
 
 // Inspect actual build steps and transitive module/library edges. Checking only

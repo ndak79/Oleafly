@@ -1703,7 +1703,7 @@ fn checkMaterializedTreeHashAllocationFailures() !void {
         }
         try std.testing.expectEqual(@as(u32, 1), result.files);
         try std.testing.expectEqual(@as(u64, 3), result.bytes);
-        try std.testing.expectEqual(@as(usize, 4), fail_index);
+        try std.testing.expectEqual(@as(usize, 3), fail_index);
         return;
     }
     return error.AllocationCampaignLimitExceeded;

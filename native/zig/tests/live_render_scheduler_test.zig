@@ -39,8 +39,8 @@ test "superseded work receives at most 75ms grace and only latest completion is 
     const cancellation = scheduler.take_cancellation_due(375) orelse return error.MissingCancellation;
     try std.testing.expectEqual(@as(u64, 1), cancellation.revision);
     try std.testing.expectEqual(@as(u64, 375), cancellation.due_ms);
-    try std.testing.expectEqual(render.CompletionResult.stale, scheduler.complete(.{ .revision = 1, .artifact_id = 101, .succeeded = true }));
     try std.testing.expectEqual(@as(?u64, null), scheduler.active_revision);
+    try std.testing.expectEqual(render.CompletionResult.stale, scheduler.complete(.{ .revision = 1, .artifact_id = 101, .succeeded = true }));
     try std.testing.expectEqual(@as(?u64, 570), scheduler.next_deadline());
     _ = scheduler.take_due(570) orelse return error.MissingRequest;
     try std.testing.expect(scheduler.mark_started(3, 570));
@@ -80,7 +80,6 @@ test "a superseded worker cannot be overwritten before cancellation is acknowled
     try std.testing.expectEqual(@as(?u64, 95), scheduler.cancel_deadline_ms);
     try std.testing.expectEqual(@as(?u64, 95), scheduler.next_deadline());
     _ = scheduler.take_cancellation_due(95) orelse return error.MissingCancellation;
-    try std.testing.expect(scheduler.acknowledge_cancelled(1));
     try std.testing.expectEqual(@as(?u64, null), scheduler.active_revision);
     try std.testing.expectEqual(@as(?u64, 20), scheduler.next_deadline());
     _ = scheduler.take_due(95) orelse return error.MissingDeferredRequest;

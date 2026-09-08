@@ -69,6 +69,23 @@ pub fn compute(source_set_sha256: [digest_bytes]u8, dependency_lock_sha256: [dig
 
 pub const build_identity = compute;
 
+/// Validate the identity embedded in a product against the two inputs used to
+/// build it. Zero-valued inputs are never an admissible development shortcut:
+/// a missing source/lock measurement must fail before the first HWND exists.
+pub fn isValid(
+    source_set_sha256: [digest_bytes]u8,
+    dependency_lock_sha256: [digest_bytes]u8,
+    expected: [digest_bytes]u8,
+) bool {
+    if (!hasNonZero(source_set_sha256) or !hasNonZero(dependency_lock_sha256) or !hasNonZero(expected)) return false;
+    return std.mem.eql(u8, &expected, &compute(source_set_sha256, dependency_lock_sha256));
+}
+
 pub fn hex(digest: [digest_bytes]u8) [digest_bytes * 2]u8 {
     return std.fmt.bytesToHex(digest, .lower);
+}
+
+fn hasNonZero(bytes: [digest_bytes]u8) bool {
+    for (bytes) |byte| if (byte != 0) return true;
+    return false;
 }

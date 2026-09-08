@@ -60,6 +60,7 @@ pub const Buffer = struct {
         const has_bom = disk_bytes.len >= 3 and std.mem.eql(u8, disk_bytes[0..3], "\xef\xbb\xbf");
         const text_bytes = if (has_bom) disk_bytes[3..] else disk_bytes;
         if (!std.unicode.utf8ValidateSlice(text_bytes)) return error.InvalidUtf8;
+        if (std.mem.indexOfScalar(u8, text_bytes, 0) != null) return error.EmbeddedNul;
 
         const path_storage = try allocator.dupe(u8, canonical_path);
         errdefer allocator.free(path_storage);
@@ -112,6 +113,10 @@ pub const Buffer = struct {
         if (sequence > expected_sequence) return error.MissingSequence;
         if (start > self.text_length or deleted_len > self.text_length - start) return error.InvalidRange;
         if (!std.unicode.utf8ValidateSlice(inserted)) return error.InvalidUtf8;
+        if (std.mem.indexOfScalar(u8, inserted, 0) != null) return error.EmbeddedNul;
+        if (!try self.isByteBoundary(start) or !try self.isByteBoundary(start + deleted_len)) {
+            return error.InvalidBoundary;
+        }
         if (deleted_len == 0 and inserted.len == 0) return error.EmptyEdit;
         if (inserted.len > std.math.maxInt(usize) - (self.text_length - deleted_len)) return error.LengthOverflow;
 
@@ -205,6 +210,58 @@ pub const Buffer = struct {
         return self.text_length;
     }
 
+    /// Return one source byte without materializing the piece table.
+    pub fn byteAt(self: *const Buffer, index: usize) !u8 {
+        if (index >= self.text_length) return error.InvalidRange;
+        var cursor: usize = 0;
+        for (self.pieces.items) |piece| {
+            if (index < cursor + piece.len) return self.sourceSlice(piece)[index - cursor];
+            cursor += piece.len;
+        }
+        return error.InvalidRange;
+    }
+
+    /// UTF-8 boundary checks stay on the piece table's logical bytes.
+    pub fn isByteBoundary(self: *const Buffer, index: usize) !bool {
+        if (index > self.text_length) return error.InvalidRange;
+        if (index == 0 or index == self.text_length) return true;
+        return !isUtf8Continuation(try self.byteAt(index));
+    }
+
+    /// Copy only the requested logical range. Normal edits and line-index
+    /// updates use this instead of copying the whole document.
+    pub fn copyRange(self: *const Buffer, allocator: std.mem.Allocator, start: usize, len: usize) ![]u8 {
+        if (start > self.text_length or len > self.text_length - start) return error.InvalidRange;
+        var output: std.ArrayList(u8) = .empty;
+        errdefer output.deinit(allocator);
+        try output.ensureTotalCapacity(allocator, len);
+        if (len == 0) return output.toOwnedSlice(allocator);
+
+        const end = start + len;
+        var cursor: usize = 0;
+        for (self.pieces.items) |piece| {
+            const piece_end = cursor + piece.len;
+            const overlap_start = @max(start, cursor);
+            const overlap_end = @min(end, piece_end);
+            if (overlap_start < overlap_end) {
+                const source = self.sourceSlice(piece);
+                try output.appendSlice(
+                    allocator,
+                    source[overlap_start - cursor .. overlap_end - cursor],
+                );
+            }
+            cursor = piece_end;
+            if (cursor >= end) break;
+        }
+        return output.toOwnedSlice(allocator);
+    }
+
+    /// Source text excludes the optional UTF-8 BOM; `materialize` retains it
+    /// for an exact disk round-trip.
+    pub fn materializeText(self: *const Buffer, allocator: std.mem.Allocator) ![]u8 {
+        return self.copyRange(allocator, 0, self.text_length);
+    }
+
     pub fn state(self: *const Buffer) State {
         return self.state_value;
     }
@@ -269,6 +326,10 @@ fn appendPiece(
         }
     }
     try output.append(allocator, .{ .source = source, .start = start, .len = len });
+}
+
+fn isUtf8Continuation(byte: u8) bool {
+    return byte & 0xc0 == 0x80;
 }
 
 fn hash(bytes: []const u8) ContentHash {

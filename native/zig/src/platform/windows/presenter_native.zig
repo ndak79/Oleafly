@@ -69,6 +69,7 @@ pub const RetireError = error{
 
 pub const PresentError = error{
     InvalidBackBuffer,
+    InvalidBackBufferIndex,
     InvalidDevice,
     InvalidDeviceContext,
     InvalidPresentRequest,
@@ -76,6 +77,7 @@ pub const PresentError = error{
     PartialPresentUnsupported,
     PresentFailed,
     RebindFailed,
+    NextBackBufferIndexUnavailable,
     UnsupportedTarget,
 };
 
@@ -232,6 +234,41 @@ pub fn nativeDescriptor(effect: graphics.SwapEffect) NativeDescriptor {
     };
 }
 
+pub fn validateActualDescriptor(actual: NativeDescriptor, effect: graphics.SwapEffect) error{InvalidSwapChainDescriptor}!void {
+    const expected = nativeDescriptor(effect);
+    if (actual.Width == 0 or actual.Height == 0 or
+        actual.Format != expected.Format or actual.Stereo != expected.Stereo or
+        actual.SampleDesc.Count != expected.SampleDesc.Count or
+        actual.SampleDesc.Quality != expected.SampleDesc.Quality or
+        actual.BufferUsage != expected.BufferUsage or
+        actual.BufferCount != expected.BufferCount or
+        actual.Scaling != expected.Scaling or
+        actual.SwapEffect != expected.SwapEffect or
+        actual.AlphaMode != expected.AlphaMode or actual.Flags != expected.Flags)
+    {
+        return error.InvalidSwapChainDescriptor;
+    }
+}
+
+fn fromApiDescriptor(descriptor: api.dxgi.DXGI_SWAP_CHAIN_DESC1) NativeDescriptor {
+    return .{
+        .Width = descriptor.Width,
+        .Height = descriptor.Height,
+        .Format = @enumFromInt(@intFromEnum(descriptor.Format)),
+        .Stereo = @intCast(descriptor.Stereo),
+        .SampleDesc = .{
+            .Count = descriptor.SampleDesc.Count,
+            .Quality = descriptor.SampleDesc.Quality,
+        },
+        .BufferUsage = @bitCast(descriptor.BufferUsage),
+        .BufferCount = descriptor.BufferCount,
+        .Scaling = @enumFromInt(@intFromEnum(descriptor.Scaling)),
+        .SwapEffect = @enumFromInt(@intFromEnum(descriptor.SwapEffect)),
+        .AlphaMode = @enumFromInt(@intFromEnum(descriptor.AlphaMode)),
+        .Flags = descriptor.Flags,
+    };
+}
+
 const BackBufferReleaseKind = enum(u8) {
     render_target_view,
     resource,
@@ -268,11 +305,14 @@ const PresentFn = *const fn (
 
 const UnbindFn = *const fn (?*anyopaque) callconv(.c) void;
 
+const NextBufferIndexFn = *const fn (?*anyopaque) BackBufferError!u32;
+
 const PresentBackendImpl = struct {
     present: PresentFn,
     release: BackBufferReleaseFn,
     acquire: *const fn (?*anyopaque, u32) BackBufferError!BackBuffer,
     unbind: ?UnbindFn = null,
+    next_buffer_index: ?NextBufferIndexFn = null,
 };
 
 const ResizeFn = *const fn (?*anyopaque, u32, u32) callconv(.c) u32;
@@ -299,6 +339,7 @@ const WindowsAcquireContext = struct {
     device_handle: *anyopaque,
     swap_chain_handle: *anyopaque,
     context_handle: ?*anyopaque = null,
+    swap_chain3_handle: ?*anyopaque = null,
 };
 
 /// Owns the two COM references returned by `SwapChain.acquireBackBuffer`.
@@ -329,6 +370,7 @@ pub const SwapChain = struct {
     maximum_frame_latency: u32 = graphics.max_frame_latency,
     swap_chain1: if (builtin.os.tag == .windows) ?*api.dxgi.IDXGISwapChain1 else ?*anyopaque = null,
     swap_chain2: if (builtin.os.tag == .windows) ?*api.dxgi.IDXGISwapChain2 else ?*anyopaque = null,
+    swap_chain3: if (builtin.os.tag == .windows) ?*api.dxgi.IDXGISwapChain3 else ?*anyopaque = null,
     waitable: if (builtin.os.tag == .windows) ?std.os.windows.HANDLE else ?*anyopaque = null,
 
     pub fn waitableHandle(self: *const SwapChain) ?*anyopaque {
@@ -338,6 +380,17 @@ pub const SwapChain = struct {
 
     pub fn maximumFrameLatency(self: *const SwapChain) u32 {
         return self.maximum_frame_latency;
+    }
+
+    /// Read back the descriptor from the live DXGI object.  The pure
+    /// `nativeDescriptor` helper describes what we requested; this method is
+    /// the runtime proof that the object accepted the same contract.
+    pub fn actualDescriptor(self: *const SwapChain) !NativeDescriptor {
+        if (builtin.os.tag != .windows) return error.UnsupportedTarget;
+        const swap_chain = self.swap_chain1 orelse return error.InvalidSwapChain;
+        var descriptor: api.dxgi.DXGI_SWAP_CHAIN_DESC1 = undefined;
+        if (swap_chain.GetDesc1(&descriptor).failed) return error.DescriptorUnavailable;
+        return fromApiDescriptor(descriptor);
     }
 
     /// Wait for the DXGI frame-latency grant before rendering. The caller must
@@ -380,6 +433,7 @@ pub const SwapChain = struct {
             .device_handle = device_handle,
             .swap_chain_handle = @ptrCast(swap_chain),
             .context_handle = context_handle,
+            .swap_chain3_handle = if (self.swap_chain3) |chain| @ptrCast(chain) else null,
         };
         unbindRenderTargetWindows(@ptrCast(&context));
         buffer.deinit();
@@ -400,6 +454,7 @@ pub const SwapChain = struct {
             .device_handle = device_handle,
             .swap_chain_handle = @ptrCast(swap_chain),
             .context_handle = context_handle,
+            .swap_chain3_handle = if (self.swap_chain3) |chain| @ptrCast(chain) else null,
         };
         return presentAndRebindWithImpl(
             self,
@@ -412,6 +467,7 @@ pub const SwapChain = struct {
                 .release = releaseBackBufferInterface,
                 .acquire = acquireBackBufferWindowsFromContext,
                 .unbind = unbindRenderTargetWindows,
+                .next_buffer_index = nextBackBufferIndexWindows,
             },
             @ptrCast(&context),
         );
@@ -432,6 +488,7 @@ pub const SwapChain = struct {
             .device_handle = device_handle,
             .swap_chain_handle = @ptrCast(swap_chain),
             .context_handle = context_handle,
+            .swap_chain3_handle = if (self.swap_chain3) |chain| @ptrCast(chain) else null,
         };
         return resizeAndRebindWithImpl(
             self,
@@ -474,12 +531,17 @@ pub const SwapChain = struct {
         if (builtin.os.tag != .windows) {
             self.swap_chain1 = null;
             self.swap_chain2 = null;
+            self.swap_chain3 = null;
             self.waitable = null;
             return;
         }
         if (self.waitable) |handle| {
             _ = std.os.windows.CloseHandle(handle);
             self.waitable = null;
+        }
+        if (self.swap_chain3) |chain| {
+            _ = chain.IUnknown.Release();
+            self.swap_chain3 = null;
         }
         if (self.swap_chain2) |chain| {
             _ = chain.IUnknown.Release();
@@ -560,7 +622,16 @@ fn presentAndRebindWithImpl(
     const outcome = try present1WithImpl(self, request, context, backend.present);
     if (outcome != .presented) return outcome;
 
-    const next_index: u32 = 0;
+    const next_index = if (backend.next_buffer_index) |next| next(context) catch {
+        if (backend.unbind) |unbind| unbind(context);
+        deinitBackBufferWithImpl(buffer, context, backend.release);
+        return error.NextBackBufferIndexUnavailable;
+    } else 0;
+    if (next_index >= admitted_buffer_count) {
+        if (backend.unbind) |unbind| unbind(context);
+        deinitBackBufferWithImpl(buffer, context, backend.release);
+        return error.InvalidBackBufferIndex;
+    }
     if (backend.unbind) |unbind| unbind(context);
     deinitBackBufferWithImpl(buffer, context, backend.release);
     const rebound = backend.acquire(context, next_index) catch {
@@ -819,6 +890,16 @@ fn acquireBackBufferWindowsFromContext(
     return acquireBackBufferWindows(windows_context.device_handle, swap_chain, buffer_index);
 }
 
+fn nextBackBufferIndexWindows(context: ?*anyopaque) BackBufferError!u32 {
+    if (comptime builtin.os.tag != .windows) return error.UnsupportedTarget;
+    const windows_context: *const WindowsAcquireContext = @ptrCast(@alignCast(context.?));
+    const swap_chain3_handle = windows_context.swap_chain3_handle orelse return error.InvalidSwapChain;
+    const swap_chain3: *api.dxgi.IDXGISwapChain3 = @ptrCast(@alignCast(swap_chain3_handle));
+    const index = swap_chain3.GetCurrentBackBufferIndex();
+    if (index >= admitted_buffer_count) return error.InvalidBackBufferIndex;
+    return index;
+}
+
 fn acquireBackBufferWindows(
     device_handle: *anyopaque,
     swap_chain: *api.dxgi.IDXGISwapChain1,
@@ -919,6 +1000,19 @@ fn createWindows(
     const swap_chain2: *api.dxgi.IDXGISwapChain2 = @ptrCast(@alignCast(swap_chain2_raw.?));
     errdefer _ = swap_chain2.IUnknown.Release();
 
+    var swap_chain3_raw: ?*anyopaque = null;
+    const query_chain3_result = swap_chain1.?.IUnknown.QueryInterface(
+        api.dxgi.IID_IDXGISwapChain3,
+        @ptrCast(&swap_chain3_raw),
+    );
+    if (query_chain3_result.failed or swap_chain3_raw == null) return error.SwapChainInterfaceUnavailable;
+    const swap_chain3: *api.dxgi.IDXGISwapChain3 = @ptrCast(@alignCast(swap_chain3_raw.?));
+    errdefer _ = swap_chain3.IUnknown.Release();
+
+    var actual_descriptor: api.dxgi.DXGI_SWAP_CHAIN_DESC1 = undefined;
+    if (swap_chain1.?.GetDesc1(&actual_descriptor).failed) return error.SwapChainDescriptorUnavailable;
+    validateActualDescriptor(fromApiDescriptor(actual_descriptor), effect) catch return error.SwapChainDescriptorUnavailable;
+
     if (swap_chain2.SetMaximumFrameLatency(graphics.max_frame_latency).failed) return error.FrameLatencyConfigurationFailed;
     var actual_frame_latency: u32 = 0;
     if (swap_chain2.GetMaximumFrameLatency(&actual_frame_latency).failed or
@@ -933,6 +1027,7 @@ fn createWindows(
         .maximum_frame_latency = actual_frame_latency,
         .swap_chain1 = swap_chain1,
         .swap_chain2 = swap_chain2,
+        .swap_chain3 = swap_chain3,
         .waitable = waitable,
     };
 }

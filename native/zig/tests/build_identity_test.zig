@@ -24,6 +24,18 @@ test "build identity changes for each source or lock bit" {
     try std.testing.expect(!std.mem.eql(u8, &baseline, &identity.compute(source, changed_lock)));
 }
 
+test "build identity rejects missing or mismatched runtime measurements" {
+    const source = [_]u8{0x11} ** 32;
+    const lock = [_]u8{0x22} ** 32;
+    const expected = identity.compute(source, lock);
+    try std.testing.expect(identity.isValid(source, lock, expected));
+    try std.testing.expect(!identity.isValid([_]u8{0} ** 32, lock, expected));
+    try std.testing.expect(!identity.isValid(source, [_]u8{0} ** 32, expected));
+    var changed = expected;
+    changed[0] ^= 1;
+    try std.testing.expect(!identity.isValid(source, lock, changed));
+}
+
 test "version info is explicitly non-release private feasibility metadata" {
     const version = identity.version_info;
     try std.testing.expectEqual(@as(u16, 0), version.major);

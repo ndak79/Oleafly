@@ -181,8 +181,10 @@ pub const Scheduler = struct {
     pub const takeDue = take_due;
 
     /// Consume the single cancellation deadline event, if it has elapsed.
-    /// The active worker remains tracked until its completion arrives; the
-    /// retained request marker prevents later edits from reissuing it.
+    /// At the deadline the active revision is retired regardless of whether
+    /// the worker acknowledged cancellation.  This is the bounded hand-off:
+    /// a hung worker can still finish, but it can no longer block the latest
+    /// revision or publish a result.
     pub fn take_cancellation_due(self: *Scheduler, now_ms: u64) ?CancellationRequest {
         const deadline = self.cancel_deadline_ms orelse return null;
         if (now_ms < deadline) return null;
@@ -190,8 +192,9 @@ pub const Scheduler = struct {
             self.cancel_deadline_ms = null;
             return null;
         };
-        self.cancel_deadline_ms = null;
-        return .{ .revision = revision, .due_ms = deadline };
+        const request = CancellationRequest{ .revision = revision, .due_ms = deadline };
+        self.retire_active();
+        return request;
     }
 
     pub const takeCancellationDue = take_cancellation_due;

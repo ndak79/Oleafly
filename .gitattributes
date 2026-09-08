@@ -19,6 +19,10 @@
 *.zig text eol=lf
 *.zon text eol=lf
 *.svg text eol=lf
+native/zig/**/*.c text eol=lf
+native/zig/**/*.h text eol=lf
+native/zig/**/*.rc text eol=lf
+native/zig/**/*.manifest text eol=lf
 tools/zig/toolchain.json text eol=lf
 tools/zig/native-deps.json text eol=lf
 # Attestation JSONL is evidence, not source: preserve the exact upstream bytes

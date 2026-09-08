@@ -96,6 +96,24 @@ test "invalid UTF-8 and ranges are rejected without mutation" {
     try std.testing.expectEqualStrings(before, after);
 }
 
+test "piece-table mutations stay on UTF-8 boundaries and reject embedded NUL" {
+    var buffer = try editor.Buffer.attach(std.testing.allocator, "unicode.tex", "AéB");
+    defer buffer.deinit();
+
+    try std.testing.expectEqual(@as(u8, 0xc3), try buffer.byteAt(1));
+    try std.testing.expect(try buffer.isByteBoundary(1));
+    try std.testing.expect(!try buffer.isByteBoundary(2));
+    const slice = try buffer.copyRange(std.testing.allocator, 1, 2);
+    defer std.testing.allocator.free(slice);
+    try std.testing.expectEqualStrings("é", slice);
+
+    try std.testing.expectError(error.InvalidBoundary, buffer.applyEdit(1, 2, 0, "x"));
+    try std.testing.expectError(error.InvalidBoundary, buffer.applyEdit(1, 1, 1, "x"));
+    try std.testing.expectError(error.EmbeddedNul, buffer.applyEdit(1, 1, 0, "\x00"));
+    try std.testing.expectEqual(@as(u64, 0), buffer.revision());
+    try std.testing.expectError(error.EmbeddedNul, editor.Buffer.attach(std.testing.allocator, "nul.tex", "a\x00b"));
+}
+
 test "newline policy reports mixed and none without rewriting source bytes" {
     var mixed = try editor.Buffer.attach(std.testing.allocator, "mixed.tex", "a\r\nb\nc\rd");
     defer mixed.deinit();

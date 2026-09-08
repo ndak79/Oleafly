@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const native = @import("shell_native");
 const graphics = @import("graphics");
+const presenter = @import("presenter_native");
 const shell = @import("windows_shell");
 const com = @import("windows_com");
 const w = std.unicode.utf8ToUtf16LeStringLiteral;
@@ -97,6 +98,19 @@ test "native window state gates visibility and invalidates on DPI display and re
     try std.testing.expect(state.apply(.display_changed));
     try std.testing.expectEqual(previous_display_epoch +% 1, state.display_epoch);
     try std.testing.expect(state.needs_full_redraw);
+}
+
+test "native Present1 metadata is zeroed until sequential history is proven" {
+    const full = native.presentRequestForState(.flip_sequential, true, true, 640, 480);
+    try std.testing.expect(full.dirty_rect == null);
+    const unknown = native.presentRequestForState(.flip_sequential, false, false, 640, 480);
+    try std.testing.expect(unknown.dirty_rect == null);
+
+    const partial = native.presentRequestForState(.flip_sequential, false, true, 640, 480);
+    try std.testing.expectEqual(presenter.Rect{ .left = 0, .top = 0, .right = 640, .bottom = 480 }, partial.dirty_rect.?);
+
+    const discard = native.presentRequestForState(.flip_discard, false, true, 640, 480);
+    try std.testing.expect(discard.dirty_rect == null);
 }
 
 test "WM_DPICHANGED packs independent horizontal and vertical DPI values" {
@@ -355,21 +369,34 @@ test "real native backend creates and presents its first frame before showing" {
     var backend: native.Backend = .{ .instance = @ptrCast(instance), .show = 0 };
     try std.testing.expect(backend.registerClass());
     defer _ = backend.unregisterClass();
-    try std.testing.expect(backend.createWindow());
-    defer _ = backend.destroyWindow();
-    try std.testing.expect(backend.hasShellControls());
-    try std.testing.expect(backend.hasFrameResources());
-    try std.testing.expect(backend.compositionReady());
-    try std.testing.expect(backend.compositionFrameCount() >= 1); // hidden bootstrap draw
     const trial = [_]u8{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10 };
     backend.setTraceTrial(trial);
     backend.startTelemetry();
     try std.testing.expect(backend.telemetryRegistered());
     try std.testing.expectEqual(native.TelemetryState.registered, backend.telemetryState());
     try std.testing.expectEqual(trial, backend.telemetryTrialId());
-    try std.testing.expect(backend.telemetryEventCount() >= 1); // bootstrap snapshot
+    try std.testing.expect(backend.createWindow());
+    defer _ = backend.destroyWindow();
+    try std.testing.expect(backend.hasShellControls());
+    try std.testing.expect(backend.hasFrameResources());
+    try std.testing.expect(backend.compositionReady());
+    const actual_descriptor = try backend.actualSwapChainDescriptor();
+    const expected_descriptor = presenter.nativeDescriptor(native.configuredSwapEffect());
+    try presenter.validateActualDescriptor(actual_descriptor, native.configuredSwapEffect());
+    try std.testing.expect(actual_descriptor.Width > 0);
+    try std.testing.expect(actual_descriptor.Height > 0);
+    var expected_with_actual_size = expected_descriptor;
+    expected_with_actual_size.Width = actual_descriptor.Width;
+    expected_with_actual_size.Height = actual_descriptor.Height;
+    try std.testing.expectEqual(expected_with_actual_size, actual_descriptor);
+    try std.testing.expectEqual(@as(u32, 2), actual_descriptor.BufferCount);
+    try std.testing.expectEqual(graphics.swap_chain_flags.frame_latency_waitable_object, actual_descriptor.Flags);
+    try std.testing.expect(backend.swap_chain.?.waitableHandle() != null);
+    try std.testing.expectEqual(@as(u32, graphics.max_frame_latency), backend.swap_chain.?.maximumFrameLatency());
+    try std.testing.expect(backend.compositionFrameCount() >= 1); // hidden bootstrap draw
+    try std.testing.expect(backend.telemetryEventCount() >= 1); // bootstrap is correlated
     try std.testing.expect(backend.renderFrame());
-    try std.testing.expect(backend.telemetryEventCount() >= 2);
+    try std.testing.expect(backend.telemetryEventCount() >= 2); // next actual frame
     try std.testing.expect(backend.compositionFrameCount() >= 2);
     backend.showWindow();
     try std.testing.expect(!backend.frameTimerActive());

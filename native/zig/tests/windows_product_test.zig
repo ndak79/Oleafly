@@ -910,6 +910,7 @@ const ChildControlSearch = struct {
     project: bool = false,
     source: bool = false,
     pdf: bool = false,
+    splitter: bool = false,
     status: bool = false,
     ready: bool = false,
     button_count: u8 = 0,
@@ -928,6 +929,9 @@ const ChildControlSearch = struct {
         const class_value = class_name[0..@intCast(class_length)];
         const is_button = utf16EqualsAscii(class_value, "Button");
         const is_static = utf16EqualsAscii(class_value, "Static");
+        const is_scrollbar = utf16EqualsAscii(class_value, "ScrollBar") or
+            utf16EqualsAscii(class_value, "Scrollbar") or
+            utf16EqualsAscii(class_value, "SCROLLBAR");
         if (is_button) self.button_count += 1;
         if (is_static) self.static_count += 1;
         const style = raw.GetWindowLongPtrW(hwnd, -16);
@@ -944,6 +948,7 @@ const ChildControlSearch = struct {
         if (utf16EqualsAscii(value, "Project")) self.project = self.project or is_static;
         if (utf16EqualsAscii(value, "Source")) self.source = self.source or is_static;
         if (utf16EqualsAscii(value, "PDF")) self.pdf = self.pdf or is_static;
+        if (utf16EqualsAscii(value, "Resize panes")) self.splitter = self.splitter or is_scrollbar;
         if (utf16EqualsAscii(value, "Status")) self.status = self.status or is_static;
         if (utf16EqualsAscii(value, "Ready")) self.ready = self.ready or is_static;
         return 1;
@@ -978,6 +983,7 @@ test "real GUI process exposes named native shell controls" {
     try std.testing.expect(controls.project);
     try std.testing.expect(controls.source);
     try std.testing.expect(controls.pdf);
+    try std.testing.expect(controls.splitter);
     try std.testing.expect(controls.status);
     try std.testing.expect(controls.ready);
     try std.testing.expectEqual(@as(u8, 5), controls.button_count);
@@ -991,6 +997,9 @@ const UiaControlSearch = struct {
     pid: u32,
     open_folder: bool = false,
     mode: bool = false,
+    mode_toggle: bool = false,
+    splitter: bool = false,
+    splitter_range: bool = false,
     compile: bool = false,
     save: bool = false,
     project: bool = false,
@@ -1012,6 +1021,14 @@ fn uiaStringEquals(value: ?*u16, expected: []const u8) bool {
     return utf16EqualsAscii(units, expected);
 }
 
+fn hasUiaPattern(element: *api.accessibility.IUIAutomationElement, pattern_id: api.accessibility.UIA_PATTERN_ID) bool {
+    var pattern: ?*api.com.IUnknown = null;
+    const result = element.GetCurrentPattern(pattern_id, @ptrCast(&pattern));
+    if (result.failed or pattern == null) return false;
+    _ = pattern.?.Release();
+    return true;
+}
+
 fn inspectUiaElement(element: *api.accessibility.IUIAutomationElement, search: *UiaControlSearch) !void {
     var process_id: i32 = 0;
     if (element.get_CurrentProcessId(&process_id).failed) return error.UiaPropertyUnavailable;
@@ -1028,7 +1045,7 @@ fn inspectUiaElement(element: *api.accessibility.IUIAutomationElement, search: *
     if (element.get_CurrentIsOffscreen(&offscreen).failed) return error.UiaPropertyUnavailable;
     var bounds: api.foundation.RECT = undefined;
     if (element.get_CurrentBoundingRectangle(&bounds).failed) return error.UiaPropertyUnavailable;
-    if (bounds.right <= bounds.left or bounds.bottom <= bounds.top) return error.UiaInvalidBounds;
+    if (offscreen == 0 and (bounds.right <= bounds.left or bounds.bottom <= bounds.top)) return error.UiaInvalidBounds;
 
     var class_name: ?*u16 = null;
     defer freeUiaString(class_name);
@@ -1040,15 +1057,24 @@ fn inspectUiaElement(element: *api.accessibility.IUIAutomationElement, search: *
     if (control_type == api.accessibility.UIA_ButtonControlTypeId) search.button_count += 1;
     if (control_type == api.accessibility.UIA_TextControlTypeId) search.static_count += 1;
     const is_button = uiaStringEquals(class_name, "Button") and control_type == api.accessibility.UIA_ButtonControlTypeId;
+    const is_mode_toggle = uiaStringEquals(class_name, "Button") and control_type == api.accessibility.UIA_CheckBoxControlTypeId;
+    const is_splitter = control_type == api.accessibility.UIA_ScrollBarControlTypeId;
     const is_static = uiaStringEquals(class_name, "Static") and control_type == api.accessibility.UIA_TextControlTypeId;
-    if (is_button and enabled == 0) return error.UiaDisabledControl;
+    if ((is_button or is_mode_toggle) and enabled == 0) return error.UiaDisabledControl;
     if (uiaStringEquals(name, "Open Folder")) search.open_folder = search.open_folder or is_button;
-    if (uiaStringEquals(name, "Render mode")) search.mode = search.mode or is_button;
+    if (uiaStringEquals(name, "Render mode")) {
+        search.mode = search.mode or is_button or is_mode_toggle;
+        search.mode_toggle = search.mode_toggle or (is_mode_toggle and hasUiaPattern(element, api.accessibility.UIA_PATTERN_ID.TogglePatternId));
+    }
     if (uiaStringEquals(name, "Compile")) search.compile = search.compile or is_button;
     if (uiaStringEquals(name, "Save")) search.save = search.save or is_button;
     if (uiaStringEquals(name, "Project")) search.project = search.project or is_static;
     if (uiaStringEquals(name, "Source")) search.source = search.source or is_static;
     if (uiaStringEquals(name, "PDF")) search.pdf = search.pdf or is_static;
+    if (is_splitter) {
+        search.splitter = true;
+        search.splitter_range = search.splitter_range or hasUiaPattern(element, api.accessibility.UIA_PATTERN_ID.RangeValuePatternId);
+    }
     if (uiaStringEquals(name, "Status")) search.status = search.status or is_static;
     if (uiaStringEquals(name, "Ready")) search.ready = search.ready or is_static;
 }
@@ -1127,6 +1153,7 @@ test "separate UI Automation client sees the owned shell controls" {
     }
     try std.testing.expect(controls.open_folder);
     try std.testing.expect(controls.mode);
+    try std.testing.expect(controls.mode_toggle);
     try std.testing.expect(controls.compile);
     try std.testing.expect(controls.save);
     // UIA may omit hidden HWNDs from the descendant tree.  Assert only the
@@ -1134,7 +1161,11 @@ test "separate UI Automation client sees the owned shell controls" {
     // enumeration test separately proves that every control is created.
     if (responsive_view.project_visible) try std.testing.expect(controls.project);
     try std.testing.expect(controls.source);
-    if (responsive_view.pdf_visible) try std.testing.expect(controls.pdf);
+    if (responsive_view.pdf_visible) {
+        try std.testing.expect(controls.pdf);
+        try std.testing.expect(controls.splitter);
+        try std.testing.expect(controls.splitter_range);
+    }
     try std.testing.expect(controls.status);
     try std.testing.expect(controls.ready);
     try std.testing.expect(controls.button_count >= 4);

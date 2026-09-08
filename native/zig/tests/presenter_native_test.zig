@@ -97,6 +97,8 @@ const RebindStub = struct {
     acquire_calls: usize = 0,
     unbind_calls: usize = 0,
     acquire_fails: bool = false,
+    next_index: u32 = 1,
+    next_index_fails: bool = false,
     events: [4]u8 = undefined,
 
     fn release(
@@ -126,6 +128,12 @@ const RebindStub = struct {
         self.unbind_calls += 1;
     }
 
+    fn nextBufferIndex(context: ?*anyopaque) native.BackBufferError!u32 {
+        const self: *@This() = @ptrCast(@alignCast(context.?));
+        if (self.next_index_fails) return error.InvalidBackBufferIndex;
+        return self.next_index;
+    }
+
     fn presentCall(
         context: ?*anyopaque,
         sync_interval: u32,
@@ -149,6 +157,7 @@ const RebindStub = struct {
             .release = release,
             .acquire = acquire,
             .unbind = unbind,
+            .next_buffer_index = nextBufferIndex,
         };
     }
 };
@@ -742,7 +751,7 @@ test "present seam rejects invalid requests before the callback" {
     try std.testing.expectEqual(@as(usize, 0), stub.calls);
 }
 
-test "present and rebind releases the old buffer before acquiring the next" {
+test "present and rebind follows the post-present back-buffer index" {
     if (builtin.os.tag != .windows) return error.SkipZigTest;
     var chain: native.SwapChain = .{ .effect = .flip_sequential, .swap_chain1 = @ptrFromInt(0x7000) };
     var buffer = native.BackBuffer{
@@ -768,7 +777,7 @@ test "present and rebind releases the old buffer before acquiring the next" {
     try std.testing.expectEqual(@as(u8, 'r'), stub.events[0]);
     try std.testing.expectEqual(@as(u8, 'r'), stub.events[1]);
     try std.testing.expectEqual(@as(u8, 'a'), stub.events[2]);
-    try std.testing.expectEqual(@as(u1, 0), buffer.buffer_index);
+    try std.testing.expectEqual(@as(u1, 1), buffer.buffer_index);
     try std.testing.expect(buffer.resource != null);
     try std.testing.expect(buffer.render_target_view != null);
 }

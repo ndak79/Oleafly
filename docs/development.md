@@ -63,7 +63,7 @@ Linux runners.
 ```
 zig version
 zig fmt --check build.zig build.zig.zon native/zig tools/zig
-zig build --fetch=all
+zig build deps-fetch --summary all
 zig build -Doptimize=Debug test --summary all
 zig build --release=safe test --summary all
 zig build --release=safe abi --summary all
@@ -106,8 +106,115 @@ flag, while FLIP_DISCARD requires full redraw. The waitable swap-chain,
 Direct2D/DirectWrite bridge now reuses that same device and shared DWrite
 format, with per-frame DXGI-surface targets. Editor, compiler workers, research
 ledger, publishing, authoritative capture, and full physical QA remain later
-slices. This is not full application completion. The Zig-owned t0-2-repro
-cutover is not implemented yet.
+slices. This is not full application completion. The Zig-owned `t0-2-repro`
+cutover is implemented as a fail-closed public gate: without two independently
+produced payload roots, a sealed network-none receipt, an authenticated role
+manifest, and a complete payload manifest it exits with
+`UNVERIFIED-NETWORK-ISOLATION` and never changes host networking. It also
+requires an authoritative clean source identity and explicit remote run ID /
+attempt; absent context is `UNVERIFIED-SOURCE-IDENTITY` or
+`UNVERIFIED-REMOTE-CI-RUN-IDS`, never a local-pass shortcut. A qualified
+invocation is:
+
+```
+zig build t0-2-repro -Dtarget=x86_64-windows-msvc --release=safe `
+  -Drepro-left=<absolute-first-payload-root> `
+  -Drepro-right=<absolute-second-payload-root> `
+  -Drepro-test-left=<absolute-first-cache-only-abi-root> `
+  -Drepro-test-right=<absolute-second-cache-only-abi-root> `
+  -Drepro-network-receipt=<absolute-network-receipt> `
+  -Drepro-role-manifest=<absolute-authenticated-role-manifest> `
+  -Drepro-payload-manifest=<absolute-complete-payload-manifest> --summary all
+```
+
+The T0.2c role manifest binds exactly the current UI product role
+(`UI=bin/TExFlow.exe`); `PdfWorker` and `ScienceWorker` are reserved for Tasks
+5 and 6 and are rejected now. The complete payload manifest lists every
+regular-file member with canonical path, size, and SHA-256. One combined
+Zig-owned invocation first checks all four supplied roots for lexical aliases
+and for equal opened filesystem identities, then walks both product roots
+without following reparse points, checks every manifest member in each root,
+and rejects extra or missing members. It separately compares the two
+cache-only `texflow_abi` roots with the exact test-artifact lane; that artifact
+never enters the install manifest.
+
+Only `compare-both` is the strict admission form. Its v2 network receipt binds
+the target, source commit, source-set/lock/build digests, remote run ID and
+attempt, raw role/payload manifest hashes, all four measured tree summaries,
+the five network-none fields, and its own canonical digest. This closes stale
+or cross-run evidence substitution; the receipt is still runner-supplied
+network evidence, so live detached-NIC enforcement remains an external gate.
+Missing sealed-runner evidence remains unverified.
+
+The complete manifest is LF-delimited and canonical:
+`texflow-payload-manifest-v1`, `authenticated=true`, `target=<target>`, sorted
+`member=<relative-path>|<bytes>|<sha256>` records, one `tree=<files>|<bytes>|<sha256>`
+summary, and a final `manifest_sha256=<sha256>` over the parsed fields. The
+manifest is an authenticated runner input; the hash binds its bytes but is not
+a signature.
+
+The same gate is wired into the `t0-2-repro-qualified` Windows job. It is
+restricted to trusted `main` push/manual runs, requires the repository variable
+`TEXFLOW_T0_2_REPRO_ENABLED=true`, and reads seven preprovisioned
+`TEXFLOW_T0_2_REPRO_*` roots/receipts/manifests on the labeled sealed runner.
+Pull requests never execute repository-controlled code on that self-hosted
+runner. The main-only `t0-2-admission-verdict` fails closed when any hosted,
+qualified, PDFium, or retention job is skipped or fails.
+
+### T0.2b PDFium source-reconstruction phases
+
+The exceptional PDFium lane is explicit about its phase and network
+authorization. `resolve` may only measure the locked source/recipe/toolchain
+closure and writes a candidate into the disposable evidence root; it never
+invokes GN, a compiler, or a linker and never changes the tracked lock.
+`reproduce` requires the reviewed `status=approved` lock, a fresh qualified
+runner, and the sealed network/process receipt before any build tool starts.
+Both commands require absolute paths and refuse to alter host networking:
+
+```text
+zig build deps-reproduce-pdfium -Dphase=resolve -Dallow-network=true \
+  -Drepro-root=<absolute-disposable-root> \
+  -Drepro-output=<absolute-candidate-receipt> --summary all
+zig build deps-reproduce-pdfium -Dphase=reproduce -Dallow-network=true \
+  -Drepro-root=<absolute-fresh-root> \
+  -Drepro-output=<absolute-reproduction-receipt> --summary all
+```
+
+The tracked `tools/zig/pdfium-repro-toolchain.json` is intentionally
+`status=unverified` until a qualified independent reconstruction supplies and
+reviews every measured toolchain/source/output field. Consequently the
+reproduce phase is fail-closed today; a local community DLL or ordinary hosted
+runner cannot promote T0.2b. The current same-run artifact restore checks three
+distinct files and binds artifact metadata to the reconstruction job's source
+run/attempt/SHA, but it is explicitly `independent_storage=false`; it is not a
+time-delayed durable-retention observation. The workflow now has a separate
+manual delayed-retention path: after at least 24 hours, dispatch the same
+workflow on `main` with `durable_source_run_id`, `durable_source_run_attempt`,
+`durable_source_head_sha`, and `durable_source_artifact_id`. That path queries
+the source run/job and artifact API, restores the immutable artifact into three
+fresh roots using an explicit cross-run artifact ID, checks the source
+metadata's created/expiry window, requires a different qualified Windows
+runner, and invokes `verify-restored --minimum-age-seconds 86400`. Its uploaded
+observation carries the source/revalidator identities, artifact window, and
+restore digests. The main-only admission verdict requires that delayed job as
+well, so a normal push or a manual dispatch without those inputs remains
+blocked rather than turning same-run visibility into durable evidence.
+
+The controller never patches the operator's source input in place. It requires
+an empty disposable root, an exact no-reparse source-only Git snapshot, and a
+separate complete gclient source closure whose `pdfium/` child is at the same
+locked commit/tree. It copies the entire closure into `<repro-root>/source`,
+rehashes the copied closure, and applies only the four Windows
+shared-library/public-header patches to its copied `pdfium/` child with
+absolute `git apply` argv, `--check`, `--recount`, and
+`--whitespace=error-all`. The generated Windows resource is deterministic
+(`154.0.8035.0`, copyright year `2026`); the post-patch prepared-workspace
+file count/byte count/SHA-256 is recorded in the candidate and must match the
+promoted lock before GN or Ninja runs. A failed or fuzzy patch therefore
+cannot be silently treated as an independent reconstruction. The resource
+compiler (`TEXFLOW_PDFIUM_RESOURCE_COMPILER`, normally the exact `rc.exe`) is
+also an explicit hashed tool input and its directory is the only non-system
+tool directory added for the patched resource rule.
 
 ### T0.2b static source boundary
 
@@ -282,11 +389,10 @@ zig build deps-audit --summary all
 `deps-fetch` is the sole ordinary command allowed to acquire native dependency
 bytes from the network. It first acquires the locked Unicode input needed for
 path-collision checks, then acquires the remaining ordinary artifacts. It does
-not install the operator-provisioned Accessibility Insights package. A future
-PDFium source-reconstruction command is a separately authorized, disposable
-machine lane and is not an alternative routine fetch path. `zig build
---fetch=all` concerns Zig package dependencies only and must not be used as a
-substitute for `deps-fetch`.
+not install the operator-provisioned Accessibility Insights package. PDFium
+source reconstruction is a separately authorized, disposable-machine lane and
+is not an alternative routine fetch path. Normal build/test commands do not
+use Zig's package-manager fetch mode implicitly.
 
 The other three commands are cache-only:
 
@@ -399,15 +505,15 @@ evidence. When no qualifying runner and receipt are available, record the exact
 status `UNVERIFIED-NETWORK-ISOLATION`; a successful local audit must not be
 reported as an offline pass.
 
-### T0.2a local delivery and remote-evidence inventory (2026-09-06)
+### T0.2a local delivery and remote-evidence inventory (historical snapshot, 2026-09-06)
 
 The local source-delivery proof was repeated from a no-network clone at
 `C:\Users\Ba Gau\AppData\Local\Temp\TExFlow-fresh-clone-t02a-20260906-221248`.
 The clone was clean on `main` at commit
 `4114db4d99c647e73f160aab9076791a95506592` (tree
 `0523008feef25a0cad17ff796eb8e0710e067fb2`). Its build help exposed
-`deps-manifest-test`, `deps-test`, `unicode-audit`, and `deps-audit`; `--fetch=all`
-completed, and ReleaseSafe `deps-manifest-test` and `deps-test` passed `17/17`
+`deps-manifest-test`, `deps-test`, `unicode-audit`, and `deps-audit`; the then-current
+`--fetch=all` completed, and ReleaseSafe `deps-manifest-test` and `deps-test` passed `17/17`
 and `152/152` tests respectively. This is local source-delivery evidence, not
 remote CI evidence.
 
@@ -429,20 +535,26 @@ hashing, immutable copies, no-follow parents, and distinct-file-identity
 checks (including no-overwrite and hard-link rejection) only, not independent
 physical retention.
 
-The committed workflow inventory (`.github/workflows/zig.yml`, SHA-256
-`4651138f2c6b29f0fd1e8757dcba39bae7c05c99`) is:
+The workflow inventory at that historical point (`.github/workflows/zig.yml`,
+SHA-256 `4651138f2c6b29f0fd1e8757dcba39bae7c05c99`) was:
 
 - `zig-windows`: verified Zig bootstrap, networked `deps-fetch`, cache-only
   `deps-test`, then Debug/ReleaseSafe native tests and later T0.2b/T0.2c gates.
 - `zig-linux`: verified Zig bootstrap, networked `deps-fetch`, cache-only
   `deps-test`, then Linux compile/runtime-appropriate checks.
 
-Neither workflow currently records standalone `unicode-audit` or `deps-audit`
-steps, and no hosted run/job identifiers are available in this local checkout.
-Therefore the following remain explicit statuses: `UNVERIFIED-REMOTE-CI-RUN-IDS`,
-`UNVERIFIED-NETWORK-ISOLATION`, `UNVERIFIED-DURABLE-RETENTION`, and
-`UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION`. Do not promote these statuses
-from a local passing audit or a static workflow inventory.
+Neither workflow recorded standalone `unicode-audit` or `deps-audit` steps at
+that point, and no hosted run/job identifiers were available in the local
+checkout. Do not use this dated snapshot as current workflow evidence.
+
+The superseding 2026-09-07 workflow (`.github/workflows/zig.yml`, SHA-256
+`d9c42b79a76f8d752cd187c2334dac568c24c999301717be20961369ce897095`) runs
+`unicode-audit` and `deps-audit` explicitly, uses `deps-fetch` as the only
+ordinary acquisition step, and contains the gated T0.2b resolve/reproduce and
+retention lanes. Hosted run identifiers, detached-NIC/network-none evidence,
+durable retention, and an independent PDFium reconstruction still require the
+corresponding external runners and receipts; local success must not promote
+those statuses.
 
 ## First run
 

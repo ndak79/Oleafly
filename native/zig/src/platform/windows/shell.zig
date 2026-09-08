@@ -16,6 +16,7 @@ pub const ExitCode = enum(i32) {
     message_failed = 15,
     window_cleanup_failed = 16,
     class_cleanup_failed = 17,
+    build_identity_failed = 18,
 };
 pub const Result = struct { code: ExitCode = .success, admission: ?entry.Admission = null };
 
@@ -43,6 +44,14 @@ pub fn run(allocator: std.mem.Allocator, arguments: []const [*:0]const u16, entr
 }
 
 fn runAdmitted(backend: anytype, code: *ExitCode, trace_trial: [16]u8) void {
+    const identity_authoritative = if (@hasDecl(@TypeOf(backend.*), "buildIdentityAuthoritative"))
+        backend.buildIdentityAuthoritative()
+    else
+        true;
+    if (@hasDecl(@TypeOf(backend.*), "verifyBuildIdentity") and identity_authoritative and !backend.verifyBuildIdentity()) {
+        code.* = .build_identity_failed;
+        return;
+    }
     if (!backend.restrictDllSearch()) {
         code.* = .dll_search_failed;
         return;
@@ -63,15 +72,20 @@ fn runAdmitted(backend: anytype, code: *ExitCode, trace_trial: [16]u8) void {
     defer if (!backend.unregisterClass() and code.* == .success) {
         code.* = .class_cleanup_failed;
     };
+    // Bind telemetry to the admission trial before the first native side
+    // effect.  The backend may still create its hidden bootstrap frame below,
+    // but no first-frame event can be emitted under an unset or mixed trial.
+    if (@hasDecl(@TypeOf(backend.*), "setTraceTrial")) backend.setTraceTrial(trace_trial);
+    if (@hasDecl(@TypeOf(backend.*), "startTelemetry")) backend.startTelemetry();
+    var destroy_needed = @hasDecl(@TypeOf(backend.*), "startTelemetry");
+    defer if (destroy_needed and !backend.destroyWindow() and code.* == .success) {
+        code.* = .window_cleanup_failed;
+    };
     if (!backend.createWindow()) {
         code.* = .window_failed;
         return;
     }
-    if (@hasDecl(@TypeOf(backend.*), "setTraceTrial")) backend.setTraceTrial(trace_trial);
-    if (@hasDecl(@TypeOf(backend.*), "startTelemetry")) backend.startTelemetry();
-    defer if (!backend.destroyWindow() and code.* == .success) {
-        code.* = .window_cleanup_failed;
-    };
+    destroy_needed = true;
     backend.showWindow();
     while (true) {
         const status = backend.getMessage();

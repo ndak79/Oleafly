@@ -47,6 +47,7 @@ pub const State = struct {
     busy: bool = false,
     offscreen: bool = false,
     error_state: bool = false,
+    checked: bool = false,
 };
 
 pub const Bounds = struct {

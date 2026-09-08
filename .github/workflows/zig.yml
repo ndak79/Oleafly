@@ -22,13 +22,38 @@ on:
       - ".gitattributes"
       - ".github/workflows/zig.yml"
   workflow_dispatch:
+    inputs:
+      durable_source_run_id:
+        description: "Completed main run that produced the qualified PDFium artifact"
+        required: false
+        type: string
+      durable_source_run_attempt:
+        description: "Run attempt of the qualified PDFium source run"
+        required: false
+        type: string
+      durable_source_head_sha:
+        description: "40-hex head SHA recorded by the qualified PDFium source run"
+        required: false
+        type: string
+      durable_source_artifact_id:
+        description: "Artifact ID for texflow-pdfium-repro from the qualified source run"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: texflow-native-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # Build identity is collected from the exact checked-out commit in hosted
+  # CI, not from a mutable index that could drift during the job.
+  TEXFLOW_SOURCE_COMMIT: ${{ github.sha }}
+  TEXFLOW_REMOTE_RUN_ID: ${{ github.run_id }}
+  TEXFLOW_REMOTE_RUN_ATTEMPT: ${{ github.run_attempt }}
 
 jobs:
   zig-windows:
@@ -69,6 +94,122 @@ jobs:
           (Split-Path -Parent $zigExe) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "ZIG_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      - name: Resolve Git executable for identity attestation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = (Get-Command git -ErrorAction Stop).Source
+          "TEXFLOW_GIT_PATH=$git" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Capture hosted run identity (PDFium remains explicitly unverified)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $receipt = Join-Path $env:RUNNER_TEMP "texflow-remote-proof-windows.json"
+          & zig run tools/zig/pdfium_reproduce.zig -- remote-proof --output $receipt --scope standard
+          if ($LASTEXITCODE -ne 0) { throw "hosted run identity proof failed ($LASTEXITCODE)" }
+
+      - name: Retain hosted run identity proof
+        id: upload-remote-proof-windows
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-remote-proof-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-remote-proof-windows.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Restore hosted run identity proof (exact artifact ID)
+        id: restore-remote-proof-windows-a
+        if: ${{ steps.upload-remote-proof-windows.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.upload-remote-proof-windows.outputs.artifact-id }}
+          path: ${{ runner.temp }}/texflow-remote-proof-windows-restore-a
+
+      - name: Restore hosted run identity proof again (fresh root)
+        id: restore-remote-proof-windows-b
+        if: ${{ steps.upload-remote-proof-windows.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.upload-remote-proof-windows.outputs.artifact-id }}
+          path: ${{ runner.temp }}/texflow-remote-proof-windows-restore-b
+
+      - name: Attest hosted proof artifact metadata
+        id: metadata-remote-proof-windows
+        shell: pwsh
+        if: ${{ steps.restore-remote-proof-windows-b.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-remote-proof-windows.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-remote-proof-windows.outputs.artifact-digest }}
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-remote-proof-windows.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $api = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID" | ConvertFrom-Json
+          if ($api.id.ToString() -ne $env:ARTIFACT_ID -or
+              $api.name -ne "texflow-remote-proof-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -or
+              $api.digest -ne $env:ARTIFACT_DIGEST -or
+              $api.expired -ne $false -or
+              $api.workflow_run.id.ToString() -ne $env:GITHUB_RUN_ID -or
+              $api.workflow_run.head_sha -ne $env:GITHUB_SHA) {
+            throw "GitHub artifact metadata does not match the producing run"
+          }
+          @(
+            "schema=texflow-github-artifact-v1"
+            "id=$($api.id)"
+            "name=$($api.name)"
+            "digest=$($api.digest)"
+            "repository=$env:GITHUB_REPOSITORY"
+            "run_id=$($api.workflow_run.id)"
+            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
+            "head_sha=$($api.workflow_run.head_sha)"
+            "size_bytes=$($api.size_in_bytes)"
+            "expired=$($api.expired.ToString().ToLowerInvariant())"
+            "created_at=$([DateTimeOffset]::Parse($api.created_at).ToUnixTimeSeconds())"
+            "expires_at=$([DateTimeOffset]::Parse($api.expires_at).ToUnixTimeSeconds())"
+          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+
+      - name: Verify hosted proof retention roundtrip
+        id: verify-remote-proof-windows
+        if: ${{ steps.metadata-remote-proof-windows.outcome == 'success' }}
+        shell: pwsh
+        env:
+          ARTIFACT_NAME: texflow-remote-proof-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          ARTIFACT_ID: ${{ steps.upload-remote-proof-windows.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-remote-proof-windows.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-remote-proof-windows.outputs.artifact-url }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $argv = @(
+            "run", "tools/zig/pdfium_reproduce.zig", "--", "verify-restored",
+            "--receipt", (Join-Path $env:RUNNER_TEMP "texflow-remote-proof-windows.json"),
+            "--output", (Join-Path $env:RUNNER_TEMP "texflow-remote-proof-windows.retention.json"),
+            "--restored-receipt", (Join-Path $env:RUNNER_TEMP "texflow-remote-proof-windows-restore-a\texflow-remote-proof-windows.json"),
+            "--restored-receipt-2", (Join-Path $env:RUNNER_TEMP "texflow-remote-proof-windows-restore-b\texflow-remote-proof-windows.json"),
+            "--artifact-prefix", "texflow-remote-proof-windows",
+            "--artifact-name", $env:ARTIFACT_NAME,
+            "--artifact-id", $env:ARTIFACT_ID,
+            "--artifact-digest", $env:ARTIFACT_DIGEST,
+            "--artifact-url", $env:ARTIFACT_URL,
+            "--artifact-metadata", (Join-Path $env:RUNNER_TEMP "texflow-remote-proof-windows.artifact"),
+            "--retention-days", "90"
+          )
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "hosted retention verification failed ($LASTEXITCODE)" }
+
+      - name: Retain hosted proof retention observation
+        if: ${{ steps.verify-remote-proof-windows.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-remote-proof-windows-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-remote-proof-windows.retention.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Acquire and verify locked native dependencies
         shell: pwsh
         run: |
@@ -97,9 +238,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
-          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig tools/zig/scintilla_probe.zig tools/zig/pe_audit.zig tools/zig/shipped_pe_inventory.zig tools/zig/scintilla_native_probe.zig
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" unicode-audit --summary all -j1
+          zig build "-Dnative-deps-root=$env:TEXFLOW_NATIVE_DEPS_ROOT" deps-audit --summary all -j1
+          zig fmt --check build.zig build.zig.zon native/zig tools/zig/source_identity.zig tools/zig/pdfium_reproduce.zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig tools/zig/scintilla_probe.zig tools/zig/pe_audit.zig tools/zig/shipped_pe_inventory.zig tools/zig/scintilla_native_probe.zig
           $translated = Join-Path $env:RUNNER_TEMP "texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h | Out-File -FilePath $translated -Encoding utf8
           if (-not (Select-String -LiteralPath $translated -Pattern "texflow_abi_get_version" -Quiet)) { throw "translated header omitted texflow_abi_get_version" }
@@ -223,6 +365,601 @@ jobs:
           if ($hashA -ne $hashB) { throw "ReleaseSafe build is not reproducible: $hashA != $hashB" }
           Write-Output "ReleaseSafe SHA-256: $hashA"
 
+  t0-2-repro-qualified:
+    name: T0.2 two-root reproducibility (qualified runner only)
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.TEXFLOW_T0_2_REPRO_ENABLED == 'true' }}
+    runs-on: [self-hosted, windows, texflow-repro-qualified]
+    timeout-minutes: 45
+    env:
+      TEXFLOW_T0_2_REPRO_LEFT: ${{ vars.TEXFLOW_T0_2_REPRO_LEFT }}
+      TEXFLOW_T0_2_REPRO_RIGHT: ${{ vars.TEXFLOW_T0_2_REPRO_RIGHT }}
+      TEXFLOW_T0_2_REPRO_TEST_LEFT: ${{ vars.TEXFLOW_T0_2_REPRO_TEST_LEFT }}
+      TEXFLOW_T0_2_REPRO_TEST_RIGHT: ${{ vars.TEXFLOW_T0_2_REPRO_TEST_RIGHT }}
+      TEXFLOW_T0_2_REPRO_NETWORK_RECEIPT: ${{ vars.TEXFLOW_T0_2_REPRO_NETWORK_RECEIPT }}
+      TEXFLOW_T0_2_REPRO_ROLE_MANIFEST: ${{ vars.TEXFLOW_T0_2_REPRO_ROLE_MANIFEST }}
+      TEXFLOW_T0_2_REPRO_PAYLOAD_MANIFEST: ${{ vars.TEXFLOW_T0_2_REPRO_PAYLOAD_MANIFEST }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve Git executable for identity attestation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = (Get-Command git -ErrorAction Stop).Source
+          "TEXFLOW_GIT_PATH=$git" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify preprovisioned Zig 0.16.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ((& zig version).Trim() -ne "0.16.0") { throw "qualified runner must provide Zig 0.16.0 offline" }
+
+      - name: Compare complete payloads from the sealed runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $argv = @(
+            "build", "t0-2-repro", "-Dtarget=x86_64-windows-msvc", "--release=safe",
+            "-Drepro-left=$env:TEXFLOW_T0_2_REPRO_LEFT",
+            "-Drepro-right=$env:TEXFLOW_T0_2_REPRO_RIGHT",
+            "-Drepro-test-left=$env:TEXFLOW_T0_2_REPRO_TEST_LEFT",
+            "-Drepro-test-right=$env:TEXFLOW_T0_2_REPRO_TEST_RIGHT",
+            "-Drepro-network-receipt=$env:TEXFLOW_T0_2_REPRO_NETWORK_RECEIPT",
+            "-Drepro-role-manifest=$env:TEXFLOW_T0_2_REPRO_ROLE_MANIFEST",
+            "-Drepro-payload-manifest=$env:TEXFLOW_T0_2_REPRO_PAYLOAD_MANIFEST",
+            "--summary", "all", "-j1"
+          )
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "qualified two-root reproducibility gate failed ($LASTEXITCODE)" }
+
+  pdfium-reconstruction-scope:
+    name: PDFium reconstruction scope (standard runner is unverified)
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Bootstrap verified Zig 0.16.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $manifest = Get-Content -LiteralPath "tools/zig/toolchain.json" -Raw | ConvertFrom-Json
+          if ($manifest.schema_version -ne 1 -or $manifest.zig_version -ne "0.16.0") { throw "unsupported Zig manifest" }
+          $artifact = $manifest.artifacts.windows_x86_64
+          $uri = [Uri]$artifact.url
+          if ($uri.Scheme -ne "https" -or $uri.Host -ne "ziglang.org" -or $artifact.archive_format -ne "zip") { throw "untrusted Zig archive" }
+          if ($artifact.root_directory -ne "zig-x86_64-windows-0.16.0" -or $uri.AbsolutePath -ne "/download/0.16.0/zig-x86_64-windows-0.16.0.zip") { throw "unexpected Zig archive" }
+          $archive = Join-Path $env:RUNNER_TEMP "zig-x86_64-windows-0.16.0.zip"
+          Invoke-WebRequest -Uri $artifact.url -OutFile $archive
+          $item = Get-Item -LiteralPath $archive
+          if ([int64]$item.Length -ne [int64]$artifact.archive_size_bytes) { throw "Zig archive size mismatch" }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant() -ne $artifact.sha256.ToLowerInvariant()) { throw "Zig archive SHA-256 mismatch" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP -Force
+          $zigExe = Join-Path (Join-Path $env:RUNNER_TEMP $artifact.root_directory) "zig.exe"
+          if (-not (Test-Path -LiteralPath $zigExe -PathType Leaf) -or (& $zigExe version).Trim() -ne "0.16.0") { throw "verified Zig executable missing or wrong version" }
+           (Split-Path -Parent $zigExe) | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Resolve Git executable for identity attestation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = (Get-Command git -ErrorAction Stop).Source
+          "TEXFLOW_GIT_PATH=$git" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Record standard-hosted PDFium status
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $receipt = Join-Path $env:RUNNER_TEMP "texflow-pdfium-scope.json"
+          & zig run tools/zig/pdfium_reproduce.zig -- remote-proof --output $receipt --scope pdfium
+          if ($LASTEXITCODE -ne 0) { throw "PDFium scope receipt failed ($LASTEXITCODE)" }
+
+      - name: Retain standard-hosted PDFium status
+        id: upload-pdfium-scope
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-pdfium-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-pdfium-scope.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Restore standard-hosted PDFium status (exact artifact ID)
+        id: restore-pdfium-scope-a
+        if: ${{ steps.upload-pdfium-scope.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.upload-pdfium-scope.outputs.artifact-id }}
+          path: ${{ runner.temp }}/texflow-pdfium-scope-restore-a
+
+      - name: Restore standard-hosted PDFium status again (fresh root)
+        id: restore-pdfium-scope-b
+        if: ${{ steps.upload-pdfium-scope.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.upload-pdfium-scope.outputs.artifact-id }}
+          path: ${{ runner.temp }}/texflow-pdfium-scope-restore-b
+
+      - name: Attest standard-hosted PDFium artifact metadata
+        id: metadata-pdfium-scope
+        shell: pwsh
+        if: ${{ steps.restore-pdfium-scope-b.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-pdfium-scope.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-pdfium-scope.outputs.artifact-digest }}
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-pdfium-scope.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $api = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID" | ConvertFrom-Json
+          if ($api.id.ToString() -ne $env:ARTIFACT_ID -or
+              $api.name -ne "texflow-pdfium-scope-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -or
+              $api.digest -ne $env:ARTIFACT_DIGEST -or
+              $api.expired -ne $false -or
+              $api.workflow_run.id.ToString() -ne $env:GITHUB_RUN_ID -or
+              $api.workflow_run.head_sha -ne $env:GITHUB_SHA) {
+            throw "GitHub artifact metadata does not match the producing run"
+          }
+          @(
+            "schema=texflow-github-artifact-v1"
+            "id=$($api.id)"
+            "name=$($api.name)"
+            "digest=$($api.digest)"
+            "repository=$env:GITHUB_REPOSITORY"
+            "run_id=$($api.workflow_run.id)"
+            "run_attempt=$env:GITHUB_RUN_ATTEMPT"
+            "head_sha=$($api.workflow_run.head_sha)"
+            "size_bytes=$($api.size_in_bytes)"
+            "expired=$($api.expired.ToString().ToLowerInvariant())"
+            "created_at=$([DateTimeOffset]::Parse($api.created_at).ToUnixTimeSeconds())"
+            "expires_at=$([DateTimeOffset]::Parse($api.expires_at).ToUnixTimeSeconds())"
+          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+
+      - name: Verify standard-hosted PDFium retention roundtrip
+        id: verify-pdfium-scope
+        if: ${{ steps.metadata-pdfium-scope.outcome == 'success' }}
+        shell: pwsh
+        env:
+          ARTIFACT_NAME: texflow-pdfium-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          ARTIFACT_ID: ${{ steps.upload-pdfium-scope.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-pdfium-scope.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-pdfium-scope.outputs.artifact-url }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $argv = @(
+            "run", "tools/zig/pdfium_reproduce.zig", "--", "verify-restored",
+            "--receipt", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-scope.json"),
+            "--output", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-scope.retention.json"),
+            "--restored-receipt", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-scope-restore-a\texflow-pdfium-scope.json"),
+            "--restored-receipt-2", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-scope-restore-b\texflow-pdfium-scope.json"),
+            "--artifact-prefix", "texflow-pdfium-scope",
+            "--artifact-name", $env:ARTIFACT_NAME,
+            "--artifact-id", $env:ARTIFACT_ID,
+            "--artifact-digest", $env:ARTIFACT_DIGEST,
+            "--artifact-url", $env:ARTIFACT_URL,
+            "--artifact-metadata", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-scope.artifact"),
+            "--retention-days", "90"
+          )
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "PDFium scope retention verification failed ($LASTEXITCODE)" }
+
+      - name: Retain standard-hosted PDFium retention observation
+        if: ${{ steps.verify-pdfium-scope.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-pdfium-scope-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-pdfium-scope.retention.json
+          if-no-files-found: error
+          retention-days: 90
+
+  pdfium-reconstruction:
+    name: PDFium independent reconstruction (qualified runner only)
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.TEXFLOW_PDFIUM_REPRO_ENABLED == 'true' }}
+    runs-on: [self-hosted, windows, pdfium-qualified]
+    timeout-minutes: 180
+    env:
+      TEXFLOW_PDFIUM_QUALIFIED_RUNNER: "true"
+      TEXFLOW_PDFIUM_REPRO_ROOT: ${{ vars.TEXFLOW_PDFIUM_REPRO_ROOT }}
+      TEXFLOW_PDFIUM_SOURCE_ROOT: ${{ vars.TEXFLOW_PDFIUM_SOURCE_ROOT }}
+      TEXFLOW_PDFIUM_SOURCE_CLOSURE_ROOT: ${{ vars.TEXFLOW_PDFIUM_SOURCE_CLOSURE_ROOT }}
+      TEXFLOW_PDFIUM_RECIPE_ROOT: ${{ vars.TEXFLOW_PDFIUM_RECIPE_ROOT }}
+      TEXFLOW_PDFIUM_RECIPE_ARCHIVE: ${{ vars.TEXFLOW_PDFIUM_RECIPE_ARCHIVE }}
+      TEXFLOW_PDFIUM_DEPOT_TOOLS_ROOT: ${{ vars.TEXFLOW_PDFIUM_DEPOT_TOOLS_ROOT }}
+      TEXFLOW_PDFIUM_NETWORK_ATTESTATION: ${{ vars.TEXFLOW_PDFIUM_NETWORK_ATTESTATION }}
+      TEXFLOW_PDFIUM_NETWORK_ATTESTATION_SHA256: ${{ vars.TEXFLOW_PDFIUM_NETWORK_ATTESTATION_SHA256 }}
+      TEXFLOW_PDFIUM_BUILD_ROOT: ${{ vars.TEXFLOW_PDFIUM_BUILD_ROOT }}
+      TEXFLOW_PDFIUM_OUTPUT: ${{ vars.TEXFLOW_PDFIUM_OUTPUT }}
+      TEXFLOW_PDFIUM_GIT: ${{ vars.TEXFLOW_PDFIUM_GIT }}
+      TEXFLOW_PDFIUM_GN: ${{ vars.TEXFLOW_PDFIUM_GN }}
+      TEXFLOW_PDFIUM_NINJA: ${{ vars.TEXFLOW_PDFIUM_NINJA }}
+      TEXFLOW_PDFIUM_COMPILER: ${{ vars.TEXFLOW_PDFIUM_COMPILER }}
+      TEXFLOW_PDFIUM_LINKER: ${{ vars.TEXFLOW_PDFIUM_LINKER }}
+      TEXFLOW_PDFIUM_PYTHON: ${{ vars.TEXFLOW_PDFIUM_PYTHON }}
+      TEXFLOW_PDFIUM_RESOURCE_COMPILER: ${{ vars.TEXFLOW_PDFIUM_RESOURCE_COMPILER }}
+      TEXFLOW_PDFIUM_RUNNER_IMAGE_SHA256: ${{ vars.TEXFLOW_PDFIUM_RUNNER_IMAGE_SHA256 }}
+      TEXFLOW_PDFIUM_IMAGE_OS: ${{ vars.TEXFLOW_PDFIUM_IMAGE_OS }}
+      TEXFLOW_PDFIUM_IMAGE_VERSION: ${{ vars.TEXFLOW_PDFIUM_IMAGE_VERSION }}
+      TEXFLOW_PDFIUM_VISUAL_STUDIO_SHA256: ${{ vars.TEXFLOW_PDFIUM_VISUAL_STUDIO_SHA256 }}
+      TEXFLOW_PDFIUM_WINDOWS_SDK_VERSION: ${{ vars.TEXFLOW_PDFIUM_WINDOWS_SDK_VERSION }}
+      TEXFLOW_PDFIUM_WINDOWS_SDK_SHA256: ${{ vars.TEXFLOW_PDFIUM_WINDOWS_SDK_SHA256 }}
+      TEXFLOW_PDFIUM_TOOLCHAIN_CLOSURE_SHA256: ${{ vars.TEXFLOW_PDFIUM_TOOLCHAIN_CLOSURE_SHA256 }}
+    outputs:
+      artifact_id: ${{ steps.upload-pdfium-repro.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-pdfium-repro.outputs.artifact-digest }}
+      artifact_url: ${{ steps.upload-pdfium-repro.outputs.artifact-url }}
+      artifact_name: texflow-pdfium-repro-${{ github.run_id }}-${{ github.run_attempt }}
+      run_id: ${{ github.run_id }}
+      run_attempt: ${{ github.run_attempt }}
+      head_sha: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve Git executable for identity attestation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = (Get-Command git -ErrorAction Stop).Source
+          "TEXFLOW_GIT_PATH=$git" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify preprovisioned Zig 0.16.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (& zig version).Trim()
+          if ($version -ne "0.16.0") { throw "qualified runner must provide Zig 0.16.0 without a network bootstrap" }
+
+      - name: Materialize the tracked PDFium lock outside the checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $approved = Join-Path $env:RUNNER_TEMP "texflow-pdfium-approved-receipt.json"
+          Copy-Item -LiteralPath "tools/zig/pdfium-repro-toolchain.json" -Destination $approved -Force
+          "TEXFLOW_PDFIUM_APPROVED_RECEIPT=$approved" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Reconstruct PDFium from offline inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $receipt = Join-Path $env:RUNNER_TEMP "texflow-pdfium-repro.json"
+          $argv = @("run", "tools/zig/pdfium_reproduce.zig", "--", "reproduce", "--receipt", $receipt)
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "PDFium reconstruction failed closed ($LASTEXITCODE)" }
+
+      - name: Retain PDFium reconstruction receipt
+        id: upload-pdfium-repro
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-pdfium-repro-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-pdfium-repro.json
+          if-no-files-found: error
+          retention-days: 90
+
+
+  pdfium-retention-revalidation:
+    name: PDFium retention revalidation (fresh qualified runner)
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.pdfium-reconstruction.result == 'success' }}
+    needs: pdfium-reconstruction
+    runs-on: [self-hosted, windows, pdfium-qualified]
+    timeout-minutes: 30
+    env:
+      TEXFLOW_PDFIUM_QUALIFIED_RUNNER: "true"
+      TEXFLOW_PDFIUM_RUNNER_IMAGE_SHA256: ${{ vars.TEXFLOW_PDFIUM_RUNNER_IMAGE_SHA256 }}
+      TEXFLOW_PDFIUM_IMAGE_OS: ${{ vars.TEXFLOW_PDFIUM_IMAGE_OS }}
+      TEXFLOW_PDFIUM_IMAGE_VERSION: ${{ vars.TEXFLOW_PDFIUM_IMAGE_VERSION }}
+      ARTIFACT_ID: ${{ needs.pdfium-reconstruction.outputs.artifact_id }}
+      ARTIFACT_DIGEST: ${{ needs.pdfium-reconstruction.outputs.artifact_digest }}
+      ARTIFACT_URL: ${{ needs.pdfium-reconstruction.outputs.artifact_url }}
+      ARTIFACT_NAME: ${{ needs.pdfium-reconstruction.outputs.artifact_name }}
+      SOURCE_RUN_ID: ${{ needs.pdfium-reconstruction.outputs.run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.pdfium-reconstruction.outputs.run_attempt }}
+      SOURCE_HEAD_SHA: ${{ needs.pdfium-reconstruction.outputs.head_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve Git executable for identity attestation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = (Get-Command git -ErrorAction Stop).Source
+          "TEXFLOW_GIT_PATH=$git" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify preprovisioned Zig 0.16.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ((& zig version).Trim() -ne "0.16.0") { throw "qualified retention runner must provide Zig 0.16.0 offline" }
+
+      - name: Restore PDFium receipt into disjoint roots
+        id: restore-pdfium-retention
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ needs.pdfium-reconstruction.outputs.artifact_id }}
+          path: ${{ runner.temp }}/texflow-pdfium-retention-a
+
+      - name: Restore PDFium receipt a second time
+        id: restore-pdfium-retention-2
+        if: ${{ steps.restore-pdfium-retention.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ needs.pdfium-reconstruction.outputs.artifact_id }}
+          path: ${{ runner.temp }}/texflow-pdfium-retention-b
+
+      - name: Restore PDFium receipt as an independent retention oracle
+        id: restore-pdfium-retention-oracle
+        if: ${{ steps.restore-pdfium-retention-2.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ needs.pdfium-reconstruction.outputs.artifact_id }}
+          path: ${{ runner.temp }}/texflow-pdfium-retention-oracle
+
+      - name: Attest retained PDFium artifact metadata
+        id: metadata-pdfium-retention
+        if: ${{ steps.restore-pdfium-retention-oracle.outcome == 'success' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-pdfium-repro.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $api = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID" | ConvertFrom-Json
+          if ($api.id.ToString() -ne $env:ARTIFACT_ID -or
+              $api.name -ne $env:ARTIFACT_NAME -or
+              $api.digest -ne $env:ARTIFACT_DIGEST -or
+              $api.expired -ne $false -or
+              $api.workflow_run.id.ToString() -ne $env:SOURCE_RUN_ID -or
+              $api.workflow_run.head_sha -ne $env:SOURCE_HEAD_SHA) {
+            throw "GitHub artifact metadata does not match the qualified reconstruction run"
+          }
+          @(
+            "schema=texflow-github-artifact-v1"
+            "id=$($api.id)"
+            "name=$($api.name)"
+            "digest=$($api.digest)"
+            "repository=$env:GITHUB_REPOSITORY"
+            "run_id=$($api.workflow_run.id)"
+            "run_attempt=$env:SOURCE_RUN_ATTEMPT"
+            "head_sha=$($api.workflow_run.head_sha)"
+            "size_bytes=$($api.size_in_bytes)"
+            "expired=$($api.expired.ToString().ToLowerInvariant())"
+            "created_at=$([DateTimeOffset]::Parse($api.created_at).ToUnixTimeSeconds())"
+            "expires_at=$([DateTimeOffset]::Parse($api.expires_at).ToUnixTimeSeconds())"
+          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+
+      - name: Verify retained PDFium receipt and complete manifest hash
+        id: verify-pdfium-retention
+        if: ${{ steps.metadata-pdfium-retention.outcome == 'success' }}
+        shell: pwsh
+        env:
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-pdfium-repro.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $expected = Join-Path $env:RUNNER_TEMP "texflow-pdfium-retention-oracle\texflow-pdfium-repro.json"
+          $receipt = Join-Path $env:RUNNER_TEMP "texflow-pdfium-retention-a\texflow-pdfium-repro.json"
+          $restored = Join-Path $env:RUNNER_TEMP "texflow-pdfium-retention-b\texflow-pdfium-repro.json"
+          $observation = Join-Path $env:RUNNER_TEMP "texflow-pdfium-repro.retention.json"
+          $argv = @(
+            "run", "tools/zig/pdfium_reproduce.zig", "--", "verify-restored",
+            "--receipt", $expected, "--output", $observation,
+            "--restored-receipt", $receipt, "--restored-receipt-2", $restored,
+            "--artifact-prefix", "texflow-pdfium-repro", "--artifact-name", $env:ARTIFACT_NAME,
+            "--artifact-id", $env:ARTIFACT_ID, "--artifact-digest", $env:ARTIFACT_DIGEST,
+            "--artifact-url", $env:ARTIFACT_URL, "--artifact-metadata", $env:ARTIFACT_METADATA,
+            "--retention-days", "90"
+          )
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "qualified PDFium retention verification failed ($LASTEXITCODE)" }
+
+      - name: Bind verified PDFium receipt after fresh retention revalidation
+        id: bind-pdfium-retention
+        if: ${{ steps.verify-pdfium-retention.outcome == 'success' }}
+        shell: pwsh
+        env:
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-pdfium-repro.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $receipt = Join-Path $env:RUNNER_TEMP "texflow-pdfium-retention-a\texflow-pdfium-repro.json"
+          $restored = Join-Path $env:RUNNER_TEMP "texflow-pdfium-retention-b\texflow-pdfium-repro.json"
+          $binding = Join-Path $env:RUNNER_TEMP "texflow-pdfium-repro.binding.json"
+          $argv = @(
+            "run", "tools/zig/pdfium_reproduce.zig", "--", "bind-artifact",
+            "--receipt", $receipt, "--output", $binding, "--artifact-prefix", "texflow-pdfium-repro",
+            "--artifact-name", $env:ARTIFACT_NAME, "--artifact-id", $env:ARTIFACT_ID,
+            "--artifact-digest", $env:ARTIFACT_DIGEST, "--artifact-url", $env:ARTIFACT_URL,
+            "--artifact-metadata", $env:ARTIFACT_METADATA, "--retention-days", "90",
+            "--restored-receipt", $restored
+          )
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "qualified PDFium artifact binding failed ($LASTEXITCODE)" }
+
+      - name: Retain PDFium retention observation
+        if: ${{ steps.verify-pdfium-retention.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-pdfium-repro-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-pdfium-repro.retention.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Retain verified PDFium artifact binding
+        if: ${{ steps.bind-pdfium-retention.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-pdfium-repro-binding-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-pdfium-repro.binding.json
+          if-no-files-found: error
+          retention-days: 90
+
+  pdfium-retention-delayed:
+    name: PDFium durable retention (delayed qualified runner)
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.durable_source_run_id != '' && inputs.durable_source_run_attempt != '' && inputs.durable_source_head_sha != '' && inputs.durable_source_artifact_id != '' && vars.TEXFLOW_PDFIUM_REPRO_ENABLED == 'true' }}
+    runs-on: [self-hosted, windows, pdfium-qualified]
+    timeout-minutes: 30
+    env:
+      TEXFLOW_PDFIUM_QUALIFIED_RUNNER: "true"
+      TEXFLOW_PDFIUM_RUNNER_IMAGE_SHA256: ${{ vars.TEXFLOW_PDFIUM_RUNNER_IMAGE_SHA256 }}
+      TEXFLOW_PDFIUM_IMAGE_OS: ${{ vars.TEXFLOW_PDFIUM_IMAGE_OS }}
+      TEXFLOW_PDFIUM_IMAGE_VERSION: ${{ vars.TEXFLOW_PDFIUM_IMAGE_VERSION }}
+      DURABLE_SOURCE_RUN_ID: ${{ inputs.durable_source_run_id }}
+      DURABLE_SOURCE_RUN_ATTEMPT: ${{ inputs.durable_source_run_attempt }}
+      DURABLE_SOURCE_HEAD_SHA: ${{ inputs.durable_source_head_sha }}
+      DURABLE_SOURCE_ARTIFACT_ID: ${{ inputs.durable_source_artifact_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve Git executable for identity attestation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $git = (Get-Command git -ErrorAction Stop).Source
+          "TEXFLOW_GIT_PATH=$git" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify preprovisioned Zig 0.16.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ((& zig version).Trim() -ne "0.16.0") { throw "qualified retention runner must provide Zig 0.16.0 offline" }
+
+      - name: Bind source run and artifact through the GitHub API
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-pdfium-durable.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($env:DURABLE_SOURCE_RUN_ID -notmatch '^[1-9][0-9]*$' -or
+              $env:DURABLE_SOURCE_RUN_ATTEMPT -notmatch '^[1-9][0-9]*$' -or
+              $env:DURABLE_SOURCE_HEAD_SHA -notmatch '^[0-9a-f]{40}$' -or
+              $env:DURABLE_SOURCE_ARTIFACT_ID -notmatch '^[1-9][0-9]*$') {
+            throw "durable retention inputs must be positive decimal IDs and a lowercase 40-hex source SHA"
+          }
+          $repo = $env:GITHUB_REPOSITORY
+          $source = gh api "repos/$repo/actions/runs/$env:DURABLE_SOURCE_RUN_ID" | ConvertFrom-Json
+          $sourceAttempt = [string]$source.run_attempt
+          if ($source.id.ToString() -ne $env:DURABLE_SOURCE_RUN_ID -or
+              $sourceAttempt -ne $env:DURABLE_SOURCE_RUN_ATTEMPT -or
+              $source.status -ne "completed" -or
+              $source.head_branch -ne "main" -or
+              ($source.event -ne "push" -and $source.event -ne "workflow_dispatch") -or
+              $source.head_sha -ne $env:DURABLE_SOURCE_HEAD_SHA -or
+              $source.repository.full_name -ne $repo) {
+            throw "source workflow run identity is not an eligible completed main run"
+          }
+          $jobs = gh api "repos/$repo/actions/runs/$env:DURABLE_SOURCE_RUN_ID/jobs?per_page=100" | ConvertFrom-Json
+          $qualified = @($jobs.jobs | Where-Object {
+            $_.name -eq "PDFium independent reconstruction (qualified runner only)" -and
+            $_.status -eq "completed" -and $_.conclusion -eq "success"
+          })
+          if ($qualified.Count -ne 1) { throw "source run does not contain exactly one successful qualified PDFium reconstruction job" }
+          $artifact = gh api "repos/$repo/actions/artifacts/$env:DURABLE_SOURCE_ARTIFACT_ID" | ConvertFrom-Json
+          $expectedName = "texflow-pdfium-repro-$env:DURABLE_SOURCE_RUN_ID-$env:DURABLE_SOURCE_RUN_ATTEMPT"
+          if ($artifact.id.ToString() -ne $env:DURABLE_SOURCE_ARTIFACT_ID -or
+              $artifact.name -ne $expectedName -or
+              $artifact.expired -ne $false -or
+              $artifact.digest -notmatch '^sha256:[0-9a-f]{64}$' -or
+              $artifact.workflow_run.id.ToString() -ne $env:DURABLE_SOURCE_RUN_ID -or
+              $artifact.workflow_run.head_sha -ne $env:DURABLE_SOURCE_HEAD_SHA) {
+            throw "source artifact is not bound to the qualified reconstruction run"
+          }
+          $createdAt = [DateTimeOffset]::Parse($artifact.created_at).ToUnixTimeSeconds()
+          $expiresAt = [DateTimeOffset]::Parse($artifact.expires_at).ToUnixTimeSeconds()
+          @(
+            "schema=texflow-github-artifact-v1"
+            "id=$($artifact.id)"
+            "name=$($artifact.name)"
+            "digest=$($artifact.digest)"
+            "repository=$repo"
+            "run_id=$env:DURABLE_SOURCE_RUN_ID"
+            "run_attempt=$env:DURABLE_SOURCE_RUN_ATTEMPT"
+            "head_sha=$env:DURABLE_SOURCE_HEAD_SHA"
+            "size_bytes=$($artifact.size_in_bytes)"
+            "expired=$($artifact.expired.ToString().ToLowerInvariant())"
+            "created_at=$createdAt"
+            "expires_at=$expiresAt"
+          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+          "DURABLE_ARTIFACT_NAME=$expectedName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DURABLE_ARTIFACT_DIGEST=$($artifact.digest)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DURABLE_ARTIFACT_URL=https://github.com/$repo/actions/runs/$env:DURABLE_SOURCE_RUN_ID/artifacts/$env:DURABLE_SOURCE_ARTIFACT_ID" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "DURABLE_ARTIFACT_METADATA=$env:ARTIFACT_METADATA" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Restore source artifact after the retention interval (oracle)
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.durable_source_run_id }}
+          artifact-ids: ${{ inputs.durable_source_artifact_id }}
+          path: ${{ runner.temp }}\texflow-pdfium-durable-oracle
+
+      - name: Restore source artifact into a fresh root
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.durable_source_run_id }}
+          artifact-ids: ${{ inputs.durable_source_artifact_id }}
+          path: ${{ runner.temp }}\texflow-pdfium-durable-a
+
+      - name: Restore source artifact into a second fresh root
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.durable_source_run_id }}
+          artifact-ids: ${{ inputs.durable_source_artifact_id }}
+          path: ${{ runner.temp }}\texflow-pdfium-durable-b
+
+      - name: Verify delayed durable retention and bind the source identity
+        shell: pwsh
+        env:
+          ARTIFACT_METADATA: ${{ runner.temp }}\texflow-pdfium-durable.artifact
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $argv = @(
+            "run", "tools/zig/pdfium_reproduce.zig", "--", "verify-restored",
+            "--receipt", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-durable-oracle\texflow-pdfium-repro.json"),
+            "--output", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-durable.retention.json"),
+            "--restored-receipt", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-durable-a\texflow-pdfium-repro.json"),
+            "--restored-receipt-2", (Join-Path $env:RUNNER_TEMP "texflow-pdfium-durable-b\texflow-pdfium-repro.json"),
+            "--artifact-prefix", "texflow-pdfium-repro", "--artifact-name", $env:DURABLE_ARTIFACT_NAME,
+            "--artifact-id", $env:DURABLE_SOURCE_ARTIFACT_ID, "--artifact-digest", $env:DURABLE_ARTIFACT_DIGEST,
+            "--artifact-url", $env:DURABLE_ARTIFACT_URL, "--artifact-metadata", $env:ARTIFACT_METADATA,
+            "--retention-days", "90", "--source-run-id", $env:DURABLE_SOURCE_RUN_ID,
+            "--source-run-attempt", $env:DURABLE_SOURCE_RUN_ATTEMPT, "--source-head-sha", $env:DURABLE_SOURCE_HEAD_SHA,
+            "--minimum-age-seconds", "86400"
+          )
+          & zig @argv
+          if ($LASTEXITCODE -ne 0) { throw "delayed durable retention verification failed ($LASTEXITCODE)" }
+
+      - name: Retain the durable retention observation and API metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-pdfium-repro-durable-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/texflow-pdfium-durable.retention.json
+            ${{ runner.temp }}/texflow-pdfium-durable.artifact
+          if-no-files-found: error
+          retention-days: 90
+
   zig-linux:
     name: TExFlow native (Linux x64)
     runs-on: ubuntu-24.04
@@ -259,6 +996,110 @@ jobs:
           echo "$RUNNER_TEMP/$root" >> "$GITHUB_PATH"
           echo "ZIG_VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: Resolve Git executable for identity attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'TEXFLOW_GIT_PATH=%s\n' "$(command -v git)" >> "$GITHUB_ENV"
+
+      - name: Capture hosted run identity (PDFium remains explicitly unverified)
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/texflow-remote-proof-linux.json"
+          zig run tools/zig/pdfium_reproduce.zig -- remote-proof --output "$receipt" --scope standard
+
+      - name: Retain hosted run identity proof
+        id: upload-remote-proof-linux
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-remote-proof-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-remote-proof-linux.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Restore hosted run identity proof (exact artifact ID)
+        id: restore-remote-proof-linux-a
+        if: ${{ steps.upload-remote-proof-linux.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.upload-remote-proof-linux.outputs.artifact-id }}
+          path: ${{ runner.temp }}/texflow-remote-proof-linux-restore-a
+
+      - name: Restore hosted run identity proof again (fresh root)
+        id: restore-remote-proof-linux-b
+        if: ${{ steps.upload-remote-proof-linux.outcome == 'success' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.upload-remote-proof-linux.outputs.artifact-id }}
+          path: ${{ runner.temp }}/texflow-remote-proof-linux-restore-b
+
+      - name: Attest hosted proof artifact metadata
+        id: metadata-remote-proof-linux
+        shell: bash
+        if: ${{ steps.restore-remote-proof-linux-b.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-remote-proof-linux.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-remote-proof-linux.outputs.artifact-digest }}
+          ARTIFACT_METADATA: ${{ runner.temp }}/texflow-remote-proof-linux.artifact
+        run: |
+          set -euo pipefail
+          api="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          test "$(jq -r '.id|tostring' <<<"$api")" = "$ARTIFACT_ID"
+          test "$(jq -r '.name' <<<"$api")" = "texflow-remote-proof-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          test "$(jq -r '.digest' <<<"$api")" = "$ARTIFACT_DIGEST"
+          test "$(jq -r '.expired' <<<"$api")" = "false"
+          test "$(jq -r '.workflow_run.id|tostring' <<<"$api")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$api")" = "$GITHUB_SHA"
+          created_at=$(date -u -d "$(jq -r '.created_at' <<<"$api")" +%s)
+          expires_at=$(date -u -d "$(jq -r '.expires_at' <<<"$api")" +%s)
+          {
+            echo "schema=texflow-github-artifact-v1"
+            echo "id=$(jq -r '.id' <<<"$api")"
+            echo "name=$(jq -r '.name' <<<"$api")"
+            echo "digest=$(jq -r '.digest' <<<"$api")"
+            echo "repository=$GITHUB_REPOSITORY"
+            echo "run_id=$(jq -r '.workflow_run.id' <<<"$api")"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT"
+            echo "head_sha=$(jq -r '.workflow_run.head_sha' <<<"$api")"
+            echo "size_bytes=$(jq -r '.size_in_bytes' <<<"$api")"
+            echo "expired=$(jq -r '.expired' <<<"$api")"
+            echo "created_at=$created_at"
+            echo "expires_at=$expires_at"
+          } > "$ARTIFACT_METADATA"
+
+      - name: Verify hosted proof retention roundtrip
+        id: verify-remote-proof-linux
+        if: ${{ steps.metadata-remote-proof-linux.outcome == 'success' }}
+        shell: bash
+        env:
+          ARTIFACT_NAME: texflow-remote-proof-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          ARTIFACT_ID: ${{ steps.upload-remote-proof-linux.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-remote-proof-linux.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-remote-proof-linux.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          zig run tools/zig/pdfium_reproduce.zig -- verify-restored \
+            --receipt "$RUNNER_TEMP/texflow-remote-proof-linux.json" \
+            --output "$RUNNER_TEMP/texflow-remote-proof-linux.retention.json" \
+            --restored-receipt "$RUNNER_TEMP/texflow-remote-proof-linux-restore-a/texflow-remote-proof-linux.json" \
+            --restored-receipt-2 "$RUNNER_TEMP/texflow-remote-proof-linux-restore-b/texflow-remote-proof-linux.json" \
+            --artifact-prefix texflow-remote-proof-linux --artifact-name "$ARTIFACT_NAME" \
+            --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST" \
+            --artifact-url "$ARTIFACT_URL" --artifact-metadata "$RUNNER_TEMP/texflow-remote-proof-linux.artifact" \
+            --retention-days 90
+
+      - name: Retain hosted proof retention observation
+        if: ${{ steps.verify-remote-proof-linux.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: texflow-remote-proof-linux-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/texflow-remote-proof-linux.retention.json
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Acquire and verify locked native dependencies
         shell: bash
         run: |
@@ -279,9 +1120,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" --fetch=all
           zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" deps-test --summary all -j1
-          zig fmt --check build.zig build.zig.zon native/zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig tools/zig/scintilla_probe.zig tools/zig/pe_audit.zig tools/zig/shipped_pe_inventory.zig tools/zig/scintilla_native_probe.zig
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" unicode-audit --summary all -j1
+          zig build "-Dnative-deps-root=$TEXFLOW_NATIVE_DEPS_ROOT" deps-audit --summary all -j1
+          zig fmt --check build.zig build.zig.zon native/zig tools/zig/source_identity.zig tools/zig/pdfium_reproduce.zig tools/zig/lexilla_probe.zig tools/zig/lexilla_size_probe.zig tools/zig/scintilla_probe.zig tools/zig/pe_audit.zig tools/zig/shipped_pe_inventory.zig tools/zig/scintilla_native_probe.zig
           translated="$RUNNER_TEMP/texflow-abi-translated.zig"
           zig translate-c -I native/zig/include native/zig/include/texflow_abi.h > "$translated"
           grep -q "texflow_abi_get_version" "$translated"
@@ -379,3 +1221,26 @@ jobs:
           test -z "$(find "$out_a" -mindepth 1 -print -quit)"
           test -z "$(find "$out_b" -mindepth 1 -print -quit)"
           echo "ReleaseSafe Linux install graphs: empty (both clean prefixes)"
+
+  t0-2-admission-verdict:
+    name: T0.2 external admission verdict (main only)
+    if: ${{ always() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs:
+      - zig-windows
+      - zig-linux
+      - t0-2-repro-qualified
+      - pdfium-reconstruction-scope
+      - pdfium-reconstruction
+      - pdfium-retention-revalidation
+      - pdfium-retention-delayed
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Block admission until every external gate is observed
+        if: ${{ needs.zig-windows.result != 'success' || needs.zig-linux.result != 'success' || needs.t0-2-repro-qualified.result != 'success' || needs.pdfium-reconstruction-scope.result != 'success' || needs.pdfium-reconstruction.result != 'success' || needs.pdfium-retention-revalidation.result != 'success' || needs.pdfium-retention-delayed.result != 'success' }}
+        run: |
+          echo "T0.2 admission blocked: hosted, qualified reconstruction, delayed retention, and all source-bound gates must report success" >&2
+          echo "windows=${{ needs.zig-windows.result }} linux=${{ needs.zig-linux.result }} repro=${{ needs.t0-2-repro-qualified.result }} pdfium_scope=${{ needs.pdfium-reconstruction-scope.result }} pdfium=${{ needs.pdfium-reconstruction.result }} retention=${{ needs.pdfium-retention-revalidation.result }} durable_retention=${{ needs.pdfium-retention-delayed.result }}" >&2
+          exit 1
+      - name: Admission gates observed
+        if: ${{ needs.zig-windows.result == 'success' && needs.zig-linux.result == 'success' && needs.t0-2-repro-qualified.result == 'success' && needs.pdfium-reconstruction-scope.result == 'success' && needs.pdfium-reconstruction.result == 'success' && needs.pdfium-retention-revalidation.result == 'success' && needs.pdfium-retention-delayed.result == 'success' }}
+        run: echo "T0.2 external admission gates observed"
