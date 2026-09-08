@@ -866,7 +866,11 @@ const Search = struct {
         const self: *Search = @ptrFromInt(@as(usize, @bitCast(context)));
         var pid: u32 = 0;
         _ = raw.GetWindowThreadProcessId(hwnd, &pid);
-        if (pid == self.pid and raw.IsWindowVisible(hwnd) != 0) self.window = hwnd;
+        if (pid == self.pid) {
+            if (self.window == null or raw.IsWindowVisible(hwnd) != 0) {
+                self.window = hwnd;
+            }
+        }
         return 1;
     }
 
@@ -878,6 +882,12 @@ const Search = struct {
             if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
         }
         return search.window orelse {
+            if (raw.WaitForSingleObject(child.process.hProcess, 100) == 0) {
+                var code: u32 = undefined;
+                if (raw.GetExitCodeProcess(child.process.hProcess, &code) != 0 and code == 5) {
+                    return error.SkipZigTest; // shell.ExitCode.window_failed on headless runner
+                }
+            }
             const exit = child.exitCode() catch return error.NoProductWindow;
             if (exit == 5) return error.SkipZigTest; // shell.ExitCode.window_failed on headless runner
             return error.NoProductWindow;
