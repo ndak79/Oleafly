@@ -11,9 +11,12 @@
 **/resources/licenses/** -text
 *.tar.gz binary
 *.zip binary
+*.patch -text
 
 # Parsed with "\n"-based markers by scripts/fetch-language-servers.node-tests.mjs.
 .github/workflows/*.yml text eol=lf
+.github/*.yaml text eol=lf
+.github/*.yml text eol=lf
 
 # Zig formatting and workflow verification require stable LF bytes on Windows.
 *.zig text eol=lf
@@ -23,12 +26,12 @@ native/zig/**/*.c text eol=lf
 native/zig/**/*.h text eol=lf
 native/zig/**/*.rc text eol=lf
 native/zig/**/*.manifest text eol=lf
-tools/zig/toolchain.json text eol=lf
-tools/zig/native-deps.json text eol=lf
+tools/zig/*.json text eol=lf
 # Attestation JSONL is evidence, not source: preserve the exact upstream bytes
 # (including the locked trusted-root line endings) across Windows checkouts.
 tools/zig/attestations/*.jsonl binary
 tools/zig/attestations/*.snappy binary
 NOTICE text eol=lf
 native/zig/THIRD_PARTY_NOTICES.txt text eol=lf
-docs/development.md text eol=lf
+docs/**/*.md text eol=lf
+*.md text eol=lf

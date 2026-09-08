@@ -154,7 +154,10 @@ fn collect(
         const status = try runGit(allocator, io, &environment, repo, git, &.{ "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=all", "--no-renames", "-z" });
         defer allocator.free(status.stdout);
         defer allocator.free(status.stderr);
-        if (status.stdout.len != 0) return error.WorktreeDirty;
+        if (status.stdout.len != 0) {
+            std.debug.print("source_identity: WorktreeDirty stdout:\n{s}\n", .{status.stdout});
+            return error.WorktreeDirty;
+        }
     } else {
         const index_name = try runGit(allocator, io, &environment, repo, git, &.{ "rev-parse", "--path-format=absolute", "--git-path", "index" });
         defer allocator.free(index_name.stdout);
