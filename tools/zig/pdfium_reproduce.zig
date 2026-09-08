@@ -3614,7 +3614,11 @@ fn validateArtifactDigest(value: []const u8) !void {
     try validateLowerHex(hex, 64);
 }
 
-fn metadataValue(line: []const u8, key: []const u8) ![]const u8 {
+fn metadataValue(raw_line: []const u8, key: []const u8) ![]const u8 {
+    const line = if (raw_line.len != 0 and raw_line[raw_line.len - 1] == '\r')
+        raw_line[0 .. raw_line.len - 1]
+    else
+        raw_line;
     if (!std.mem.startsWith(u8, line, key) or line.len <= key.len or line[key.len] != '=') {
         return error.InvalidArtifactMetadata;
     }

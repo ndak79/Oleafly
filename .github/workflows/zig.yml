@@ -159,7 +159,7 @@ jobs:
               $api.workflow_run.head_sha -ne $env:GITHUB_SHA) {
             throw "GitHub artifact metadata does not match the producing run"
           }
-          @(
+          $records = @(
             "schema=texflow-github-artifact-v1"
             "id=$($api.id)"
             "name=$($api.name)"
@@ -172,7 +172,8 @@ jobs:
             "expired=$($api.expired.ToString().ToLowerInvariant())"
             "created_at=$([DateTimeOffset]::Parse($api.created_at).ToUnixTimeSeconds())"
             "expires_at=$([DateTimeOffset]::Parse($api.expires_at).ToUnixTimeSeconds())"
-          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+          )
+          [System.IO.File]::WriteAllText($env:ARTIFACT_METADATA, (($records -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 
       - name: Verify hosted proof retention roundtrip
         id: verify-remote-proof-windows
@@ -512,7 +513,7 @@ jobs:
               $api.workflow_run.head_sha -ne $env:GITHUB_SHA) {
             throw "GitHub artifact metadata does not match the producing run"
           }
-          @(
+          $records = @(
             "schema=texflow-github-artifact-v1"
             "id=$($api.id)"
             "name=$($api.name)"
@@ -525,7 +526,8 @@ jobs:
             "expired=$($api.expired.ToString().ToLowerInvariant())"
             "created_at=$([DateTimeOffset]::Parse($api.created_at).ToUnixTimeSeconds())"
             "expires_at=$([DateTimeOffset]::Parse($api.expires_at).ToUnixTimeSeconds())"
-          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+          )
+          [System.IO.File]::WriteAllText($env:ARTIFACT_METADATA, (($records -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 
       - name: Verify standard-hosted PDFium retention roundtrip
         id: verify-pdfium-scope
@@ -732,7 +734,7 @@ jobs:
               $api.workflow_run.head_sha -ne $env:SOURCE_HEAD_SHA) {
             throw "GitHub artifact metadata does not match the qualified reconstruction run"
           }
-          @(
+          $records = @(
             "schema=texflow-github-artifact-v1"
             "id=$($api.id)"
             "name=$($api.name)"
@@ -745,7 +747,8 @@ jobs:
             "expired=$($api.expired.ToString().ToLowerInvariant())"
             "created_at=$([DateTimeOffset]::Parse($api.created_at).ToUnixTimeSeconds())"
             "expires_at=$([DateTimeOffset]::Parse($api.expires_at).ToUnixTimeSeconds())"
-          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+          )
+          [System.IO.File]::WriteAllText($env:ARTIFACT_METADATA, (($records -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
 
       - name: Verify retained PDFium receipt and complete manifest hash
         id: verify-pdfium-retention
@@ -887,7 +890,7 @@ jobs:
           }
           $createdAt = [DateTimeOffset]::Parse($artifact.created_at).ToUnixTimeSeconds()
           $expiresAt = [DateTimeOffset]::Parse($artifact.expires_at).ToUnixTimeSeconds()
-          @(
+          $records = @(
             "schema=texflow-github-artifact-v1"
             "id=$($artifact.id)"
             "name=$($artifact.name)"
@@ -900,7 +903,8 @@ jobs:
             "expired=$($artifact.expired.ToString().ToLowerInvariant())"
             "created_at=$createdAt"
             "expires_at=$expiresAt"
-          ) | Set-Content -LiteralPath $env:ARTIFACT_METADATA -Encoding utf8NoBOM
+          )
+          [System.IO.File]::WriteAllText($env:ARTIFACT_METADATA, (($records -join "`n") + "`n"), [System.Text.UTF8Encoding]::new($false))
           "DURABLE_ARTIFACT_NAME=$expectedName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DURABLE_ARTIFACT_DIGEST=$($artifact.digest)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DURABLE_ARTIFACT_URL=https://github.com/$repo/actions/runs/$env:DURABLE_SOURCE_RUN_ID/artifacts/$env:DURABLE_SOURCE_ARTIFACT_ID" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
