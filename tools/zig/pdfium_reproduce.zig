@@ -432,6 +432,11 @@ const HostedRunIdentity = struct {
     image_version: []const u8,
     runner_name_sha256: []const u8,
     image_identity_sha256: []const u8,
+
+    fn deinit(self: *const HostedRunIdentity, allocator: std.mem.Allocator) void {
+        if (self.runner_name_sha256.len != 0) allocator.free(self.runner_name_sha256);
+        if (self.run_url.len != 0) allocator.free(self.run_url);
+    }
 };
 
 const StrictNetworkEvidence = struct {
@@ -2887,6 +2892,7 @@ fn runRemoteProof(
     try requireStrictOutside(output, workspace, null);
 
     const identity = try collectHostedRunIdentity(allocator, io, init.environ_map);
+    defer identity.deinit(allocator);
     if (std.mem.eql(u8, scope, "standard") and
         !std.mem.eql(u8, identity.runner_environment, "github-hosted")) return error.NotHostedRunner;
     var receipt = emptyControllerReceipt(
@@ -3317,6 +3323,7 @@ fn runReproduce(
     try requireStrictRegularFile(io, tools.resource_compiler);
 
     const identity = try collectHostedRunIdentity(allocator, io, init.environ_map);
+    defer identity.deinit(allocator);
     if (!std.mem.eql(u8, identity.runner_environment, "self-hosted") or
         !std.mem.eql(u8, identity.runner_os, "Windows") or
         !std.mem.eql(u8, identity.runner_arch, "X64"))
@@ -3569,10 +3576,11 @@ fn validateArtifactId(value: []const u8) !void {
 }
 
 fn validateArtifactDigest(value: []const u8) !void {
-    if (!std.mem.startsWith(u8, value, "sha256:") or value.len != 71) {
+    const hex = if (std.mem.startsWith(u8, value, "sha256:")) value["sha256:".len..] else value;
+    if (hex.len != 64) {
         return error.InvalidArtifactIdentity;
     }
-    try validateLowerHex(value[7..], 64);
+    try validateLowerHex(hex, 64);
 }
 
 fn metadataValue(line: []const u8, key: []const u8) ![]const u8 {
@@ -3666,9 +3674,11 @@ fn validateArtifactMetadata(
     try validateArtifactDigest(artifact_digest);
     try validateArtifactUrl(artifact_url);
     const metadata = try parseArtifactMetadata(bytes);
+    const expected_hex = if (std.mem.startsWith(u8, artifact_digest, "sha256:")) artifact_digest["sha256:".len..] else artifact_digest;
+    const actual_hex = if (std.mem.startsWith(u8, metadata.digest, "sha256:")) metadata.digest["sha256:".len..] else metadata.digest;
     if (!std.mem.eql(u8, metadata.id, artifact_id) or
         !std.mem.eql(u8, metadata.name, artifact_name) or
-        !std.mem.eql(u8, metadata.digest, artifact_digest) or
+        !std.mem.eql(u8, actual_hex, expected_hex) or
         !std.mem.eql(u8, metadata.repository, identity.repository) or
         !std.mem.eql(u8, metadata.run_id, identity.run_id) or
         !std.mem.eql(u8, metadata.run_attempt, identity.run_attempt) or
@@ -3902,6 +3912,7 @@ fn runVerifyRestored(
         !std.mem.eql(u8, parsed.value.scope, "pdfium-reconstruction")) return error.InvalidControllerReceipt;
 
     const current_identity = try collectHostedRunIdentity(allocator, io, init.environ_map);
+    defer current_identity.deinit(allocator);
     if (delayed_retention) {
         try validateDelayedRetentionRunner(current_identity, parsed.value.run_identity);
         try validateStrictNonzeroDecimal(source_run_id.?);
@@ -4026,6 +4037,7 @@ fn runBindArtifact(
     defer parsed.deinit();
     try validateVerifiedReconstructionReceipt(allocator, parsed.value);
     const current_identity = try collectHostedRunIdentity(allocator, io, init.environ_map);
+    defer current_identity.deinit(allocator);
     if (!std.mem.eql(u8, current_identity.job, "pdfium-retention-revalidation") or
         !std.mem.eql(u8, current_identity.runner_environment, "self-hosted") or
         !std.mem.eql(u8, current_identity.runner_os, "Windows") or
@@ -4108,7 +4120,7 @@ fn emitUnverifiedReceipt(
     const workspace = init.environ_map.get("GITHUB_WORKSPACE") orelse return;
     if (validateStrictInputPath(workspace)) |_| {} else |_| return;
     if (requireStrictOutside(output, workspace, null)) |_| {} else |_| return;
-    const identity = collectHostedRunIdentity(allocator, io, init.environ_map) catch emptyHostedRunIdentity();
+    const identity = collectHostedRunIdentity(init.arena.allocator(), io, init.environ_map) catch emptyHostedRunIdentity();
     var receipt = emptyControllerReceipt(reason, "pdfium-reconstruction");
     receipt.run_identity = identity;
     receipt.run_identity_status = if (identity.run_id.len == 0) "unverified" else "verified";

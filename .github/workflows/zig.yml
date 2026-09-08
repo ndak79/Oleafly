@@ -149,9 +149,11 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           $api = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID" | ConvertFrom-Json
+          $apiDigestHex = ($api.digest -replace '^sha256:', '').ToLowerInvariant()
+          $expectedDigestHex = ($env:ARTIFACT_DIGEST -replace '^sha256:', '').ToLowerInvariant()
           if ($api.id.ToString() -ne $env:ARTIFACT_ID -or
               $api.name -ne "texflow-remote-proof-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -or
-              $api.digest -ne $env:ARTIFACT_DIGEST -or
+              $apiDigestHex -ne $expectedDigestHex -or
               $api.expired -ne $false -or
               $api.workflow_run.id.ToString() -ne $env:GITHUB_RUN_ID -or
               $api.workflow_run.head_sha -ne $env:GITHUB_SHA) {
@@ -500,9 +502,11 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           $api = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID" | ConvertFrom-Json
+          $apiDigestHex = ($api.digest -replace '^sha256:', '').ToLowerInvariant()
+          $expectedDigestHex = ($env:ARTIFACT_DIGEST -replace '^sha256:', '').ToLowerInvariant()
           if ($api.id.ToString() -ne $env:ARTIFACT_ID -or
               $api.name -ne "texflow-pdfium-scope-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" -or
-              $api.digest -ne $env:ARTIFACT_DIGEST -or
+              $apiDigestHex -ne $expectedDigestHex -or
               $api.expired -ne $false -or
               $api.workflow_run.id.ToString() -ne $env:GITHUB_RUN_ID -or
               $api.workflow_run.head_sha -ne $env:GITHUB_SHA) {
@@ -718,9 +722,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $api = gh api "repos/$env:GITHUB_REPOSITORY/actions/artifacts/$env:ARTIFACT_ID" | ConvertFrom-Json
+          $apiDigestHex = ($api.digest -replace '^sha256:', '').ToLowerInvariant()
+          $expectedDigestHex = ($env:ARTIFACT_DIGEST -replace '^sha256:', '').ToLowerInvariant()
           if ($api.id.ToString() -ne $env:ARTIFACT_ID -or
               $api.name -ne $env:ARTIFACT_NAME -or
-              $api.digest -ne $env:ARTIFACT_DIGEST -or
+              $apiDigestHex -ne $expectedDigestHex -or
               $api.expired -ne $false -or
               $api.workflow_run.id.ToString() -ne $env:SOURCE_RUN_ID -or
               $api.workflow_run.head_sha -ne $env:SOURCE_HEAD_SHA) {
@@ -1047,9 +1053,12 @@ jobs:
         run: |
           set -euo pipefail
           api="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID")"
+          api_digest="$(jq -r '.digest' <<<"$api")"
+          api_digest_hex="${api_digest#sha256:}"
+          expected_digest_hex="${ARTIFACT_DIGEST#sha256:}"
           test "$(jq -r '.id|tostring' <<<"$api")" = "$ARTIFACT_ID"
           test "$(jq -r '.name' <<<"$api")" = "texflow-remote-proof-linux-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          test "$(jq -r '.digest' <<<"$api")" = "$ARTIFACT_DIGEST"
+          test "$api_digest_hex" = "$expected_digest_hex"
           test "$(jq -r '.expired' <<<"$api")" = "false"
           test "$(jq -r '.workflow_run.id|tostring' <<<"$api")" = "$GITHUB_RUN_ID"
           test "$(jq -r '.workflow_run.head_sha' <<<"$api")" = "$GITHUB_SHA"
