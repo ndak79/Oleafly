@@ -504,41 +504,61 @@ fn verifyBuildInputWorktree(
     var chunk: [64 * 1024]u8 = undefined;
     for (entries) |entry| {
         if (!isBuildInputPath(entry.path)) continue;
-        var file = root.openFile(io, entry.path, .{
+        var identity = root.openFile(io, entry.path, .{
+            .allow_directory = false,
             .follow_symlinks = false,
             .resolve_beneath = true,
-        }) catch return error.WorktreeFileMismatch;
-        const stat = file.stat(io) catch {
-            file.close(io);
+        }) catch |err| {
+            std.debug.print("verifyBuildInputWorktree identity open failed path={s} err={s}\n", .{ entry.path, @errorName(err) });
             return error.WorktreeFileMismatch;
         };
-        if (stat.kind != .file or stat.size != entry.content_length) {
-            file.close(io);
+        defer identity.close(io);
+        const before = identity.stat(io) catch {
+            return error.WorktreeFileMismatch;
+        };
+        if (before.kind != .file or before.size != entry.content_length) {
+            std.debug.print("verifyBuildInputWorktree size mismatch path={s} before_size={d} entry_size={d}\n", .{ entry.path, before.size, entry.content_length });
+            return error.WorktreeFileMismatch;
+        }
+
+        var file = root.openFile(io, entry.path, .{
+            .allow_directory = false,
+            .follow_symlinks = true,
+            .resolve_beneath = true,
+        }) catch |err| {
+            std.debug.print("verifyBuildInputWorktree open failed path={s} err={s}\n", .{ entry.path, @errorName(err) });
+            return error.WorktreeFileMismatch;
+        };
+        defer file.close(io);
+        const opened = file.stat(io) catch {
+            return error.WorktreeFileMismatch;
+        };
+        if (opened.kind != .file or opened.inode != before.inode or opened.size != before.size) {
             return error.WorktreeFileMismatch;
         }
         var reader = file.readerStreaming(io, &reader_buffer);
         var hasher = std.crypto.hash.sha2.Sha256.init(.{});
         var bytes: u64 = 0;
         while (true) {
-            const count = reader.interface.readSliceShort(&chunk) catch {
-                file.close(io);
+            const count = reader.interface.readSliceShort(&chunk) catch |err| {
+                std.debug.print("verifyBuildInputWorktree readSliceShort failed path={s} err={s}\n", .{ entry.path, @errorName(err) });
                 return error.WorktreeFileMismatch;
             };
             if (count == 0) break;
             bytes = std.math.add(u64, bytes, count) catch {
-                file.close(io);
                 return error.WorktreeFileMismatch;
             };
             hasher.update(chunk[0..count]);
         }
         if (bytes != entry.content_length) {
-            file.close(io);
             return error.WorktreeFileMismatch;
         }
         var digest: [32]u8 = undefined;
         hasher.final(&digest);
-        file.close(io);
-        if (!std.mem.eql(u8, &digest, &entry.blob_sha256)) return error.WorktreeFileMismatch;
+        if (!std.mem.eql(u8, &digest, &entry.blob_sha256)) {
+            std.debug.print("verifyBuildInputWorktree digest mismatch path={s}\n", .{entry.path});
+            return error.WorktreeFileMismatch;
+        }
     }
 }
 
