@@ -1,6 +1,4 @@
-# Scoped deliberately: a repo-wide `text=auto eol=lf` would renormalise the
-# committed pnpm store and vendored patches, so only the files whose exact
-# bytes matter are declared here.
+* text=auto eol=lf
 
 # Vendored upstream payloads are checksum-pinned against what upstream
 # published. Any end-of-line translation changes their bytes and the pin fails
@@ -9,6 +7,7 @@
 # the repo root, so `resources/licenses/**` silently misses the real location
 # under src-tauri/.
 **/resources/licenses/** -text
+patches/** -text
 *.tar.gz binary
 *.zip binary
 *.patch -text
