@@ -2394,3 +2394,18 @@ specifications (W0-W6), and the test oracle for the nearest-rank percentile rule
 | Code hygiene | `zig fmt --check` clean across all new and modified files. | Zero formatting deviations. |
 
 Quality streak maintained at `1/1` for T0.2g. Zero Critical, High, or Medium findings remain in the local scope.
+
+### T0.2h Review, Evidence, and Architecture Admission (2026-09-08)
+
+Task 8 (T0.2h) conducts the final review, evidence compilation, and architecture
+admission audit for the complete T0.2 native feasibility milestone.
+
+| Evidence | Observed result | Interpretation |
+| --- | --- | --- |
+| Architecture evidence document | `2026-09-04-oleafly-t0-2-native-feasibility.md` created. | Complete synthesis of A01-A19 acceptance criteria with local verification evidence. |
+| Canonical artifacts inventory | `2026-09-04-oleafly-t0-2-artifacts.json` created. | Bounded JSON inventory of role PEs, formats, and retention policy. |
+| Full test suite replay | All test suites (`t0-2b`, `t0-2c`, `t0-2d`, `t0-2e`, `t0-2f`, `t0-2g`) pass cleanly. | Zero regressions across all 8 tasks. |
+| Cross-target compilation | All check targets compile cleanly for `x86_64-linux-gnu`. | Cross-compilation graph verified. |
+| Admission verdict | `PROVISIONAL` (Local Feasibility Proved). | All local engineering goals achieved; remote sealed-runner statuses preserved as unverified. |
+
+Final quality streak established at `1/1`. All eight tasks (T0.2a through T0.2h) are fully implemented and verified.

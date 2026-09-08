@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "plan_id": "2026-09-04-oleafly-t0-2-native-feasibility",
+  "evidence_date": "2026-09-08",
+  "status": "provisional",
+  "unverified_reasons": [
+    "UNVERIFIED-REMOTE-CI-RUN-IDS",
+    "UNVERIFIED-NETWORK-ISOLATION",
+    "UNVERIFIED-DURABLE-RETENTION",
+    "UNVERIFIED-PDFIUM-INDEPENDENT-RECONSTRUCTION"
+  ],
+  "artifacts": [
+    {
+      "logical_id": "TExFlow.exe",
+      "role": "ui_shell",
+      "architecture": "x86_64",
+      "os": "windows",
+      "format": "pe_gui",
+      "status": "verified_local"
+    },
+    {
+      "logical_id": "TExFlow.PdfWorker.exe",
+      "role": "pdf_worker",
+      "architecture": "x86_64",
+      "os": "windows",
+      "format": "pe_console_lpac",
+      "status": "verified_local"
+    },
+    {
+      "logical_id": "TExFlow.ScienceWorker.exe",
+      "role": "science_worker",
+      "architecture": "x86_64",
+      "os": "windows",
+      "format": "pe_console_lpac",
+      "status": "verified_local"
+    }
+  ],
+  "retention": {
+    "policy": "content_addressed_durable_copies",
+    "retention_days": 90,
+    "audit_status": "local_passed"
+  }
+}
