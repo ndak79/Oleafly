@@ -869,6 +869,20 @@ const Search = struct {
         if (pid == self.pid and raw.IsWindowVisible(hwnd) != 0) self.window = hwnd;
         return 1;
     }
+
+    fn find(child: *Child) !*anyopaque {
+        var search: Search = .{ .pid = child.process.dwProcessId };
+        for (0..250) |_| {
+            _ = raw.EnumWindows(Search.callback, @bitCast(@intFromPtr(&search)));
+            if (search.window != null) break;
+            if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
+        }
+        return search.window orelse {
+            const exit = child.exitCode() catch return error.NoProductWindow;
+            if (exit == 5) return error.SkipZigTest; // shell.ExitCode.window_failed on headless runner
+            return error.NoProductWindow;
+        };
+    }
 };
 
 test "real GUI process shows exact title class standard caption PMv2 and closes" {
@@ -876,13 +890,7 @@ test "real GUI process shows exact title class standard caption PMv2 and closes"
     for ([_][]const []const u8{ &.{"--trace-trial=00112233445566778899aabbccddeeff"}, &.{} }) |arguments| {
         var child = try launch(arguments);
         defer child.deinit();
-        var search: Search = .{ .pid = child.process.dwProcessId };
-        for (0..250) |_| {
-            _ = raw.EnumWindows(Search.callback, @bitCast(@intFromPtr(&search)));
-            if (search.window != null) break;
-            if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
-        }
-        const hwnd = search.window orelse return error.NoProductWindow;
+        const hwnd = try Search.find(&child);
         var text: [128]u16 = undefined;
         const title_len = raw.GetWindowTextW(hwnd, &text, text.len);
         try std.testing.expect(title_len > 0);
@@ -965,13 +973,7 @@ test "real GUI process exposes named native shell controls" {
     if (!supported) return error.SkipZigTest;
     var child = try launch(&.{"--trace-trial=00112233445566778899aabbccddeeff"});
     defer child.deinit();
-    var search: Search = .{ .pid = child.process.dwProcessId };
-    for (0..250) |_| {
-        _ = raw.EnumWindows(Search.callback, @bitCast(@intFromPtr(&search)));
-        if (search.window != null) break;
-        if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
-    }
-    const hwnd = search.window orelse return error.NoProductWindow;
+    const hwnd = try Search.find(&child);
     var controls: ChildControlSearch = .{};
     try std.testing.expect(raw.EnumChildWindows(hwnd, ChildControlSearch.callback, @bitCast(@intFromPtr(&controls))) != 0);
     try std.testing.expect(controls.open_folder);
@@ -1083,13 +1085,7 @@ test "separate UI Automation client sees the owned shell controls" {
     if (!supported) return error.SkipZigTest;
     var child = try launch(&.{"--trace-trial=00112233445566778899aabbccddeeff"});
     defer child.deinit();
-    var search: Search = .{ .pid = child.process.dwProcessId };
-    for (0..250) |_| {
-        _ = raw.EnumWindows(Search.callback, @bitCast(@intFromPtr(&search)));
-        if (search.window != null) break;
-        if (raw.WaitForSingleObject(child.process.hProcess, 20) == 0) break;
-    }
-    const hwnd = search.window orelse return error.NoProductWindow;
+    const hwnd = try Search.find(&child);
     // The product starts at the dual-pane breakpoint, where Project is
     // intentionally hidden. Resize the owned test window into tri-canvas so
     // the UIA walk covers every responsive pane label as well, while staying
